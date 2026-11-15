@@ -1432,3 +1432,94 @@ fn a_tap_drill_is_read_with_its_thread_and_refused_when_inconsistent() {
         assert!(claimed(&plan, &b, source).is_empty(), "{name}");
     }
 }
+
+fn shaft_pmi(stem: &str) -> (draftwright::haecceity::Part, Analysis) {
+    let path = root().join(format!("tests/fixtures/turned_knurl/{stem}.step"));
+    model::analyse_native(&path).unwrap()
+}
+
+fn assert_plain_shaft_callout(part: &draftwright::haecceity::Part, a: &Analysis, kind: &str) {
+    let body = a.features.iter().find(|f| f.kind == "turned_body").unwrap();
+    assert!(!a.features.iter().any(|f| f.kind == "turned_step"));
+    let record = records(a).iter().find(|r| r.kind == kind).unwrap();
+    let manufacturing = draftwright::pmi_lowering::manufacturing(a);
+    assert!(
+        manufacturing.refused.is_empty(),
+        "{:#?}",
+        manufacturing.refused
+    );
+    assert_eq!(manufacturing.owned.len(), 1);
+    assert_eq!(manufacturing.owned[0].owner, body.id);
+    let plan = model::plan(a, &Spec::default()).unwrap();
+    let claims = claimed(&plan, a, &record.source_id);
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0].0, "d:envelope/od.diameter");
+    let expected = if kind == "external_thread" {
+        "M10-6g"
+    } else {
+        "STRAIGHT KNURL P0.8"
+    };
+    assert!(claims[0].1.contains(expected), "{claims:?}");
+    assert_eq!(refused(&plan, &record.source_id), None);
+    let font =
+        draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
+    let svg = model::render(part, a, &plan, &font).unwrap().svg();
+    assert!(pdf::svg_text(&svg).join(" ").contains(expected));
+}
+
+#[test]
+fn plain_shaft_pmi_has_one_overall_diameter_callout_for_imported_and_caller_models() {
+    use draftwright::haecceity::{p21::Document, pmi, step};
+    for (stem, kind) in [
+        ("plain_shaft_thread", "external_thread"),
+        ("plain_shaft_knurl", "knurl"),
+    ] {
+        let (part, a) = shaft_pmi(stem);
+        assert_plain_shaft_callout(&part, &a, kind);
+        // Exercise the in-memory bridge separately from AP242 extraction, including knurls.
+        let bytes =
+            std::fs::read(root().join(format!("tests/fixtures/turned_knurl/{stem}.step"))).unwrap();
+        let definitions = step::read_part_definitions(&bytes).unwrap();
+        let doc = Document::parse(bytes).unwrap();
+        let read = pmi::read(&doc, &definitions).unwrap();
+        let mut caller = a.clone();
+        caller.pmi = Some(Reading::Read(
+            draftwright::pmi::from_model(&part, &read.parts[0]).unwrap(),
+        ));
+        assert_plain_shaft_callout(&part, &caller, kind);
+    }
+}
+
+#[test]
+fn stepped_and_tapered_shaft_pmi_never_uses_the_turned_body_as_an_owner() {
+    for stem in ["stepped_shaft_thread", "tapered_shaft_thread"] {
+        let (_, a) = shaft_pmi(stem);
+        let body = a.features.iter().find(|f| f.kind == "turned_body").unwrap();
+        if stem.starts_with("stepped") {
+            assert!(a.features.iter().any(|f| f.kind == "turned_step"));
+        } else {
+            assert!(!a.features.iter().any(|f| f.kind == "turned_step"));
+            assert!(
+                body.parameters["profile"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p["side"] == "external" && p["kind"] != "cylinder")
+            );
+        }
+        assert!(records(&a).iter().any(|r| r.kind == "external_thread"));
+        let m = draftwright::pmi_lowering::manufacturing(&a);
+        assert!(m.owned.iter().all(|o| o.owner != body.id), "{stem}: {m:#?}");
+        let plan = model::plan(&a, &Spec::default()).unwrap();
+        for record in records(&a).iter().filter(|r| r.kind == "external_thread") {
+            // A narrower step/boss may own it, or it is explicitly refused; the body's
+            // overall OD must never acquire a thread from the wrong axial span/profile.
+            assert!(
+                claimed(&plan, &a, &record.source_id)
+                    .iter()
+                    .all(|(id, _)| *id != "d:envelope/od.diameter"),
+                "{stem}"
+            );
+        }
+    }
+}
