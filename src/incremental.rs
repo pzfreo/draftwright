@@ -80,6 +80,19 @@ fn plan_revision(
     spec: &Spec,
     source_verified: bool,
 ) -> Result<Plan, Invalid> {
+    // INTENT and RESTORED also govern call-local preparation. A retained Session
+    // scope must not reuse their products from an earlier incremental edit.
+    crate::planning::isolated(analysis, || {
+        plan_revision_scoped(analysis, before, spec, source_verified)
+    })
+}
+
+fn plan_revision_scoped(
+    analysis: &Analysis,
+    before: &Plan,
+    spec: &Spec,
+    source_verified: bool,
+) -> Result<Plan, Invalid> {
     let refuse = |message: &str| Invalid {
         message: format!("Incremental apply {message}; use full apply explicitly."),
         path: None,
@@ -885,5 +898,29 @@ fn constrain(plan: &mut Plan, ids: Vec<String>) {
             message: "New annotation ink could not be placed cleanly in the retained layout. Existing placements were kept; inspect the placement findings or preview an explicit full apply.".into(),
             subjects: vec![id], ..Default::default()
         });
+    }
+}
+
+#[cfg(test)]
+mod memo_tests {
+    use super::*;
+    #[test]
+    fn active_planning_neither_reads_nor_populates_shared_memos() {
+        let memo = crate::planning::BoundedMemo::new(1);
+        let key = [7; 32];
+        memo.insert(key, 10);
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ACTIVE.set(self.0);
+            }
+        }
+        {
+            let _restore = Restore(ACTIVE.replace(true));
+            assert_eq!(memo.get(&key), None);
+            memo.insert(key, 20);
+            assert_eq!(memo.get(&key), None);
+        }
+        assert_eq!(memo.get(&key), Some(10));
     }
 }
