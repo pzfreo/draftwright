@@ -854,10 +854,11 @@ fn nist_and_pmi_fixtures_write_each_frame_as_one_positional_tolerance() {
     // 2, datums 1 to 3), each read off the NIST fixtures: a position frame with a diameter
     // zone, Ⓜ and three datums; flatness with no datums; profile of a surface; perpendicularity.
     for expected in [
-        "{\\Fgdt;j}%%v{\\Fgdt;n}1.016{\\Fgdt;m}%%v%%vA%%vB%%vC",
+        // FTC-07 and STC-09 declare inches: .040 and .010 are the same zones.
+        "{\\Fgdt;j}%%v{\\Fgdt;n}.040{\\Fgdt;m}%%v%%vA%%vB%%vC",
         "{\\Fgdt;c}%%v0.2%%v%%v%%v%%v",
         "{\\Fgdt;d}%%v1.5%%v%%vA%%vB%%vC",
-        "{\\Fgdt;b}%%v{\\Fgdt;n}0.254%%v%%vA%%v%%v",
+        "{\\Fgdt;b}%%v{\\Fgdt;n}.010%%v%%vA%%v%%v",
     ] {
         assert!(
             written.iter().any(|w| w.as_str() == expected),

@@ -227,6 +227,7 @@ fn precise_labels_keep_their_span_after_the_final_inventory_settles() {
         }
     }
     let mut spec = Spec::default();
+    spec.units = draftwright::units::Units::Mm; // The recorded precision values are metric.
     spec.sheet.size = Some("A1".into()); // Keep the complete inventory for precision checks.
     let Some(p) = plan_with("nist/nist_ftc_08_asme1_rc.stp", &spec) else {
         return;
