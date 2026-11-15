@@ -136,15 +136,14 @@ pub(super) fn apply(plan: &mut Plan, pins: &EnginePins, remaining: &mut BTreeSet
             .annotations
             .get(&note.id)
             .and_then(|p| p.route.as_ref())
+            && note.rows.len() == at.len()
         {
-            if note.rows.len() == at.len() {
-                note.placed = Some(crate::notes::PlacedNote {
-                    rows_at: at.clone(),
-                    cells: *bounds,
-                });
-                note.state = crate::items::State::Shown;
-                remaining.remove(&note.id);
-            }
+            note.placed = Some(crate::notes::PlacedNote {
+                rows_at: at.clone(),
+                cells: *bounds,
+            });
+            note.state = crate::items::State::Shown;
+            remaining.remove(&note.id);
         }
     }
     for (id, block) in [
