@@ -309,7 +309,14 @@ fn identical_slots_share_one_width_counted() {
     let plan = model::plan(&a, &Spec::default()).unwrap();
     for parameter in ["slot_width.length", "slot_length.length"] {
         let d = claiming(&plan, "f:slot:f62", parameter);
-        assert_eq!(d.label, "2× SLOT 19.05 × 107.95");
+        assert_eq!(
+            d.label,
+            format!(
+                "2× SLOT {} × {}",
+                plan.sheet.units.format(19.05),
+                plan.sheet.units.format(107.95)
+            )
+        );
         assert!(d.placed.is_some(), "{}", d.id);
         assert_eq!(claiming(&plan, "f:slot:f66", parameter).id, d.id);
     }
@@ -341,11 +348,11 @@ fn bosses_sharing_a_height_across_one_span_state_it_once_counted() {
         eprintln!("SKIPPED (corpus part): the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
-    for (file, bosses, label) in [
+    for (file, bosses, height) in [
         (
             "nist/nist_ftc_06_asme1_rd.stp",
             ["f:boss:f21", "f:boss:f33", "f:boss:f35", "f:boss:f37"],
-            "4× 38.1",
+            38.1,
         ),
         (
             "nist/nist_ftc_07_asme1_rd.stp",
@@ -355,11 +362,12 @@ fn bosses_sharing_a_height_across_one_span_state_it_once_counted() {
                 "f:polygonal_boss:f240",
                 "f:polygonal_boss:f241",
             ],
-            "4× 2.54",
+            2.54,
         ),
     ] {
         let a = native(&dir, file);
         let plan = model::plan(&a, &Spec::default()).unwrap();
+        let label = format!("4× {}", plan.sheet.units.format(height));
         let d = claiming(&plan, bosses[0], "boss_height.length");
         assert_eq!(d.label, label, "{file}");
         for b in &bosses[1..] {

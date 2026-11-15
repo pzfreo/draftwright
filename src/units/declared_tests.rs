@@ -75,6 +75,40 @@ fn declared_inches_default_to_ansi_without_authoring_spec_units() {
 }
 
 #[test]
+fn a_pinned_inch_label_replays_without_authoring_units() {
+    let (_, a) = model::analyse_native_bytes("inch.step", &specimen(true, true)).unwrap();
+    let before = model::plan_recovered(&a, &model::Spec::default()).unwrap();
+    let dimension = before
+        .dimensions
+        .iter()
+        .find(|d| d.placed.is_some())
+        .unwrap();
+    let spec = model::edit(
+        &before.spec,
+        &json!([{
+            "op":"set", "path":format!("dimensions/{}/place", crate::items::key(&dimension.id)),
+            "value":{"pinned":true}
+        }]),
+    )
+    .unwrap();
+    let after = model::plan_recovered(&a, &spec).unwrap();
+    let held = after
+        .dimensions
+        .iter()
+        .find(|d| d.id == dimension.id)
+        .unwrap();
+    assert_eq!(held.placed, dimension.placed);
+    assert_eq!(held.label, dimension.label);
+    assert_eq!(after.sheet.units, Units::In);
+    assert!(
+        serde_json::to_value(after.spec)
+            .unwrap()
+            .get("units")
+            .is_none()
+    );
+}
+
+#[test]
 fn explicit_mm_wins_and_survives_spec_roundtrip() {
     let (_, a) = model::analyse_native_bytes("inch.step", &specimen(true, true)).unwrap();
     let spec: model::Spec = serde_json::from_value(json!({"units":"mm"})).unwrap();

@@ -454,14 +454,21 @@ fn table_recess_and_depth_symbols_are_drawn_inside_the_size_cell() {
     let (part, analysis) = cache::native(&Path::new(&corpus).join("nist/nist_ftc_06_asme1_rd.stp"));
     let plan = cache::default_plan(&analysis, true);
     let table = tables(&plan);
+    // Tag groups sort by printed size, so the counterbore moves in inch output.
+    let row = table[0]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|r| r["feature"] == "f:hole:f56")
+        .unwrap();
     assert!(
-        table[0]["rows"][0]["cells"][1]
+        table[0]["rows"][row]["cells"][1]
             .as_str()
             .unwrap()
             .contains('⌴')
     );
     let block = &table[0]["blocks"][0]["placed"];
-    let at = &block["cells_at"][2][1];
+    let at = &block["cells_at"][row + 2][1];
     let cell = [
         block["columns"][1].as_f64().unwrap(),
         at[1].as_f64().unwrap() - draftwright::tables::ROW * 0.5,
@@ -508,7 +515,13 @@ fn table_recess_and_depth_symbols_are_drawn_inside_the_size_cell() {
 fn held_labels_do_not_remove_the_canonical_schedule() {
     let Some(corpus) = corpus::dir() else { return };
     let (_, analysis) = cache::native(&Path::new(&corpus).join("nist/nist_ftc_07_asme1_rd.stp"));
-    let base = cache::default_plan(&analysis, true);
+    // The seed-2 metric reproducer needs the historical front schedule;
+    // decimal inches avoid the crowding that triggered it.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let base = model::plan_recovered(&analysis, &metric).unwrap();
     assert_eq!(tables(&base)[0]["id"], "hole_schedule_front");
     let ops: Vec<_> = [
         "d:step_level/step_height.length.f46",
@@ -518,7 +531,7 @@ fn held_labels_do_not_remove_the_canonical_schedule() {
     .iter()
     .map(|id| serde_json::json!({"op":"set","path":format!("dimensions/{}/place",draftwright::items::key(id)),"value":{"pinned":true}}))
     .collect();
-    let spec = model::edit(&Spec::default(), &serde_json::json!(ops)).unwrap();
+    let spec = model::edit(&metric, &serde_json::json!(ops)).unwrap();
     let after = model::plan_recovered(&analysis, &spec).unwrap();
     let (before, after_tables) = (tables(&base), tables(&after));
     assert_eq!(
@@ -1283,8 +1296,12 @@ fn a_schedule_coordinate_cannot_change_its_approved_axis_or_owner() {
 fn a_profile_radius_and_view_pin_keep_the_recovered_hole_schedule() {
     let Some(corpus) = corpus::dir() else { return };
     let (_, analysis) = cache::native(&corpus.join("nist/nist_ftc_08_asme1_rc.stp"));
-    let base = cache::default_plan(&analysis, true);
-    let mut spec = Spec::default();
+    // Replay #127 on its metric sheet, retaining the exact settled row order.
+    let mut spec = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let base = model::plan_recovered(&analysis, &spec).unwrap();
     for id in [
         "d:f:slot:f213/location_slot_across.length",
         "d:f:slot:f152/slot_end_radius.radius",
