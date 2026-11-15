@@ -4501,11 +4501,13 @@ fn recover_candidates(
             scale_name(min_legible_scale),
             tried.join("; ")
         );
-        let below = if illegible {
+        let below = if first.sheet.scale_factor < min_legible_scale {
             format!(
-                "; it is below {}, the opening legibility floor, or has dimensioned steps shorter than the printed capital height",
+                "; it is below {}, the opening legibility floor",
                 scale_name(min_legible_scale)
             )
+        } else if illegible {
+            "; it has dimensioned steps shorter than the printed capital height".into()
         } else {
             String::new()
         };

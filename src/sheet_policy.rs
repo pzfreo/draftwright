@@ -2009,6 +2009,7 @@ fn select_scales_full(
                 search_trace.join("; ")
             );
             if maximise {
+                note_scale_limits(analysis, &mut plan, &search_trace);
                 plan.sheet.basis += &format!(
                     "; initial automatic reference {} at {}",
                     baseline.sheet.size, baseline.sheet.scale
@@ -2079,8 +2080,46 @@ fn select_scales_full(
     Ok(finish_choice(best, &intent, candidates, reason))
 }
 
+/// Publish the concrete larger-scale refusals alongside the chosen drawing.
+fn note_scale_limits(analysis: &Analysis, plan: &mut Plan, trace: &[String]) {
+    if analysis.pmi.is_none() {
+        return;
+    }
+    let refusals: Vec<_> = trace
+        .iter()
+        .filter(|trial| {
+            plan.spec.scales().iter().any(|scale| {
+                *scale > plan.sheet.scale_factor + 1e-9
+                    && trial.starts_with(&format!(
+                        "{} at {}",
+                        plan.sheet.size,
+                        model::scale_name(*scale)
+                    ))
+            })
+        })
+        .cloned()
+        .collect();
+    if !refusals.is_empty() {
+        plan.problems
+            .retain(|p| p.code != "automatic_scale_limited");
+        plan.problems.push(model::Problem {
+            id: "p:automatic_scale_limited:sheet".into(),
+            code: "automatic_scale_limited".into(),
+            severity: "info".into(),
+            message: format!(
+                "Automatic scale kept at {} on {}. Larger standard scales on this paper were refused: {}.",
+                plan.sheet.scale,
+                plan.sheet.size,
+                refusals.join("; ")
+            ),
+            subjects: vec!["sheet".into()],
+            ..Default::default()
+        });
+    }
+}
+
 /// Retain the ordinary paper-policy result once maximisation reaches it.
-/// No new recovery finding is introduced by an unsuccessful maximisation.
+/// Existing recovery findings remain; an advisory explains refused larger scales.
 fn retained_base(
     analysis: &Analysis,
     baseline: Plan,
@@ -2089,6 +2128,7 @@ fn retained_base(
     mut scales: Vec<String>,
     mut trace: Vec<String>,
 ) -> Result<Plan, Invalid> {
+    note_scale_limits(analysis, &mut selected, &trace);
     trace.push(format!(
         "{} at {} ({:?}): base retained without a replacement",
         baseline.sheet.size, baseline.sheet.scale, baseline.sheet.dimension_spacing
@@ -2116,7 +2156,7 @@ fn retained_base(
     candidate.max = count;
     candidates.push(candidate);
     selected.sheet.basis += &format!(
-        "; largest-clean-scale search preferred scale trials: {}; initial automatic reference {} at {}; base retained without changing its findings",
+        "; largest-clean-scale search preferred scale trials: {}; initial automatic reference {} at {}; base drawing retained",
         trace.join("; "),
         baseline.sheet.size,
         baseline.sheet.scale

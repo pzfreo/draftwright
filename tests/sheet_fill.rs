@@ -233,6 +233,74 @@ fn grm03_keeps_a4_once_its_extension_contact_is_finished_away() {
     )));
 }
 
+#[test]
+fn pmi_grm03_keeps_five_to_one_with_all_sheet_information_placed() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz");
+    let a = model::analyse_native(&path).unwrap().1;
+    let spec: Spec = serde_json::from_value(json!({"notes": [
+        {"id": "n:1", "text": "Deburr all machined edges."},
+        {"id": "n:2", "text": "Keep the bearing journal free of damage."},
+        {"id": "n:3", "text": "Verify the mating thread by trial assembly."}
+    ]}))
+    .unwrap();
+    let p = model::plan_recovered(&a, &spec).unwrap();
+    assert_eq!(
+        (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+        ("A4", "5:1"),
+        "{}",
+        p.sheet.basis
+    );
+    assert!(p.sheets.is_empty());
+    assert!(
+        p.views
+            .iter()
+            .filter(|v| v.id != "v:iso")
+            .all(|v| v.scale == 5.0)
+    );
+    assert!(!p.notes.is_empty());
+    assert!(p.notes.iter().all(|n| n.placed.is_some()));
+    assert!(p.notes_block.is_some());
+    assert!(
+        p.requirements
+            .iter()
+            .filter(|r| r.carrier == "sheet")
+            .all(|r| r.placed.is_some())
+    );
+    assert!(p.gdt.iter().any(|g| g.placed.is_some()));
+    assert!(p.gdt.iter().all(|g| g.placed.is_some()
+        || g.state == draftwright::items::State::not_drawable("datum_not_drawn")));
+    assert!(!p.sheet.title_cells.is_empty());
+    assert!(!p.problems.iter().any(|q| matches!(
+        q.code.as_str(),
+        "annotation_off_sheet"
+            | "annotation_over_title_block"
+            | "annotation_overlap"
+            | "annotation_ink_overlap"
+            | "title_field_overflow"
+            | "page_fit_uncertain"
+            | "views_do_not_fit"
+            | "notes_not_placed"
+            | "table_not_placed"
+    )));
+    let refusal = p
+        .problems
+        .iter()
+        .find(|q| q.code == "automatic_scale_limited")
+        .expect("larger-scale refusals must be visible findings");
+    assert!(refusal.message.contains("10:1"));
+    assert!(
+        refusal.message.contains("drawable area"),
+        "{}",
+        refusal.message
+    );
+    assert!(
+        !p.problems
+            .iter()
+            .any(|q| q.message.contains("has valid and complete"))
+    );
+}
+
 fn manufacturing_plate() -> Analysis {
     use std::io::Read as _;
     let bytes = std::fs::read(
