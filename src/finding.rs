@@ -236,6 +236,7 @@ catalogue! {
     hole_table_unavailable => Decision, Tidy, Code, "An explicit table request was not met; individual dimensions remain.";
     id_not_migrated => Advisory, Information, Code, "A saved legacy identity has no exact current match; its key and intent are retained.";
     inch_design_detected => Advisory, Information, Code, "Model sizes closely follow sixteenth-inch or decimal-inch grids; units remain unchanged.";
+    incremental_placement_constrained => Readability, Tidy, Code, "New annotation ink does not fit cleanly in the retained layout.";
     interior_void => Advisory, Information, Feature, "A factual inventory of an internal cavity; its faces do not establish a hole opening.";
     iso_layout_overflow => Readability, Tidy, Code, "The requested isometric scale exceeds its reserved layout area.";
     iso_projection_empty => Incomplete, Requirement, Code, "The requested isometric view has no projected geometry.";

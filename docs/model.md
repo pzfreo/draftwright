@@ -2771,7 +2771,7 @@ inventory reader remains separate from its semantic PMI parser.
 
 `session::Session` (also exported as `draftwright::Session`) owns one immutable part and its
 Analysis (including the already-read PMI report), current Spec/Plan, projections, annotation
-ink and Spec history. `Session::new(part, analysis, spec)` takes trusted in-process geometry
+ink and edit history. `Session::new(part, analysis, spec)` takes trusted in-process geometry
 and analysis; `Session::open(step, api::Features, spec)` loads them once. The batch operations
 above retain their existing behaviour.
 
@@ -2780,9 +2780,38 @@ result through the recovered planner. `commit: false` returns the same delta as 
 from that state, while changing neither state, history nor cache counters. Refused edits also
 leave the last good state intact. A batch is one undo step; `undo()` and `redo()` return deltas.
 A successful new commit discards the redo branch; a preview or refusal preserves it. History
-retains Specs, rather than whole drawings or projections.
+retains Specs for full applies; incremental history also retains the exact Plan so undo/redo restores published placements. Projections are shared.
 
-Each edit makes one complete `plan_recovered` invocation. The existing planner is global, so
+`apply_incremental(&[items::Op], commit)` is the annotation-only alternative. The library
+entry point is `model::plan_incremental(analysis, before_plan, edited_spec)`. It derives
+transaction-local bare pins for unchanged dimensions and GD&T, uses the committed Plan as
+the planner's pin reference, and runs the normal placement/finishing/checking machinery
+without sheet recovery. Paper, scale, view origins, directions and scales remain fixed;
+new ink competes with the retained ink for space. Retained dimension recipes and coverage
+also stay fixed: adding a datum does not rebase existing measurements or split shared
+`2×` labels. Existing furniture (including hole tables and tags) supplies fixed obstacle
+proxies to the same solver. Removing annotations releases their space
+without packing the survivors again. Derived pins never enter the returned Spec. Changed
+annotation content may need a new placement; every pre-existing item whose placement or ink
+changes appears in `Delta.moved`, with a reason (also reported by full apply).
+
+Preview (`commit: false`) returns the same incremental delta as committing from that state
+without changing state, history or counters. Undo/redo of incremental edits restores exact
+plans. No automatic full-plan fallback exists. Unsupported geometry/furniture/layout edits,
+or multi-sheet drawings, are refused with an explicit full-apply choice. Supported edits are
+dimension and annotation entries and face/feature GD&T; the existing Spec dependency rules
+still apply when removing a datum (remove the referencing controls in the same batch).
+Existing annotation conflicts keep their normal finding tiers. New ink that cannot fit
+cleanly also receives `incremental_placement_constrained` (tidy); it is placed as well as the
+normal rules allow, and an undrawable item keeps the normal not-drawn finding.
+
+The WASM Rust adapter exposes `Session::apply_incremental` and `apply_incremental_json`;
+the editor's `Engine.applyIncremental(opsJson, commit)` returns the same serialised delta.
+`Engine.apply` / `Session::apply` remain the explicit full re-plan. A future agent can call
+the Rust or WASM incremental entry point with the existing Spec edit operations; an MCP
+adapter could select that entry point internally later. No MCP tool is added here.
+
+Each full apply makes one complete `plan_recovered` invocation. The existing planner is global, so
 this is the conservative full-plan fallback: its internal layout candidate/recovery attempts
 and canonical pin plan remain part of that invocation. `Session::stats().plans` counts those
 invocations at the planning entry point, including undo/redo, and excludes discarded previews;

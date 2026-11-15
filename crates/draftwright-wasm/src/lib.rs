@@ -34,6 +34,17 @@ impl Session {
     pub fn apply(&mut self, ops: &[Op], commit: bool) -> Result<session::Delta, Error> {
         self.0.apply(ops, commit)
     }
+    pub fn apply_incremental(&mut self, ops: &[Op], commit: bool) -> Result<session::Delta, Error> {
+        self.0.apply_incremental(ops, commit)
+    }
+    pub fn apply_incremental_json(&mut self, json: &str, commit: bool) -> Result<String, Error> {
+        let ops: Vec<Op> =
+            serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
+        Ok(
+            serde_json::to_string(&self.apply_incremental(&ops, commit)?)
+                .expect("delta serializes"),
+        )
+    }
     pub fn apply_json(&mut self, json: &str, commit: bool) -> Result<String, Error> {
         let ops: Vec<Op> =
             serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
@@ -382,6 +393,10 @@ export interface CalloutOffset {
                 .map(Engine)
                 .map_err(js)
         }
+        #[wasm_bindgen(js_name = applyIncremental)]
+        pub fn apply_incremental(&mut self, ops: &str, commit: bool) -> Result<String, JsValue> {
+            self.0.apply_incremental_json(ops, commit).map_err(js)
+        }
         pub fn apply(&mut self, ops: &str, commit: bool) -> Result<String, JsValue> {
             self.0.apply_json(ops, commit).map_err(js)
         }
@@ -506,6 +521,22 @@ export interface CalloutOffset {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn incremental_preview_and_commit_share_the_core_delta() {
+        let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
+        let mut s = Session::open("plate.step", bytes).unwrap();
+        let before = serde_json::to_value(s.0.state()).unwrap();
+        let ops = r#"[{"op":"set","path":"faces/bottom/datum","value":"A"}]"#;
+        let preview = s.apply_incremental_json(ops, false).unwrap();
+        assert_eq!(serde_json::to_value(s.0.state()).unwrap(), before);
+        let committed = s.apply_incremental_json(ops, true).unwrap();
+        assert_eq!(preview, committed);
+        let delta: Value = serde_json::from_str(&committed).unwrap();
+        assert_eq!(delta["moved"], json!([]));
+        s.0.undo().unwrap();
+        assert_eq!(serde_json::to_value(s.0.state()).unwrap(), before);
+    }
 
     #[test]
     fn previews_and_fragment_edits_report_sheet_changes() {

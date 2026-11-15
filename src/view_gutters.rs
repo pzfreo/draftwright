@@ -548,6 +548,9 @@ fn translations(
 }
 
 pub(crate) fn apply(analysis: &Analysis, plan: &mut Plan) {
+    if crate::incremental::active() {
+        return;
+    }
     let replay = plan.replay_gutters.take();
     let preferred = plan.spec.sheet.view_gutter.unwrap_or(PREFERRED);
     if plan.spec.sheet.keep_layout == Some(true) || preferred == 0.0 || plan.views.len() < 2 {

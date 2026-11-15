@@ -2133,7 +2133,12 @@ fn plan_search(
         if intent.is_some_and(crate::placement_intent::automatic_pin)
             && let Some(base) = canonical
             && let Some(g) = base.gdt.iter().find(|g| {
-                g.id == item.id && (g.view == planned.view || super::hole_marks::attached(g))
+                g.id == item.id
+                    && (g.view == planned.view || super::hole_marks::attached(g))
+                    && (!crate::incremental::active()
+                        || (g.cells == planned.cells
+                            && g.modifiers == planned.modifiers
+                            && g.faces == planned.faces))
             })
             && let Some(delta) = crate::placement_intent::anchor_delta(base, views, &g.view)
             && let Some(mut p) = g.placed.clone()

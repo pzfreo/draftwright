@@ -341,6 +341,16 @@ pub(crate) fn views(
     obstacles: &[[f64; 4]],
     problems: &mut Vec<Problem>,
 ) {
+    if crate::incremental::active() {
+        if let Some(base) = canonical {
+            for v in views.iter_mut() {
+                if let Some(old) = base.views.iter().find(|b| b.id == v.id) {
+                    *v = old.clone();
+                }
+            }
+        }
+        return;
+    }
     let page = sheet.page;
     for (name, requested) in &s.views {
         if let Some(p) = &requested.place

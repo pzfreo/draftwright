@@ -4681,6 +4681,12 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
     base
 }
 
+/// Place edited annotation content around the committed drawing's retained ink and views.
+/// This never invokes sheet recovery. Unsupported layout changes are refused explicitly.
+pub fn plan_incremental(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Plan, Invalid> {
+    crate::incremental::plan(analysis, before, spec)
+}
+
 /// [`plan`] with draftwright's bounded layout recovery applied ([`recover`]): the plan every
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
@@ -6036,10 +6042,11 @@ fn plan_with_presentation(
         complete: complete_views,
         require_detail: require_automatic,
     } = policy;
-    let excluded = presentation
+    let mut excluded = presentation
         .map(|p| &p.replaced)
         .cloned()
         .unwrap_or_default();
+    excluded.extend(crate::incremental::excluded(spec));
     // A document of a version this build does not know is refused, never read as the nearest
     // one it does (ADR3-4).
     if !ANALYSIS_SCHEMAS.contains(&analysis.schema.as_str()) {
@@ -6123,7 +6130,7 @@ fn plan_with_presentation(
     crate::gears::check(&spec.gears)?;
     let mut problems = Vec::new();
     // The spec the plan follows: across a revision, without the entries that cannot be trusted.
-    let canonical = if crate::placement_intent::has_pins(spec)
+    let canonical = if (crate::placement_intent::has_pins(spec) || crate::incremental::active())
         && let Some(published) = crate::planning::pin_reference()
     {
         Some(published)
@@ -7816,6 +7823,7 @@ fn plan_with_presentation(
     };
     crate::sheets::line_work(analysis, spec, &mut views);
     let mut furniture = crate::centrelines::obstacles(&views);
+    furniture.extend(crate::incremental::obstacles());
     furniture.extend(fixed.iter().cloned());
     if let Some(p) = presentation {
         // Only a second attempt reserves them (`install_schedules`).
@@ -7904,6 +7912,7 @@ fn plan_with_presentation(
         {
             crate::sheets::line_work(analysis, spec, &mut views);
             furniture = crate::centrelines::obstacles(&views);
+            furniture.extend(crate::incremental::obstacles());
             furniture.extend(fixed.iter().cloned());
             let held = held_for(&views);
             ((dimensions, omitted, more), inventory) = crate::dims::plan_inventory(
@@ -7983,6 +7992,7 @@ fn plan_with_presentation(
     crate::dims::nearest_shared_witnesses(analysis, spec, &views, &mut dimensions);
     crate::centrelines::trim(&mut views, &dimensions);
     furniture = crate::centrelines::obstacles(&views);
+    furniture.extend(crate::incremental::obstacles());
     furniture.extend(fixed.iter().cloned());
     // The part's PMI, placed beyond the dimensions; the notes and tables keep clear of both.
     let mut annotation_obstacles = dimensions.clone();
@@ -8769,6 +8779,7 @@ fn plan_with_presentation(
             &footprint_cache,
         );
     }
+    crate::incremental::retain(&mut plan);
     crate::placement_intent::finish(&mut plan, analysis);
     plan.problems
         .extend(line_work_problems(&plan.sheet, &plan.views));

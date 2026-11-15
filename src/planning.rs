@@ -357,6 +357,9 @@ fn held(name: &str, key: Vec<u8>) -> Vec<u8> {
 /// ([`crate::layout::gutter`]) change placements, so they key every planning memo: default
 /// keys are unchanged and the others are kept apart.
 fn spaced(mut key: Vec<u8>) -> Vec<u8> {
+    if crate::incremental::active() {
+        key.extend_from_slice(b"\xffincremental");
+    }
     if crate::dims::compact() {
         // 0xFF never occurs in the UTF-8 JSON keys, and closes any raw byte key.
         key.extend_from_slice(b"\xffcompact-spacing");
@@ -410,6 +413,7 @@ pub(crate) fn policy_key(
     Option<Option<&'static str>>,
     bool,
     bool,
+    bool,
 ) {
     (
         lookup::<bool>(analysis, "canonical-circular-recipes", &[]).unwrap_or(false),
@@ -421,6 +425,7 @@ pub(crate) fn policy_key(
         crate::dims::idle_given(),
         EXPLICIT_TRIAL.get(),
         is_lane_ladder(),
+        crate::incremental::active(),
     )
 }
 

@@ -673,3 +673,6 @@ fn aligned_linear_offset_preserves_the_measured_span() {
     };
     assert!((span(&p) - span(&before)).abs() < 1e-8);
 }
+
+#[path = "incremental.rs"]
+mod incremental;

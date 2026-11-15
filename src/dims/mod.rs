@@ -3172,7 +3172,13 @@ fn plan_inventory_ordered(
         }
     }
     // Table-owned measurements keep their IDs, but reserve no leader or ladder lane.
-    let keep: Vec<_> = wants.iter().map(|w| !excluded.contains(&w.id)).collect();
+    let incremental = crate::incremental::dimensions();
+    let keep: Vec<_> = wants
+        .iter()
+        .map(|w| {
+            !excluded.contains(&w.id) && incremental.as_ref().is_none_or(|p| p.ids.contains(&w.id))
+        })
+        .collect();
     let mut index = 0;
     wants.retain(|_| {
         let k = keep[index];
@@ -3395,6 +3401,15 @@ fn plan_inventory_ordered(
         }));
     }
     wording::apply(spec, &mut kept, &mut given)?;
+    if let Some(policy) = &incremental {
+        for (w, ..) in &mut kept {
+            if let Some(old) = policy.held.get(&w.id) {
+                w.value = old.value;
+                w.terms.clone_from(&old.terms);
+                w.measurements.clone_from(&old.measurements);
+            }
+        }
+    }
     problems.extend(wording::check_covered(spec, &kept, &omitted));
     let labels: BTreeMap<&str, &[String]> = kept
         .iter()
