@@ -63,13 +63,30 @@ impl RetiredDimension {
 }
 
 pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Plan, Invalid> {
+    plan_revision(analysis, before, spec, false)
+}
+
+/// Only the source API calls this, after exact B-rep identity has been verified.
+pub(crate) fn plan_source(
+    analysis: &Analysis,
+    before: &Plan,
+    spec: &Spec,
+) -> Result<Plan, Invalid> {
+    plan_revision(analysis, before, spec, true)
+}
+fn plan_revision(
+    analysis: &Analysis,
+    before: &Plan,
+    spec: &Spec,
+    source_verified: bool,
+) -> Result<Plan, Invalid> {
     let refuse = |message: &str| Invalid {
         message: format!("Incremental apply {message}; use full apply explicitly."),
         path: None,
         choices: Vec::new(),
         also: Vec::new(),
     };
-    if before.binding.source_sha256 != analysis.binding.source_sha256
+    if (!source_verified && before.binding.source_sha256 != analysis.binding.source_sha256)
         || before.binding.part_index != analysis.binding.part_index
     {
         return Err(refuse("requires the committed plan for the same part"));
@@ -781,7 +798,13 @@ fn layout_signature(plan: &Plan) -> String {
         .collect();
     let omitted: BTreeMap<_, _> = plan.omitted.iter().map(|o| (&o.id, &o.state)).collect();
     Sha256::digest(
-        serde_json::to_vec(&(dimensions, annotations, omitted)).expect("layout serializes"),
+        serde_json::to_vec(&(
+            &plan.binding.source_sha256,
+            dimensions,
+            annotations,
+            omitted,
+        ))
+        .expect("layout serializes"),
     )
     .iter()
     .map(|b| format!("{b:02x}"))

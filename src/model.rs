@@ -4730,10 +4730,8 @@ pub fn plan_incremental_source(
     if geometry(before_part)? != geometry(part)? {
         return Err(refuse("Updated STEP geometry differs; open the updated STEP for a full plan instead of incremental apply.".into()));
     }
-    let mut reference = before.clone();
-    reference.binding.clone_from(&analysis.binding);
     let result = crate::planning::with_retained(analysis, || {
-        crate::incremental::plan(analysis, &reference, spec)
+        crate::incremental::plan_source(analysis, before, spec)
     })?;
     Ok(result)
 }
