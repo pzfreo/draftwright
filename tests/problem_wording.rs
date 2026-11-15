@@ -123,7 +123,8 @@ fn the_spindles_unclaimed_faces_are_its_subjects() {
 /// or the title block drawn on it.
 #[test]
 fn only_sheet_problems_have_the_sheet_as_subject() {
-    const SHEET: [&str; 17] = [
+    const SHEET: [&str; 18] = [
+        "automatic_scale_limited",
         "layout_replanned",
         "layout_recovery_exhausted",
         "scale_fallback_applied",
@@ -144,6 +145,15 @@ fn only_sheet_problems_have_the_sheet_as_subject() {
     ];
     for (name, plan) in plans() {
         for p in &plan.problems {
+            if p.code == "automatic_scale_limited" {
+                assert_eq!(p.id, "p:automatic_scale_limited:sheet");
+                assert_eq!(p.severity, "info");
+                assert!(
+                    p.message
+                        .contains("Larger standard scales on this paper were refused:")
+                );
+                assert_eq!(p.subjects, ["sheet"]);
+            }
             if p.subjects.iter().any(|s| s == "sheet") {
                 // US units add two whole-sheet intent advisories. Check their complete
                 // contracts: the original whitelist still governs every other finding.
