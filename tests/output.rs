@@ -721,6 +721,45 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
             .any(|e| matches!(e.specific, E::DiameterDimension(_))),
         "the callout has one native leader, without a second entity measuring a snapped rim"
     );
+    // A graphic-only annotation still owns a leader when it has no text content.
+    let mut graphic = drawing.clone();
+    graphic
+        .annotations
+        .iter_mut()
+        .find(|a| a.name == id)
+        .unwrap()
+        .runs
+        .clear();
+    let pairs = dxf_pairs(&graphic.dxf());
+    let leader = pairs
+        .split(|p| p.0 == 0)
+        .find(|tags| tags.contains(&(100, "AcDbLeader".into())) && tags.contains(&(73, "3".into())))
+        .expect("a native leader for a symbol without text");
+    assert!(!leader.iter().any(|p| p.0 == 340));
+    let planned = &graphic.sheet.dxf.leaders[&id].lines;
+    let vertices: Vec<_> = leader
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.0 == 10)
+        .map(|(i, _)| {
+            [10, 20].map(|code| {
+                leader[i..]
+                    .iter()
+                    .find(|p| p.0 == code)
+                    .unwrap()
+                    .1
+                    .parse::<f64>()
+                    .unwrap()
+            })
+        })
+        .collect();
+    assert_eq!(
+        vertices
+            .windows(2)
+            .map(|p| [p[0], p[1]])
+            .collect::<Vec<_>>(),
+        *planned
+    );
     // Isolated projected poles are not valid degree-zero DXF splines.
     let mut with_points = drawing.clone();
     with_points.layers[0].items.extend([

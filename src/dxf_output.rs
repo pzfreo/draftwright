@@ -840,11 +840,11 @@ impl Writer {
     }
 }
 impl Writer {
-    /// QLEADER's tolerance form: the annotation remains an independent FCF.
+    /// QLEADER's tolerance form, or a graphic-only leader without an annotation.
     fn frame_leader(
         &mut self,
         leader: &Leader,
-        annotation: u64,
+        annotation: Option<u64>,
         style: &str,
         layer: &str,
     ) -> Vec<u64> {
@@ -856,14 +856,16 @@ impl Writer {
                 t.tag(3, style);
                 t.tag(71, usize::from(!leader.arrows.is_empty()));
                 t.tag(72, 0);
-                t.tag(73, 1); // tolerance annotation
+                t.tag(73, if annotation.is_some() { 1 } else { 3 });
                 t.tag(74, 0);
                 t.tag(75, 0); // the plan already includes its landing
                 t.tag(76, vertices.len());
                 for p in vertices {
                     t.point(10, p);
                 }
-                t.handle(340, annotation);
+                if let Some(annotation) = annotation {
+                    t.handle(340, annotation);
+                }
                 t.tag(210, 0);
                 t.tag(220, 0);
                 t.tag(230, 1);
@@ -871,10 +873,12 @@ impl Writer {
                 t.point(212, [0., 0.]);
                 t.point(213, [0., 0.]);
                 self.put(t, None);
-                self.annotation_reactors
-                    .entry(annotation)
-                    .or_default()
-                    .push(h);
+                if let Some(annotation) = annotation {
+                    self.annotation_reactors
+                        .entry(annotation)
+                        .or_default()
+                        .push(h);
+                }
                 h
             })
             .collect()
@@ -1623,7 +1627,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             let tolerance = w.tolerance(f, layer, &style.name());
             handles.push(tolerance);
             if let Some(leader) = leader {
-                handles.extend(w.frame_leader(leader, tolerance, &style.name(), layer));
+                handles.extend(w.frame_leader(leader, Some(tolerance), &style.name(), layer));
             }
         } else if let Some(leader) = leader {
             let text: Vec<_> = a.runs.iter().filter_map(|r| drawing.text.get(*r)).collect();
@@ -1634,6 +1638,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                     runs.insert(r);
                     run_handles.insert(r, Some(h));
                 }
+            } else {
+                handles.extend(w.frame_leader(leader, None, "STANDARD", layer));
             }
         }
         for (n, &r) in a.runs.iter().enumerate() {
@@ -1802,6 +1808,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                         runs.insert(r);
                         run_handles.insert(r, Some(h));
                     }
+                } else {
+                    handles.extend(w.frame_leader(leader, None, "STANDARD", layer));
                 }
             }
             for i in range.clone() {

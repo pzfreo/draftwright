@@ -416,8 +416,12 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
     {
         resolve(owner(e).unwrap(), "BLOCK_RECORD");
         if e.kind == "LEADER" {
-            resolve(tag(e, 340).unwrap(), "TOLERANCE");
-            assert_eq!(tag(e, 73), Some("1"));
+            if tag(e, 73) == Some("1") {
+                resolve(tag(e, 340).unwrap(), "TOLERANCE");
+            } else {
+                assert_eq!(tag(e, 73), Some("3"));
+                assert!(tag(e, 340).is_none());
+            }
             let vertices: Vec<_> = e
                 .tags
                 .iter()
