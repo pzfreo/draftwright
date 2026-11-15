@@ -28,6 +28,16 @@ class RequirementKinds(unittest.TestCase):
         ends = shape.faces().filter_by(bd.GeomType.PLANE).sort_by(bd.Axis.Z)
         return p, wall, ends
 
+    def stepped_rod(self):
+        align = (bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN)
+        shape = bd.Cylinder(5, 30, align=align) + bd.Pos(0, 0, -6) * bd.Cylinder(7, 6, align=align)
+        p = draftwright.Part(shape, "stepped_rod")
+        cylinders = shape.faces().filter_by(bd.GeomType.CYLINDER)
+        wall = [f for f in cylinders if abs(f.radius - 5) < 1e-6][0]
+        datum_wall = [f for f in cylinders if abs(f.radius - 7) < 1e-6][0]
+        ends = shape.faces().filter_by(bd.GeomType.PLANE).sort_by(bd.Axis.Z)
+        return p, wall, datum_wall, ends
+
     def records(self, part):
         return json.loads(part._geometry().inspect(part._pmi))["records"]
 
@@ -122,8 +132,8 @@ class RequirementKinds(unittest.TestCase):
                     ("concentricity", "◎", True, True))
         for kind, symbol, needs_datum, cylinder in controls:
             with self.subTest(kind=kind):
-                p, wall, ends = self.rod()
-                datum_face = wall if kind in ("circular_runout", "total_runout", "concentricity") else ends[0]
+                p, wall, datum_wall, ends = self.stepped_rod()
+                datum_face = datum_wall if kind in ("perpendicularity", "circular_runout", "total_runout", "concentricity") else ends[0]
                 A = p.datum("A", datum_face)
                 ref = p.shaft(wall) if cylinder else p.face(ends[-1])
                 args = (0.041, A) if needs_datum else (0.041,)
@@ -144,6 +154,113 @@ class RequirementKinds(unittest.TestCase):
         self.assertIn("0.031", text)
         self.assertIn("0.062", text)
         self.assertNotIn("0.087", text)
+
+    def test_orientation_zone_follows_target_in_svg_frame(self):
+        for kind, symbol in (("perpendicularity", "⟂"), ("parallelism", "∥")):
+            for cylinder in (True, False):
+                with self.subTest(kind=kind, cylinder=cylinder):
+                    p, wall, datum_wall, ends = self.stepped_rod()
+                    datum_face = (ends[0] if cylinder else datum_wall) if kind == "perpendicularity" else (datum_wall if cylinder else ends[0])
+                    A = p.datum("A", datum_face)
+                    ref = p.shaft(wall) if cylinder else p.face(ends[-1])
+                    getattr(ref, kind)(0.041, A)
+                    text = self.rendered(p, kind + str(cylinder))
+                    # Match the characteristic, zone, magnitude and datum together;
+                    # an unrelated diameter elsewhere on the sheet cannot satisfy this.
+                    zone = r"⌀\s*" if cylinder else ""
+                    self.assertRegex(text, symbol + r"\s+" + zone + r"0\.041\s+A")
+                    if not cylinder:
+                        self.assertNotRegex(text, symbol + r"\s+⌀")
+
+    def test_controls_refuse_their_own_datum_at_the_call(self):
+        for kind in ("perpendicularity", "parallelism", "circular_runout", "total_runout",
+                     "concentricity", "profile_surface"):
+            for datum_object in (True, False):
+                with self.subTest(kind=kind, datum_object=datum_object):
+                    p, wall, ends = self.rod()
+                    p.datum("A", ends[0])
+                    B = p.datum("B", wall)
+                    ref = p.shaft(wall)
+                    before = p._geometry().inspect(p._pmi)
+                    with self.assertRaisesRegex(ValueError, "datum B uses the same faces"):
+                        getattr(ref, kind)(0.1, "A", B if datum_object else "B")
+                    self.assertEqual(p._geometry().inspect(p._pmi), before)
+        p, _, ends = self.rod()
+        A = p.datum("A", [ends[0], ends[-1]])
+        with self.assertRaisesRegex(ValueError, "same faces"):
+            p.face([ends[-1], ends[0]]).profile_surface(0.1, A)
+        p, wall, _ = self.rod()
+        with self.assertRaisesRegex(ValueError, "same faces"):
+            p.cylinder(wall).parallelism(0.1, p.datum("A", wall))
+
+        shape = bd.Cylinder(8, 30) - bd.Cylinder(5, 30)
+        p = draftwright.Part(shape, "self_datum_bore")
+        bore = [f for f in shape.faces().filter_by(bd.GeomType.CYLINDER) if p._is_hole_wall(f)][0]
+        A = p.datum("A", bore)
+        with self.assertRaisesRegex(ValueError, "same faces"):
+            p.hole(bore).position(0.1, A)
+        p, wall, _, ends = self.stepped_rod()
+        A = p.datum("A", ends[0])
+        for kind in ("perpendicularity", "parallelism"):
+            with self.assertRaisesRegex(ValueError, "only planes or only cylinders"):
+                getattr(p.face([wall, ends[-1]]), kind)(0.1, A)
+
+    def test_threads_validate_every_measured_diameter_at_the_call(self):
+        p, wall, _ = self.rod()
+        ref = p.shaft(wall)
+        before = p._geometry().inspect(p._pmi)
+        for size in ("M12", "M8"):
+            with self.assertRaisesRegex(ValueError, "measured external cylinder diameter 10"):
+                ref.thread(size)
+            self.assertEqual(p._geometry().inspect(p._pmi), before)
+        for diameter, accepted in ((10.009, True), (10.011, False)):
+            shape = bd.Cylinder(diameter / 2, 30)
+            p = draftwright.Part(shape, "external_boundary")
+            ref = p.shaft(shape.faces().filter_by(bd.GeomType.CYLINDER)[0])
+            if accepted:
+                ref.thread("M10")
+                self.assertIn("M10-6g", self.rendered(p, "external_boundary"))
+            else:
+                with self.assertRaisesRegex(ValueError, "measured external"):
+                    ref.thread("M10")
+        # Same tapping-drill range as the engine: M6x1 accepts 4.5..6 mm,
+        # with 0.01 mm slack at each boundary. Check both sides of each boundary.
+        for diameter, accepted in ((4.495, True), (6.005, True), (4.48, False), (6.02, False)):
+            with self.subTest(internal_diameter=diameter):
+                shape = bd.Cylinder(8, 30) - bd.Cylinder(diameter / 2, 30)
+                p = draftwright.Part(shape, "internal_boundary")
+                wall = [f for f in shape.faces().filter_by(bd.GeomType.CYLINDER) if p._is_hole_wall(f)][0]
+                ref = p.hole(wall)
+                if accepted:
+                    ref.thread("M6")
+                    self.assertIn("M6-6H", self.rendered(p, "internal_boundary"))
+                else:
+                    before = p._geometry().inspect(p._pmi)
+                    with self.assertRaisesRegex(ValueError, "measured internal"):
+                        ref.thread("M6")
+                    self.assertEqual(p._geometry().inspect(p._pmi), before)
+
+    def test_fit_and_numeric_diameter_replace_each_other(self):
+        p, wall, _ = self.rod()
+        ref = p.shaft(wall).fit("h6")
+        p.face(wall).diameter(plus_minus=0.023)
+        text = self.rendered(p, "fit_to_size")
+        self.assertIn("±0.023", text)
+        self.assertNotIn("h6", text)
+        ref.fit("g6")
+        text = self.rendered(p, "size_to_fit")
+        self.assertIn("g6", text)
+        self.assertNotIn("0.023", text)
+        self.assertEqual(len([r for r in self.records(p) if r["kind"] == "diameter"]), 1)
+
+    def test_straight_knurl_refuses_any_helix_angle(self):
+        p, wall, _ = self.rod()
+        ref = p.shaft(wall)
+        before = p._geometry().inspect(p._pmi)
+        for angle in (0, 30, 90, -1):
+            with self.assertRaisesRegex(ValueError, "straight knurl takes no helix_angle"):
+                ref.knurl(0.8, "straight", teeth=39, helix_angle=angle)
+            self.assertEqual(p._geometry().inspect(p._pmi), before)
 
     def test_knurls(self):
         for pattern in ("straight", "diamond"):

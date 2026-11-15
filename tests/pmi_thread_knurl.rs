@@ -1564,3 +1564,43 @@ fn stepped_and_tapered_shaft_pmi_never_uses_the_turned_body_as_an_owner() {
         }
     }
 }
+
+#[test]
+fn ap242_plain_shaft_requirement_is_refused_without_an_owner_and_printed_on_the_overall_od() {
+    for (stem, kind, label) in [
+        ("plain_shaft_thread", "external_thread", "M10-6g"),
+        ("plain_shaft_knurl", "knurl", "STRAIGHT KNURL P0.8"),
+    ] {
+        let (part, analysis) = shaft_pmi(stem);
+        let record = records(&analysis).iter().find(|r| r.kind == kind).unwrap();
+        assert!(record.source_id.starts_with("manufacturing_requirement:#"));
+        assert!(
+            !analysis
+                .features
+                .iter()
+                .any(|f| matches!(f.kind.as_str(), "turned_step" | "boss"))
+        );
+        // The old owner inventory omitted turned_body; without that eligible owner,
+        // the same imported AP242 requirement must still be explicitly refused.
+        let mut unowned = analysis.clone();
+        unowned.features.retain(|f| f.kind != "turned_body");
+        let missing = draftwright::pmi_lowering::manufacturing(&unowned);
+        assert!(missing.owned.is_empty());
+        assert!(missing.refused.iter().any(|p| {
+            p.code == "pmi_not_lowered"
+                && p.message
+                    .contains("no canonical feature matches source topology")
+        }));
+        let plan = model::plan(&analysis, &Spec::default()).unwrap();
+        let claims = claimed(&plan, &analysis, &record.source_id);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].0, "d:envelope/od.diameter");
+        assert!(claims[0].1.contains(label));
+        assert_eq!(refused(&plan, &record.source_id), None);
+        let font =
+            draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT))
+                .unwrap();
+        let svg = model::render(&part, &analysis, &plan, &font).unwrap().svg();
+        assert!(pdf::svg_text(&svg).join(" ").contains(label));
+    }
+}

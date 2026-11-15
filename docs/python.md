@@ -135,6 +135,8 @@ The aliases `cnc-milled` and `cnc-turned` map to `machined` in both PMI and poli
 Other values raise `ValueError` listing the accepted values.
 Repeated size, fit, thread, knurl, finish or geometric control calls on the same
 faces replace that declaration; different control kinds remain independent.
+`fit()` and `diameter()` describe the same size: on the same cylinder each replaces
+the other's tolerance, including when called through a new fluent handle.
 `general_tolerance(text)` deliberately accepts **free text**, including `"±0.05"`
 and `"ISO 2768-mK"`. It prints the stated text in the title block; it does not
 validate ISO 2768 classes or apply that text as individual dimension tolerances.
@@ -145,7 +147,11 @@ is stated and class `6H` internally or `6g` externally when omitted. The stated
 size, pitch, fit class and hand are kept.
 Thread classes accept one or two grade/position pairs: grades 4–8 with `G`/`H`
 internally, grades 3–9 with `e`/`f`/`g`/`h` externally (e.g. `6H`, `6g`, `5g6g`).
-Unknown classes and classes of the wrong case raise at the call.
+Unknown classes and classes of the wrong case raise at the call. The measured
+external diameter must match the thread major diameter within 0.01 mm. Internal
+threads require a measured drill diameter between major − 1.5 × pitch and major,
+with 0.01 mm slack at each end, matching the engine's thread checks. A mismatch
+on any selected cylinder raises immediately.
 For internal threads the renderer matches the stated faces to canonical holes
 and measures their drill geometry; it does not add a full-thread-depth requirement.
 External threads cover the full length of the selected continuous cylinder,
@@ -180,14 +186,18 @@ and parallelism accept planes or cylinders; cylindricity and concentricity requi
 cylinders; runout accepts planes or cylinders. These controls are also available
 on hole/cylinder handles. Perpendicularity, parallelism, runout and concentricity
 require at least one declared datum; surface profile takes optional datums;
-cylindricity takes none. Datum order is preserved.
+cylindricity takes none. Datum order is preserved. Any datum whose face set equals
+the controlled feature's face set is refused at the call; use a separate datum
+surface or cylinder. Perpendicularity and parallelism on a cylinder control its
+axis in a cylindrical `⌀` zone; on a plane they use a two-planes zone.
 
 Straight and diamond knurls draw the engine's manufacturing suffix and depiction.
 Pitch is linear mm, and the measured diameter is the maximum diameter after
 knurling. `teeth=` must agree with π × diameter / pitch within one tooth; no tooth
 count is invented. Diamond requires `helix_angle=` in degrees (0 < angle < 90),
 which native PMI retains; the current drawing prints the pattern and pitch, not
-that angle. Diagonal knurls are refused because the engine does not lower them.
+that angle. A straight knurl refuses `helix_angle`. Diagonal knurls are refused
+because the engine does not lower them.
 Standalone chamfer requirements are omitted: the engine has no chamfer PMI form
 that it draws (geometry recognition can still dimension modelled chamfers).
 AP242/Specify mapping and Pack remain deferred.
@@ -198,7 +208,7 @@ requirements use separate cylinders. It runs with build123d 0.13.0:
 
 ```python
 from pathlib import Path
-from build123d import Cylinder, GeomType, Axis
+from build123d import Cylinder, GeomType, Axis, Align, Pos
 from draftwright import Part
 
 out = Path("requirements")
@@ -208,12 +218,19 @@ for kind in ("shaft_fit", "thread", "diameter_pm", "diameter_limits",
              "cylindricity", "circular_runout", "total_runout", "profile_surface",
              "concentricity", "straight_knurl", "diamond_knurl"):
     shape = Cylinder(5, 30)  # diameter 10, length 30 mm
+    controls = ("perpendicularity", "parallelism", "circular_runout", "total_runout", "concentricity")
+    if kind in controls:
+        align = (Align.CENTER, Align.CENTER, Align.MIN)
+        shape = Cylinder(5, 30, align=align) + Pos(0, 0, -6) * Cylinder(7, 6, align=align)
     p = Part(shape, kind).material("BRASS H62").general_tolerance("±0.05")
-    wall = shape.faces().filter_by(GeomType.CYLINDER)[0]
+    cylinders = shape.faces().filter_by(GeomType.CYLINDER)
+    wall = [f for f in cylinders if abs(f.radius - 5) < 1e-6][0]
     ends = shape.faces().filter_by(GeomType.PLANE).sort_by(Axis.Z)
-    # Runout/concentricity use the cylinder's axis as datum A.
-    A = p.datum("A", wall if kind in ("circular_runout", "total_runout", "concentricity")
-                else ends[0])
+    # The larger, separate cylinder establishes datum A's axis for these controls.
+    datum_face = ([f for f in cylinders if abs(f.radius - 7) < 1e-6][0]
+                  if kind in ("perpendicularity", "circular_runout", "total_runout", "concentricity")
+                  else ends[0])
+    A = p.datum("A", datum_face)
     shaft = p.shaft(wall)
     if kind == "shaft_fit":
         shaft.fit("h6")  # p.cylinder(wall).fit("h6") also works on a boss

@@ -54,7 +54,13 @@ class FaceRef(_Ref):
         for letter in letters:
             if letter not in self._part._datums:
                 raise ValueError(f"{self.label}: datum {letter} has not been declared")
-        self._part._pmi.control(self._targets, kind, _number(tolerance), letters)
+            if set(self._part._datums[letter]) == set(self._targets):
+                raise ValueError(f"datum {letter} uses the same faces as the controlled feature")
+        kinds = {self._part._faces[i].geom_type.name for i in self._targets}
+        if kind in ("perpendicularity", "parallelism") and len(kinds) != 1:
+            raise ValueError(f"{kind} requires only planes or only cylinders")
+        cylindrical = kinds == {"CYLINDER"}
+        self._part._pmi.control(self._targets, kind, _number(tolerance), letters, cylindrical)
         return self
 
     def flatness(self, tolerance):
@@ -123,7 +129,8 @@ class CylinderRef(FaceRef):
             from OCP.BRepAdaptor import BRepAdaptor_Surface
             surface = BRepAdaptor_Surface(self._part._faces[self._targets[0]].wrapped)
             extent = _number(surface.LastVParameter() - surface.FirstVParameter())
-        self._part._pmi.thread(self._targets, str(size), not self.internal, extent)
+        diameters = [_number(2 * _radius(self._part._faces[i])) for i in self._targets]
+        self._part._pmi.thread(self._targets, str(size), not self.internal, extent, diameters)
         return self
 
     def knurl(self, pitch, pattern="straight", *, teeth, helix_angle=None):
@@ -133,6 +140,8 @@ class CylinderRef(FaceRef):
         if len(self._targets) != 1:
             raise ValueError("knurl requires one continuous cylindrical face")
         _, diameter, _ = self._part._cylinders(self._targets, "knurl")
+        if pattern == "straight" and helix_angle is not None:
+            raise ValueError("a straight knurl takes no helix_angle")
         if not isinstance(teeth, int) or isinstance(teeth, bool) or teeth <= 0:
             raise ValueError("knurl teeth must be a positive integer")
         self._part._pmi.knurl(self._targets, str(pattern), _number(pitch), _number(diameter),
