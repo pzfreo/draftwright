@@ -33,7 +33,7 @@ fn marks(p: &Plan) -> Vec<Mark> {
         .filter(|d| d.placed.is_some())
         .map(|d| Mark {
             precision: None,
-            units: Default::default(),
+            units: p.sheet.units,
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -119,8 +119,16 @@ fn ctc05_states_its_od_and_across_flats_once() {
             .iter()
             .any(|d| d.id == "d:envelope/depth.length" || d.id == "d:envelope/width.length")
     );
-    assert!(p.dimensions.iter().any(|d| d.label == "ø558.8"));
-    assert!(p.dimensions.iter().any(|d| d.label == "527.05 A/F"));
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.label == format!("ø{}", p.sheet.units.format(558.8)))
+    );
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.label == format!("{} A/F", p.sheet.units.format(527.05)))
+    );
 }
 #[test]
 fn slot_chain_keeps_overall_and_functional_length_without_closure() {
@@ -271,7 +279,7 @@ fn wall_witness_avoids_the_hole_centreline() {
         .iter()
         .find(|d| d.id == "d:f:plate:f83/thickness.length")
         .unwrap();
-    assert_eq!(d.label, "2× 9.297");
+    assert_eq!(d.label, format!("2× {}", p.sheet.units.format(9.297)));
     assert_eq!(d.view, "v:plan");
 }
 #[test]
@@ -453,7 +461,10 @@ fn shoulders_on_slot_walls_are_references_when_the_slot_is_stated() {
     );
     // The same rule on z ladders (FTC-09's slots, FTC-10's 12.5 + 50 = 62.5).
     let p = model::plan(&native("nist/nist_ftc_09_asme1_rd.stp"), &references()).unwrap();
-    assert_eq!(label(&p, "d:step_level/step_height.length.f81"), "(41.275)");
+    assert_eq!(
+        label(&p, "d:step_level/step_height.length.f81"),
+        format!("({})", p.sheet.units.format(41.275))
+    );
     let p = model::plan(&native("nist/nist_ftc_10_asme1_rb.stp"), &references()).unwrap();
     assert_eq!(label(&p, "d:step_level/step_height.length.f163"), "(62.5)");
 }
@@ -520,7 +531,7 @@ fn lint_reports_an_overall_that_repeats_an_outside_diameter_or_across_flats() {
     ] {
         ink.push(Mark {
             precision: None,
-            units: Default::default(),
+            units: p.sheet.units,
             name: name.into(),
             view: Some("v:front".into()),
             text: text.into(),

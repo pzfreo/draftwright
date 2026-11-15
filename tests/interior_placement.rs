@@ -303,7 +303,7 @@ fn an_occluded_native_boss_diameter_uses_its_visible_profile() {
         .find(|d| d.id == "d:f:boss:f21/boss.diameter")
         .unwrap();
     assert_eq!(d.view, "v:front");
-    assert_eq!(d.label, "4× ø44.45");
+    assert_eq!(d.label, format!("4× ø{}", p.sheet.units.format(44.45)));
     assert_eq!(d.measurements.len(), 4);
     let drawing = model::render(&part, &a, &p, &font()).unwrap();
     interior_ink::assert_clear(&drawing, d);
