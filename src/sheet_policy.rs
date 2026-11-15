@@ -225,7 +225,7 @@ impl Estimate {
         );
         blocks.extend(baseline.hole_table.iter().filter_map(split));
         Self {
-            units: baseline.spec.units,
+            units: baseline.sheet.units,
             views,
             first_blocks,
             blocks,
@@ -419,7 +419,7 @@ fn shared_band(views: &[(String, [f64; 2], [f64; 2])], a: &str, b: &str, k: usiz
 fn candidate_floor(analysis: &Analysis, baseline: &Plan, floor: f64) -> f64 {
     // Never newly compress a larger readable reference to the absolute 1:10
     // fallback just to retain preferred paper.
-    let floor = if baseline.sheet.scale_factor > sheet_fit::absolute_floor(baseline.spec.units) {
+    let floor = if baseline.sheet.scale_factor > sheet_fit::absolute_floor(baseline.sheet.units) {
         floor.max(
             baseline
                 .spec
@@ -427,8 +427,8 @@ fn candidate_floor(analysis: &Analysis, baseline: &Plan, floor: f64) -> f64 {
                 .iter()
                 .copied()
                 .rev()
-                .find(|s| *s > sheet_fit::absolute_floor(baseline.spec.units))
-                .unwrap_or(sheet_fit::absolute_floor(baseline.spec.units)),
+                .find(|s| *s > sheet_fit::absolute_floor(baseline.sheet.units))
+                .unwrap_or(sheet_fit::absolute_floor(baseline.sheet.units)),
         )
     } else {
         floor

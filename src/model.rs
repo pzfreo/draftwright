@@ -111,6 +111,10 @@ fn single_part_keys(keys: &BTreeMap<String, usize>) -> bool {
 pub struct Analysis {
     pub schema: String,
     pub binding: Binding,
+    /// Length unit of this product's own shape-representation contexts. Missing,
+    /// invalid or conflicting declarations are absent; geometry remains millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_length_unit: Option<haecceity::pmi::LengthUnit>,
     /// STEP product name for the single part or selected assembly member. Older analyses
     /// omit it and use the binding's file stem for the default drawing title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -385,7 +389,7 @@ pub struct Riser {
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
     /// Printed length units; geometry remains millimetres.
-    #[serde(skip_serializing_if = "crate::units::Units::is_mm")]
+    #[serde(skip_serializing_if = "crate::units::Units::is_auto")]
     pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
@@ -604,7 +608,7 @@ pub struct FeatureSpec {
 impl Default for Spec {
     fn default() -> Self {
         Spec {
-            units: Default::default(),
+            units: crate::units::Units::Auto,
             process: None,
             schema: SPEC_SCHEMA.into(),
             part: None,
@@ -1829,6 +1833,7 @@ pub(crate) fn analyse_pack_assembly(
     let b = part.bounds();
     let mut analysis = Analysis {
         schema: ANALYSIS_SCHEMA.into(),
+        declared_length_unit: part.declared_length_unit(),
         binding: Binding {
             source_sha256: Sha256::digest(bytes)
                 .iter()
@@ -1915,6 +1920,7 @@ fn analyse_read_part(
     let (level_supports, risers) = crate::dims::levels::evidence(&part);
     let mut analysis = Analysis {
         schema: ANALYSIS_SCHEMA.into(),
+        declared_length_unit: part.declared_length_unit(),
         binding: Binding {
             source_sha256: Sha256::digest(bytes)
                 .iter()
@@ -4685,6 +4691,9 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan_recovered);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -5595,6 +5604,9 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan_escalated);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -5883,6 +5895,9 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -12704,7 +12719,7 @@ fn render_annotations_with_cuts(
         .cloned()
         .collect();
     crate::label_text::capture(plan, &mut sheet);
-    sheet.units = plan.spec.units;
+    sheet.units = plan.sheet.units;
     if !plan.spec.precision.is_empty() {
         for d in &plan.dimensions {
             let role = d.id.rsplit_once('/').map_or("", |(_, p)| p);

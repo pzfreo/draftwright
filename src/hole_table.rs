@@ -794,7 +794,7 @@ fn rows(
         let k = usize::from(axis == "y");
         match read.get(f).map(|h| h.at[k] - origin[k]) {
             Some(distance) if (found.1.value - distance.abs()).abs() > 1e-6 => Some((
-                plan.spec.units.format(distance),
+                plan.sheet.units.format(distance),
                 Measurement {
                     value: distance,
                     ..found.1
@@ -2325,7 +2325,7 @@ fn coordinate_number(
     distance: f64,
 ) -> String {
     if plan.spec.precision.is_empty() {
-        return schedule_number(distance, plan.spec.units);
+        return schedule_number(distance, plan.sheet.units);
     }
     let policy = plan
         .spec
@@ -2345,8 +2345,8 @@ fn coordinate_number(
             })
         });
     policy.map_or_else(
-        || schedule_number(distance, plan.spec.units),
-        |&p| plan.spec.units.format_places(distance, Some(p)),
+        || schedule_number(distance, plan.sheet.units),
+        |&p| plan.sheet.units.format_places(distance, Some(p)),
     )
 }
 
@@ -2525,7 +2525,7 @@ fn select_with(
         Some(published)
     } else if crate::placement_intent::has_pins(&plan.spec) {
         let mut base = crate::model::Spec {
-            units: plan.spec.units,
+            units: plan.sheet.units,
             ..Default::default()
         };
         base.sheet.paper = plan.spec.sheet.paper;
@@ -2728,7 +2728,7 @@ fn select_with(
                         && !t.starts_with("EQ SP")
                 })
                 .map(|t| {
-                    if approved_size || !plan.spec.units.is_mm() {
+                    if approved_size || !plan.sheet.units.is_mm() {
                         t.clone()
                     } else {
                         t.parse::<f64>().map_or_else(
@@ -2788,11 +2788,11 @@ fn select_with(
                 // its own row; M6 alone must not erase the original ø5 bore.
                 let mut size = label.clone();
                 if shared_thread && !label.contains(['ø', '⌀', 'Ø']) {
-                    let mut drill = format!("⌀{}", schedule_number(h.diameter, plan.spec.units));
+                    let mut drill = format!("⌀{}", schedule_number(h.diameter, plan.sheet.units));
                     if h.through {
                         drill += " THRU";
                     } else if let Some(depth) = h.depth_from_mouth() {
-                        drill += &format!(" ↧ {}", schedule_number(depth, plan.spec.units));
+                        drill += &format!(" ↧ {}", schedule_number(depth, plan.sheet.units));
                     }
                     size = format!("{drill} {size}");
                 }
@@ -2820,7 +2820,7 @@ fn select_with(
                                             d.terms.first().is_some_and(|t| t.ends_with('×')),
                                         ))
                                         .map(|t| {
-                                            if has_precision(plan, d) || !plan.spec.units.is_mm() {
+                                            if has_precision(plan, d) || !plan.sheet.units.is_mm() {
                                                 t.clone()
                                             } else {
                                                 t.parse::<f64>().map_or_else(
@@ -2852,7 +2852,7 @@ fn select_with(
                     view.direction,
                     surface,
                     h.direction,
-                    plan.spec.units,
+                    plan.sheet.units,
                 ));
                 rows.push(HoleRow {
                     tag_id: None,
@@ -3032,7 +3032,7 @@ fn select_with(
             }, state: crate::items::State::Shown, blocks: Vec::new(),
         });
     }
-    if !plan.spec.units.is_mm() {
+    if !plan.sheet.units.is_mm() {
         // Inch labels can select a coordinate table where the shorter metric labels used a
         // ladder. Keep any physical ladder edge also locating a non-tabulated feature.
         let scheduled: BTreeSet<_> = selection

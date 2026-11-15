@@ -360,6 +360,13 @@ pub fn build_bytes_with_pmi(
                 let (Ok(a), Ok(b)) = (&part, &g.part) else {
                     return false;
                 };
+                // Congruent products can state different drawing-unit defaults.
+                // Keep their manufacturing drawings independent in that case.
+                if (a.declared_length_unit() == Some(haecceity::pmi::LengthUnit::Inch))
+                    != (b.declared_length_unit() == Some(haecceity::pmi::LengthUnit::Inch))
+                {
+                    return false;
+                }
                 if a.faces.len() != b.faces.len()
                     || a.edges.len() != b.edges.len()
                     || a.solids.len() != b.solids.len()

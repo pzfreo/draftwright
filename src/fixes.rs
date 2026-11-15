@@ -563,7 +563,7 @@ fn attach_inner(analysis: &crate::model::Analysis, plan: &mut crate::model::Plan
             .copied()
             .find(|scale| {
                 *scale < plan.sheet.scale_factor
-                    && *scale >= crate::sheet_fit::min_legible_scale_in(analysis, plan.spec.units)
+                    && *scale >= crate::sheet_fit::min_legible_scale_in(analysis, plan.sheet.units)
                     && *scale >= crate::sheets::floor(&plan.spec).unwrap_or(0.0)
             })
             .filter(|_| !selection.tables.is_empty())

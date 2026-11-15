@@ -1930,7 +1930,7 @@ fn separate_views_inner(
         plan.sheet.title_block,
         &plan.sheet.title,
         size,
-        plan.spec.units,
+        plan.sheet.units,
     );
     plan.sheet.projection_symbol = Some(crate::title_block::projection(
         plan.sheet.title_block,
@@ -2738,6 +2738,7 @@ pub fn check(plan: &Plan) -> Vec<Problem> {
 }
 
 fn check_with_search(plan: &Plan, blocked: bool) -> Vec<Problem> {
+    let resolved = plan.resolved_spec();
     let mut out = Vec::new();
     if !plan.sheets.is_empty() && plan.spec.sheet.title.contains_key("sheet") {
         let mut p = problem(
@@ -2813,7 +2814,7 @@ fn check_with_search(plan: &Plan, blocked: bool) -> Vec<Problem> {
             .iter()
             .filter(|v| v.sheet == sheet.number)
             .collect();
-        if let Some(floor) = floor(&plan.spec) {
+        if let Some(floor) = floor(&resolved) {
             let below: Vec<_> = views
                 .iter()
                 .filter(|v| v.scale < floor)
@@ -2825,8 +2826,7 @@ fn check_with_search(plan: &Plan, blocked: bool) -> Vec<Problem> {
                 } else {
                     format!("sheet:{}", sheet.number)
                 };
-                let index = plan
-                    .spec
+                let index = resolved
                     .pages()
                     .iter()
                     .position(|(n, ..)| *n == sheet.size)
@@ -2838,17 +2838,17 @@ fn check_with_search(plan: &Plan, blocked: bool) -> Vec<Problem> {
                 let fix = if sheet.number == 1 && blocked && maximum(&plan.spec) < 9 {
                     Op::set("sheets/max", json!(maximum(&plan.spec) + 1))
                 } else if plan.spec.sheet.size.is_some() && index < 4 {
-                    Op::set("sheet/size", json!(plan.spec.pages()[index + 1].0))
+                    Op::set("sheet/size", json!(resolved.pages()[index + 1].0))
                 } else {
                     Op::set(
                         "sheets/smallest_scale",
                         json!(model::scale_name(
-                            plan.spec
+                            resolved
                                 .scales()
                                 .iter()
                                 .copied()
                                 .find(|s| *s <= scale)
-                                .unwrap_or(plan.spec.smallest_scale())
+                                .unwrap_or(resolved.smallest_scale())
                         )),
                     )
                 };

@@ -224,7 +224,7 @@
         "mm",
         "in"
       ],
-      "description": "Printed lengths: mm (default) or decimal inches; model and paper geometry remain millimetres."
+      "description": "Printed lengths: mm or decimal inches. When omitted, a declared-inch part defaults to inches (and ANSI paper absent paper preferences); otherwise mm. Explicit units always win. Model and paper geometry remain millimetres."
     }
   },
   "additionalProperties": false,
