@@ -173,9 +173,79 @@ const H: f64 = 2.0 * haecceity::presentation::gdt::TEXT_HEIGHT;
 pub(super) const SHELF: f64 = 2.0;
 pub(super) const TRIANGLE: f64 = 1.4 * TEXT;
 const RING: f64 = 0.7 * ARROW;
+
+/// The outer scope ring at the leader bend, shared with the route search.
+pub(super) fn ring_radius(modifiers: &[String]) -> f64 {
+    if modifiers.iter().any(|m| m == "all_over") {
+        1.7 * RING
+    } else if modifiers.iter().any(|m| m == "all_around") {
+        RING
+    } else {
+        0.0
+    }
+}
+
+fn ring_box(bend: P2, radius: f64) -> [f64; 4] {
+    [
+        bend[0] - radius,
+        bend[1] - radius,
+        bend[0] + radius,
+        bend[1] + radius,
+    ]
+}
 /// The clearance beyond the dimensions, and between tiers.
 const CLEAR: f64 = crate::layout::GDT_CLEAR;
 const TIERS: usize = 16;
+
+#[derive(Clone)]
+struct ScopeRing {
+    centre: P2,
+    radius: f64,
+    leader: Vec<[P2; 2]>,
+}
+
+fn reserve_ring(rings: &mut Vec<ScopeRing>, modifiers: &[String], p: &GdtPlaced) {
+    let radius = ring_radius(modifiers);
+    if radius > 0.0
+        && let Some(arc) = p.arcs.last()
+    {
+        rings.push(ScopeRing {
+            centre: [arc[0], arc[1]],
+            radius,
+            leader: p.lines.clone(),
+        });
+    }
+}
+
+/// Upgrade a transported frame's short shelf without replacing its proven
+/// attachment or bend. Scope arcs stay at that bend; only rigid frame ink moves.
+fn extend_scope_shelf(p: &mut GdtPlaced, modifiers: &[String]) {
+    let radius = ring_radius(modifiers);
+    if radius == 0.0 || p.lines.len() != 2 {
+        return;
+    }
+    let [bend, end] = p.lines[1];
+    if (end[1] - bend[1]).abs() > 1e-6 {
+        return;
+    }
+    let missing = radius + super::contacts::TEXT_CLEAR - (end[0] - bend[0]).abs();
+    if missing <= 1e-9 {
+        return;
+    }
+    let dx = if end[0] >= bend[0] { missing } else { -missing };
+    let mut moved = translated(p.clone(), [dx, 0.]);
+    moved.tip = p.tip;
+    moved.lines.clone_from(&p.lines);
+    moved.lines[1][1][0] += dx;
+    moved.arrows.clone_from(&p.arrows);
+    let rings: usize = modifiers
+        .iter()
+        .map(|m| if m == "all_over" { 2 } else { 1 })
+        .sum();
+    let n = p.arcs.len();
+    moved.arcs[n - rings..].copy_from_slice(&p.arcs[n - rings..]);
+    *p = moved;
+}
 
 /// A glyph laid out at its own origin, before it is placed.
 #[derive(Default)]
@@ -199,6 +269,17 @@ fn text(s: &str, at: P2, size: f64) -> GdtText {
 
 fn circle(c: P2, r: f64) -> [f64; 5] {
     [c[0], c[1], r, 0.0, 360.0]
+}
+
+/// The rendered filled arrowhead, shared by scope-bend grading and output.
+fn arrow_vertices([tip, tail]: [P2; 2]) -> [P2; 3] {
+    let n = [tail[1] - tip[1], tip[0] - tail[0]];
+    let k = ARROW_HALF / n[0].hypot(n[1]).max(1e-12);
+    [
+        tip,
+        [tail[0] + k * n[0], tail[1] + k * n[1]],
+        [tail[0] - k * n[0], tail[1] - k * n[1]],
+    ]
 }
 
 /// The width of *s*'s ink at *size* in the sheet's font (IBM Plex Sans Condensed): the width
@@ -490,6 +571,7 @@ fn dot(a: P2, b: P2) -> f64 {
 
 /// An item as placed at strip coordinate *pos* (along its strip's outward axis): its leader,
 /// frame box and the laid glyph's offset.
+#[derive(Clone)]
 struct Candidate {
     frame_rule: bool,
     lines: Vec<[P2; 2]>,
@@ -499,15 +581,152 @@ struct Candidate {
     /// Where the glyph's origin lands.
     origin: P2,
     elbow: P2,
+    ring_radius: f64,
 }
 
 impl Candidate {
+    /// Grow the shelf by translating the rigid frame. The attachment and bend
+    /// stay fixed, so an orthogonal shaft cannot acquire a slope.
+    fn with_ring(mut self, radius: f64) -> Self {
+        self.ring_radius = radius;
+        if radius > 0.0 {
+            let shelf = self.lines[1];
+            let dir = if shelf[1][0] >= shelf[0][0] {
+                1.0
+            } else {
+                -1.0
+            };
+            let dx = dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
+            self.lines[1][1][0] += dx;
+            self.origin[0] += dx;
+            self.label_box[0] += dx;
+            self.label_box[2] += dx;
+        }
+        self
+    }
+
+    fn move_bend(&mut self, dx: f64) {
+        self.elbow[0] += dx;
+        self.lines[0][1] = self.elbow;
+        self.lines[1][0] = self.elbow;
+        for arrow in &mut self.arrows {
+            *arrow = placement::arrow(self.lines[0][0], self.elbow);
+        }
+    }
+
     fn leader_length(&self) -> f64 {
         self.lines
             .iter()
             .map(|[a, b]| (b[0] - a[0]).hypot(b[1] - a[1]))
             .sum()
     }
+}
+
+/// Scope symbols can need a longer shelf to separate leaders with nearby tips.
+/// Exhaust these bounded bend positions before displacing the frame to another
+/// tier. A collinear shaft/shelf retains its partition rather than scoring it.
+fn clear_ring_bend(
+    c: Candidate,
+    obstacles: &Obstacles<'_>,
+    footprints: Option<&super::footprints::Footprints>,
+) -> Candidate {
+    if c.ring_radius == 0.0 {
+        return c;
+    }
+    if (c.lines[0][0][1] - c.elbow[1]).abs() < 1e-9 || (c.lines[0][0][0] - c.elbow[0]).abs() < 1e-6
+    {
+        return c;
+    }
+    // A longer shelf must not buy annotation clearance by sending the shaft
+    // through a foreign feature. Use the same footprints as the final audit.
+    let feature_contacts = footprints.map_or(0, |f| f.crossing_count(c.lines[0]));
+    let preserves_features = |next: &Candidate| {
+        footprints.is_none_or(|f| f.crossing_count(next.lines[0]) <= feature_contacts)
+    };
+    // Moving the bend can put its ring on a witness that the old bend cleared.
+    // When the frame itself fits, also try extending the frame end of the shelf
+    // by the minimum amount, before sending its leader through the model.
+    if obstacles.bounds_grade(&c, c.label_box) <= 1 && obstacles.clearance_grade(&c) == 2 {
+        let dir = if c.lines[1][1][0] >= c.elbow[0] {
+            1.0
+        } else {
+            -1.0
+        };
+        let dx = dir * (c.ring_radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
+        let mut shifted = c.clone();
+        shifted.move_bend(dx);
+        shifted.lines[1][1][0] += dx;
+        shifted.origin[0] += dx;
+        shifted.label_box[0] += dx;
+        shifted.label_box[2] += dx;
+        if preserves_features(&shifted)
+            && obstacles.clearance_grade(&shifted) < obstacles.clearance_grade(&c)
+        {
+            // This solves the new ring contact while retaining the established
+            // shaft through the model; further bend changes are unnecessary.
+            return shifted;
+        }
+    }
+    let dir = if c.lines[1][1][0] >= c.elbow[0] {
+        1.0
+    } else {
+        -1.0
+    };
+    let score = |candidate: &Candidate, best| {
+        let mut grade = obstacles.grade(candidate, best);
+        let meets =
+            |a, b| super::leaders::Line::new(a).meets(b) || super::leaders::Line::new(b).meets(a);
+        grade.2 += candidate
+            .arrows
+            .iter()
+            .filter(|arrow| obstacles.lines.iter().any(|line| meets(**arrow, *line)))
+            .count();
+        grade.2 += obstacles
+            .heads
+            .iter()
+            .map(|head| {
+                [
+                    head[0],
+                    [
+                        0.5 * (head[1][0] + head[2][0]),
+                        0.5 * (head[1][1] + head[2][1]),
+                    ],
+                ]
+            })
+            .filter(|arrow| candidate.lines.iter().any(|line| meets(*arrow, *line)))
+            .count();
+        grade.2 += candidate
+            .arrows
+            .iter()
+            .copied()
+            .map(arrow_vertices)
+            .filter(|head| {
+                obstacles
+                    .heads
+                    .iter()
+                    .any(|other| polygons_touch(head, other))
+            })
+            .count();
+        grade
+    };
+    let mut best = c.clone();
+    let mut grade = score(&best, None);
+    for step in 1..=5 {
+        if grade == (0, 0, 0) {
+            break;
+        }
+        let mut next = c.clone();
+        next.move_bend(-dir * step as f64 * SHELF);
+        if !preserves_features(&next) {
+            continue;
+        }
+        let next_grade = score(&next, Some(grade));
+        if next_grade < grade {
+            best = next;
+            grade = next_grade;
+        }
+    }
+    best
 }
 
 fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate {
@@ -547,6 +766,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             label_box,
             origin: [x0, elbow[1]],
             elbow,
+            ring_radius: 0.0,
         };
     }
     if shape == Shape::Datum {
@@ -582,6 +802,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             ],
             origin: centre,
             elbow: near,
+            ring_radius: 0.0,
         };
     }
     let elbow = if horizontal {
@@ -602,6 +823,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
         label_box: [x0, y0, x0 + size[0], y0 + size[1]],
         origin: [x0, y0],
         elbow,
+        ring_radius: 0.0,
     }
 }
 
@@ -1000,6 +1222,30 @@ fn fill_box(fill: &[P2]) -> [f64; 4] {
     )
 }
 
+/// Exact separating axes for a disc and a convex filled symbol. Edge normals
+/// separate faces; vertex-to-centre axes separate the circle from corners.
+fn circle_touches_polygon(centre: P2, radius: f64, polygon: &[P2]) -> bool {
+    if polygon.len() < 3 {
+        return false;
+    }
+    let edges = (0..polygon.len()).map(|i| {
+        let (a, b) = (polygon[i], polygon[(i + 1) % polygon.len()]);
+        [a[1] - b[1], b[0] - a[0]]
+    });
+    let vertices = polygon.iter().map(|p| [p[0] - centre[0], p[1] - centre[1]]);
+    !edges.chain(vertices).any(|axis| {
+        let reach = radius * axis[0].hypot(axis[1]);
+        let middle = dot(centre, axis);
+        let bounds = polygon
+            .iter()
+            .map(|p| dot(*p, axis))
+            .fold([f64::INFINITY, f64::NEG_INFINITY], |b, x| {
+                [b[0].min(x), b[1].max(x)]
+            });
+        bounds[1] < middle - reach || bounds[0] > middle + reach
+    })
+}
+
 /// What a candidate must stay clear of.
 struct Obstacles<'a> {
     page: &'a Page<'a>,
@@ -1015,7 +1261,11 @@ struct Obstacles<'a> {
     parallel_gap: Option<f64>,
     triangles: Vec<Vec<P2>>,
     labels: Vec<[f64; 4]>,
+    /// Filled scope-symbol discs, independent of label packing.
+    rings: Vec<ScopeRing>,
     lines: Vec<[P2; 2]>,
+    /// Filled peer arrowheads; scope bends must separate the flares as well as shafts.
+    heads: Vec<[P2; 3]>,
     /// Control-frame shafts, independently of ordinary dimension witnesses.
     frame_leaders: Vec<[P2; 2]>,
 }
@@ -1075,10 +1325,82 @@ impl Obstacles<'_> {
         } else {
             0
         };
-        (clearance, contacts, 0)
+        (clearance, contacts + self.scope_contacts(c), 0)
+    }
+
+    // Scope symbols are real obstacles, but clearing one must not introduce a
+    // worse frame/label collision. Among equally fitting placements avoid their
+    // discs before comparing ordinary line crossings; unavoidable contacts are
+    // still reported by the independent ink audit.
+    fn scope_contacts(&self, c: &Candidate) -> usize {
+        self.rings
+            .iter()
+            .filter(|ring| {
+                let (centre, radius) = (ring.centre, ring.radius);
+                let b = super::contacts::clear_box(c.label_box);
+                let nearest = [centre[0].clamp(b[0], b[2]), centre[1].clamp(b[1], b[3])];
+                (nearest[0] - centre[0]).hypot(nearest[1] - centre[1]) <= radius
+                    || (c.ring_radius > 0.0
+                        && (c.elbow[0] - centre[0]).hypot(c.elbow[1] - centre[1])
+                            <= radius + c.ring_radius + super::contacts::TEXT_CLEAR)
+                    || c.fills
+                        .iter()
+                        .any(|f| circle_touches_polygon(centre, radius, f))
+                    || c.arrows
+                        .iter()
+                        .copied()
+                        .map(arrow_vertices)
+                        .any(|f| circle_touches_polygon(centre, radius, &f))
+                    || c.lines.iter().any(|&[a, b]| {
+                        // Ordinary route grading already counts a contact with
+                        // this ring owner's shaft or shelf. Do not count the
+                        // same owner twice; a chord meeting only the ring is
+                        // still a separate obstacle contact.
+                        if ring
+                            .leader
+                            .iter()
+                            .any(|&owner| super::leaders::lines_meet([a, b], owner))
+                        {
+                            return false;
+                        }
+                        let delta = [b[0] - a[0], b[1] - a[1]];
+                        let length2 = delta[0] * delta[0] + delta[1] * delta[1];
+                        let t = if length2 > 0.0 {
+                            ((centre[0] - a[0]) * delta[0] + (centre[1] - a[1]) * delta[1])
+                                / length2
+                        } else {
+                            0.0
+                        }
+                        .clamp(0.0, 1.0);
+                        (a[0] + t * delta[0] - centre[0]).hypot(a[1] + t * delta[1] - centre[1])
+                            <= radius
+                    })
+            })
+            .count()
     }
 
     fn clearance_grade(&self, c: &Candidate) -> u8 {
+        // An incumbent from the historical template may still have the old
+        // short shelf. It cannot override a live candidate with a clear ring.
+        if c.ring_radius > 0.0
+            && !c.lines.get(1).is_some_and(|[bend, end]| {
+                *bend == c.elbow
+                    && (end[1] - bend[1]).abs() < 1e-9
+                    && (end[0] - bend[0]).abs()
+                        >= c.ring_radius + super::contacts::TEXT_CLEAR - 1e-9
+            })
+        {
+            return 4;
+        }
+        let frame = self.bounds_grade(c, c.label_box);
+        if c.ring_radius > 0.0 {
+            frame.max(self.bounds_grade(c, ring_box(c.elbow, c.ring_radius)))
+        } else {
+            frame
+        }
+    }
+
+    fn bounds_grade(&self, c: &Candidate, b: [f64; 4]) -> u8 {
         // Filled symbols take precedence over soft label/leader contacts. In a
         // dense view every label tier may be obstructed, but another proven site
         // can still separate the triangles rather than keeping coincident ink.
@@ -1088,7 +1410,6 @@ impl Obstacles<'_> {
         {
             return 5;
         }
-        let b = c.label_box;
         let d = self.page.drawable();
         let on_sheet = b[0] >= d[0] && b[1] >= d[1] && b[2] <= d[2] && b[3] <= d[3];
         let grown = [b[0] - 0.5, b[1] - 0.5, b[2] + 0.5, b[3] + 0.5];
@@ -1650,6 +1971,7 @@ fn plan_search(
         .iter()
         .filter_map(|d| d.placed.as_ref().map(|p| p.label_box))
         .collect();
+    let mut rings = Vec::new();
     let mut lines: Vec<[P2; 2]> = dims
         .iter()
         .filter_map(|d| d.placed.as_ref())
@@ -1659,6 +1981,11 @@ fn plan_search(
                 .chain(p.arrows.iter().filter(|_| compact))
                 .copied()
         })
+        .collect();
+    let mut heads: Vec<_> = dims
+        .iter()
+        .filter_map(|d| d.placed.as_ref())
+        .flat_map(|p| p.arrows.iter().copied().map(arrow_vertices))
         .collect();
     let control_ids: BTreeSet<_> = items
         .iter()
@@ -1812,12 +2139,15 @@ fn plan_search(
             && let Some(mut p) = g.placed.clone()
         {
             p = translated(p, delta);
+            extend_scope_shelf(&mut p, &g.modifiers);
             labels.push(p.label_box);
+            reserve_ring(&mut rings, &planned.modifiers, &p);
             if protect {
                 labels.extend(p.fills.iter().map(|f| fill_box(f)));
                 triangles.extend(p.fills.iter().cloned());
             }
             lines.extend(p.lines.iter().copied());
+            heads.extend(p.arrows.iter().copied().map(arrow_vertices));
             if matches!(item.glyph, Glyph::ControlFrame { .. }) {
                 frame_leaders.extend(p.lines.iter().copied());
             }
@@ -1871,9 +2201,19 @@ fn plan_search(
                 .cloned()
                 .collect(),
             labels: labels.clone(),
+            rings: rings.clone(),
             lines: lines.clone(),
+            heads: heads.clone(),
             frame_leaders: frame_leaders.clone(),
         };
+        let scope_footprints = (ring_radius(&planned.modifiers) > 0.0)
+            .then(|| {
+                views
+                    .iter()
+                    .find(|v| v.id == own)
+                    .map(|v| cache.get(analysis, v))
+            })
+            .flatten();
         let sides: Vec<&str> = if shape != Shape::Frame || intent.is_some_and(|p| p.side.is_some())
         {
             vec![item.side]
@@ -1938,6 +2278,7 @@ fn plan_search(
         // The best grade, then the shortest automatic datum leader; remaining
         // ties keep the original site, strip and tier order.
         let mut best: Option<Choice<'_>> = None;
+        let mut ring_best: Option<Choice<'_>> = None;
         let tier_ink: &[[P2; 2]] = if search == Search::Uncited { &[] } else { &ink };
         // Exhaust the compact, face-to-first-lane choices before trying any outer tier.
         // A cylinder's finish exhausts its own strip (compact tiers, then outer ones) before the
@@ -2006,7 +2347,8 @@ fn plan_search(
                             let k = usize::from(outward(side)[0] != 0.0);
                             anchor[k] = o[k] + along.fraction() * (o[k + 2] - o[k]);
                         }
-                        let mut c = candidate(shape, anchor, side, pos, laid.size);
+                        let mut c = candidate(shape, anchor, side, pos, laid.size)
+                            .with_ring(ring_radius(&planned.modifiers));
                         c.frame_rule = matches!(item.glyph, Glyph::ControlFrame { .. });
                         if datum && intent.and_then(|p| p.along).is_some() {
                             for fill in &mut c.fills {
@@ -2052,6 +2394,18 @@ fn plan_search(
                             c.arrows.clear();
                             c.fills = vec![dot_at(c.lines[0][0])];
                         }
+                        if c.ring_radius > 0.0 && !intent.is_some_and(|p| p.pinned) {
+                            let expanded =
+                                clear_ring_bend(c.clone(), &obstacles, scope_footprints.as_deref());
+                            let grade = if matches!(search, Search::All | Search::Baseline) {
+                                obstacles.grade(&expanded, None)
+                            } else {
+                                obstacles.text_grade(&expanded)
+                            };
+                            if ring_best.as_ref().is_none_or(|b| grade < b.0) {
+                                ring_best = Some((grade, side, expanded, *tip, n));
+                            }
+                        }
                         let compact_datum = protect && datum && !authored;
                         let shorter = compact_datum
                             && best
@@ -2092,6 +2446,14 @@ fn plan_search(
                 }
             }
         }
+        // Exhaust ordinary shelves on every strip before accepting an expanded
+        // bend. An equally clear longer shelf must not preempt a proven exit on
+        // a later strip and displace its neighbouring callouts.
+        if let Some(expanded) = ring_best
+            && best.as_ref().is_none_or(|b| expanded.0 < b.0)
+        {
+            best = Some(expanded);
+        }
         // A dimension placement does not evict clear, unchanged GD&T ink merely
         // because another greedy search finds a shorter leader. Compare its
         // transported incumbent using the same exact obstacle grading.
@@ -2116,7 +2478,8 @@ fn plan_search(
             && let Some(delta) = crate::placement_intent::anchor_delta(base, views, &g.view)
             && let Some(p) = g.placed.clone()
         {
-            let p = translated(p, delta);
+            let mut p = translated(p, delta);
+            extend_scope_shelf(&mut p, &g.modifiers);
             let candidate = Candidate {
                 frame_rule: matches!(item.glyph, Glyph::ControlFrame { .. }),
                 lines: p.lines.clone(),
@@ -2124,7 +2487,8 @@ fn plan_search(
                 fills: p.fills.clone(),
                 label_box: p.label_box,
                 origin: [0.; 2],
-                elbow: [0.; 2],
+                elbow: p.lines.first().map_or([0.; 2], |l| l[1]),
+                ring_radius: ring_radius(&g.modifiers),
             };
             let grade = obstacles.grade(&candidate, None);
             if grade.0 <= 1
@@ -2135,11 +2499,13 @@ fn plan_search(
                     .is_none_or(|b| grade <= obstacles.grade(&b.2, None))
             {
                 labels.push(p.label_box);
+                reserve_ring(&mut rings, &g.modifiers, &p);
                 if protect {
                     labels.extend(p.fills.iter().map(|f| fill_box(f)));
                     triangles.extend(p.fills.iter().cloned());
                 }
                 lines.extend(p.lines.iter().copied());
+                heads.extend(p.arrows.iter().copied().map(arrow_vertices));
                 if matches!(item.glyph, Glyph::ControlFrame { .. }) {
                     frame_leaders.extend(p.lines.iter().copied());
                 }
@@ -2186,11 +2552,19 @@ fn plan_search(
             }
         }
         labels.push(chosen.label_box);
+        if chosen.ring_radius > 0.0 {
+            rings.push(ScopeRing {
+                centre: chosen.elbow,
+                radius: chosen.ring_radius,
+                leader: chosen.lines.clone(),
+            });
+        }
         if protect {
             labels.extend(chosen.fills.iter().map(|f| fill_box(f)));
             triangles.extend(chosen.fills.iter().cloned());
         }
         lines.extend(chosen.lines.iter().copied());
+        heads.extend(chosen.arrows.iter().copied().map(arrow_vertices));
         if chosen.frame_rule {
             frame_leaders.extend(chosen.lines.iter().copied());
         }
@@ -2461,6 +2835,39 @@ pub fn proxy(g: &PlannedGdt) -> Option<PlannedDimension> {
     })
 }
 
+/// Complete scope-symbol ink for contact/overlap audits. Route consumers use
+/// `proxy` so that its two leader segments retain their shaft/shelf semantics.
+pub(crate) fn contact_proxy(g: &PlannedGdt) -> Option<PlannedDimension> {
+    let mut d = proxy(g)?;
+    let p = g.placed.as_ref()?;
+    let rings = ring_arcs(g);
+    let arcs = &p.arcs[p.arcs.len() - rings..];
+    let ink = crate::centrelines::LineWork {
+        id: g.id.clone(),
+        kind: "symbol".into(),
+        curves: arcs
+            .iter()
+            .map(|a| Curve::Conic {
+                centre: [a[0], a[1]],
+                radii: [a[2]; 2],
+                x_axis: [1., 0.],
+                y_axis: [0., 1.],
+                t0: a[3].to_radians(),
+                t1: a[4].to_radians(),
+            })
+            .collect(),
+        centre: None,
+        radial: false,
+        global_axis: false,
+        overrun: 0.,
+    };
+    d.placed
+        .as_mut()?
+        .lines
+        .extend(crate::centrelines::segments(&ink));
+    Some(d)
+}
+
 /// The default surface finish's symbol beside the title block (*r*) as the placed items'
 /// collision checks and the blocks placed after it see it: its strokes as lines, its whole box
 /// as its label.
@@ -2572,15 +2979,12 @@ pub fn render(
             )
         });
     }
-    for [tip, tail] in &p.arrows {
-        let n = [tail[1] - tip[1], tip[0] - tail[0]];
-        let k = ARROW_HALF / n[0].hypot(n[1]).max(1e-12);
-        let b1 = [tail[0] + k * n[0], tail[1] + k * n[1]];
-        let b2 = [tail[0] - k * n[0], tail[1] - k * n[1]];
+    for &arrow in &p.arrows {
+        let [tip, b1, b2] = arrow_vertices(arrow);
         items.push(Item::Face(vec![vec![
-            Curve::Line(*tip, b1),
+            Curve::Line(tip, b1),
             Curve::Line(b1, b2),
-            Curve::Line(b2, *tip),
+            Curve::Line(b2, tip),
         ]]));
     }
     for f in &p.fills {
@@ -3063,6 +3467,274 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scope_rings_have_a_clear_shelf_on_every_strip_and_reserve_their_ink() {
+        let analysis: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+            "envelope":[[0,0,0],[100,60,10]], "iso_bounds":[0,0,100,60]
+        }))
+        .unwrap();
+        let plan = crate::model::plan(&analysis, &Spec::default()).unwrap();
+        let page = Page::new(&analysis, &plan.sheet, &[]);
+        for modifier in ["all_around", "all_over"] {
+            let radius = ring_radius(&[modifier.into()]);
+            for side in ["above", "below", "left", "right"] {
+                let c = candidate(
+                    Shape::Frame,
+                    [80., 80.],
+                    side,
+                    if matches!(side, "below" | "left") {
+                        60.
+                    } else {
+                        100.
+                    },
+                    [20., 5.],
+                )
+                .with_ring(radius);
+                let original = candidate(
+                    Shape::Frame,
+                    [80., 80.],
+                    side,
+                    if matches!(side, "below" | "left") {
+                        60.
+                    } else {
+                        100.
+                    },
+                    [20., 5.],
+                );
+                assert_eq!(c.elbow, original.elbow);
+                assert_eq!(c.lines[0], original.lines[0]);
+                let direction = if side == "left" { -1. } else { 1. };
+                assert!(
+                    (c.label_box[0]
+                        - original.label_box[0]
+                        - direction * (radius + super::super::contacts::TEXT_CLEAR - SHELF))
+                        .abs()
+                        < 1e-9
+                );
+                assert_eq!(c.lines[0][1], c.elbow);
+                assert_eq!(c.arrows, [placement::arrow(c.lines[0][0], c.elbow)]);
+                let [a, b] = c.lines[1];
+                assert!((b[0] - a[0]).abs() >= radius + super::super::contacts::TEXT_CLEAR - 1e-9);
+                assert!(!boxes_overlap(c.label_box, ring_box(c.elbow, radius)));
+                let mut obstacles = Obstacles {
+                    page: &page,
+                    own: "v:front".into(),
+                    area: None,
+                    exterior: None,
+                    protect_triangles: false,
+                    label_gap: 0.,
+                    parallel_gap: None,
+                    triangles: Vec::new(),
+                    labels: Vec::new(),
+                    rings: Vec::new(),
+                    lines: Vec::new(),
+                    heads: Vec::new(),
+                    frame_leaders: Vec::new(),
+                };
+                assert_eq!(obstacles.clearance_grade(&c), 0);
+                let mut legacy = candidate(
+                    Shape::Frame,
+                    [80., 80.],
+                    side,
+                    if matches!(side, "below" | "left") {
+                        60.
+                    } else {
+                        100.
+                    },
+                    [20., 5.],
+                );
+                legacy.ring_radius = radius;
+                assert_eq!(obstacles.clearance_grade(&legacy), 4);
+                // This label touches only the ring, away from the frame and shaft.
+                let ring = ring_box(c.elbow, radius);
+                obstacles
+                    .labels
+                    .push([ring[0], ring[3] - 0.25, ring[0] + 0.25, ring[3]]);
+                assert_eq!(obstacles.clearance_grade(&c), 4);
+                obstacles.labels.clear();
+                obstacles
+                    .lines
+                    .push([[ring[0], ring[3] - 0.25], [ring[2], ring[3] - 0.25]]);
+                assert_eq!(obstacles.clearance_grade(&c), 2);
+            }
+        }
+        let c = candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]).with_ring(RING);
+        let obstacles = Obstacles {
+            page: &page,
+            own: "v:front".into(),
+            area: None,
+            exterior: None,
+            protect_triangles: false,
+            label_gap: 0.,
+            parallel_gap: None,
+            triangles: Vec::new(),
+            labels: Vec::new(),
+            rings: Vec::new(),
+            lines: vec![[[80., 80.75], [80., 87.25]]],
+            heads: vec![arrow_vertices(placement::arrow([80., 80.75], [80., 87.25]))],
+            frame_leaders: Vec::new(),
+        };
+        assert!(obstacles.grade(&c, None).2 > 0);
+        assert_eq!(
+            clear_ring_bend(c.clone(), &obstacles, None).lines[0],
+            c.lines[0]
+        );
+        let mut c = c;
+        c.move_bend(-0.39);
+        let next = clear_ring_bend(c.clone(), &obstacles, None);
+        assert_eq!(next.label_box, c.label_box);
+        assert_eq!(next.origin, c.origin);
+        assert_eq!(next.lines[0][0], c.lines[0][0]);
+        assert_eq!(obstacles.grade(&next, None), (0, 0, 0));
+        assert!(!polygons_touch(
+            &arrow_vertices(next.arrows[0]),
+            &obstacles.heads[0]
+        ));
+        let shaft = obstacles.lines[0];
+        assert!(!super::super::leaders::Line::new(shaft).meets(next.arrows[0]));
+        assert!(!super::super::leaders::Line::new(next.arrows[0]).meets(shaft));
+        let peer_arrow = placement::arrow([80., 80.75], [80., 87.25]);
+        assert!(!super::super::leaders::Line::new(peer_arrow).meets(next.lines[0]));
+        assert!(!super::super::leaders::Line::new(next.lines[0]).meets(peer_arrow));
+        assert!(next.lines[1][1][0] - next.elbow[0] > c.lines[1][1][0] - c.elbow[0]);
+        let c = candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]).with_ring(RING);
+        let mut witness = obstacles;
+        witness.heads.clear();
+        let mut c = c;
+        c.move_bend(-0.39);
+        witness.lines = vec![[[77.9, 98.2], [77.9, 101.8]]];
+        assert_eq!(witness.bounds_grade(&c, c.label_box), 0);
+        assert_eq!(witness.clearance_grade(&c), 2);
+        let next = clear_ring_bend(c.clone(), &witness, None);
+        assert_eq!(witness.grade(&next, None), (0, 0, 0));
+        assert!((next.elbow[0] - 80.).abs() < 1e-9);
+        assert!(
+            (next.label_box[0]
+                - c.label_box[0]
+                - (RING + super::super::contacts::TEXT_CLEAR - SHELF))
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (next.lines[1][1][0] - next.elbow[0] - (c.lines[1][1][0] - c.elbow[0])).abs() < 1e-9
+        );
+    }
+
+    #[test]
+    fn later_frame_avoids_reserved_ring_and_audit_sees_an_unavoidable_contact() {
+        let analysis: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+            "envelope":[[0,0,0],[100,60,10]], "iso_bounds":[0,0,100,60]
+        }))
+        .unwrap();
+        let mut plan = crate::model::plan(&analysis, &Spec::default()).unwrap();
+        let page = Page::new(&analysis, &plan.sheet, &[]);
+        let frame = |id: &str, c: &Candidate, modifiers: Vec<String>| PlannedGdt {
+            from_spec: Vec::new(),
+            id: id.into(),
+            kind: "control_frame".into(),
+            view: "v:front".into(),
+            side: "above".into(),
+            source: id.into(),
+            faces: vec![1],
+            cells: vec!["⌓".into(), "0.1".into()],
+            modifiers: modifiers.clone(),
+            label: "⌓ 0.1".into(),
+            default: true,
+            basis: String::new(),
+            state: State::Shown,
+            placed: Some(GdtPlaced {
+                tip: c.lines[0][0],
+                lines: c.lines.clone(),
+                arrows: c.arrows.clone(),
+                label_box: c.label_box,
+                strokes: Vec::new(),
+                frame_strokes: 0,
+                arcs: if modifiers.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![circle(c.elbow, RING), circle(c.elbow, 1.7 * RING)]
+                },
+                fills: Vec::new(),
+                letters: Vec::new(),
+                runs: Vec::new(),
+            }),
+        };
+        let legacy = candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]);
+        let mut inherited = frame("pmi:legacy", &legacy, vec!["all_over".into()]);
+        let p = inherited.placed.as_mut().unwrap();
+        let old = p.clone();
+        extend_scope_shelf(p, &inherited.modifiers);
+        assert_eq!(p.lines[0], old.lines[0]);
+        assert_eq!(p.arcs, old.arcs);
+        assert!(
+            (p.lines[1][1][0] - p.lines[1][0][0] - 1.7 * RING - super::super::contacts::TEXT_CLEAR)
+                .abs()
+                < 1e-9
+        );
+        let first =
+            candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]).with_ring(1.7 * RING);
+        let first = frame("pmi:first", &first, vec!["all_over".into()]);
+        let natural = candidate(Shape::Frame, [68., 80.], "above", 100., [8., 2.]);
+        let mut obstacles = Obstacles {
+            page: &page,
+            own: "v:front".into(),
+            area: None,
+            exterior: None,
+            protect_triangles: false,
+            label_gap: 0.,
+            parallel_gap: None,
+            triangles: Vec::new(),
+            labels: vec![first.placed.as_ref().unwrap().label_box],
+            rings: Vec::new(),
+            lines: first.placed.as_ref().unwrap().lines.clone(),
+            heads: Vec::new(),
+            frame_leaders: Vec::new(),
+        };
+        assert_eq!(obstacles.clearance_grade(&natural), 0);
+        reserve_ring(
+            &mut obstacles.rings,
+            &first.modifiers,
+            first.placed.as_ref().unwrap(),
+        );
+        assert_eq!(obstacles.text_grade(&natural), (0, 1, 0));
+        let mut filled = natural.clone();
+        filled.label_box = [40., 40., 42., 42.];
+        filled.fills = vec![vec![[76.5, 99.5], [78., 99.5], [78., 100.5]]];
+        assert_eq!(obstacles.text_grade(&filled), (0, 1, 0));
+        let chord = candidate(Shape::Frame, [78., 80.], "above", 107., [8., 2.]);
+        assert_eq!(obstacles.scope_contacts(&chord), 1);
+        let shared_shaft = candidate(Shape::Frame, [80., 80.], "above", 107., [8., 2.]);
+        assert_eq!(obstacles.scope_contacts(&shared_shaft), 0);
+        assert!(obstacles.grade(&shared_shaft, None).2 > 0);
+        // An unrelated line ending at the same bend is not the ring's owner.
+        obstacles.lines.push([[80., 100.], [76., 100.]]);
+        assert_eq!(obstacles.scope_contacts(&chord), 1);
+        obstacles.lines.pop();
+        let clear = candidate(Shape::Frame, [68., 80.], "above", 107., [8., 2.]);
+        assert_eq!(obstacles.grade(&clear, None), (0, 0, 0));
+        assert!(obstacles.grade(&clear, None) < obstacles.grade(&natural, None));
+        // The first frame's label and leader are clear. Only its ring enters
+        // the second frame; both proxy consumers must receive that printed ink.
+        assert!(contact_proxy(&first).unwrap().placed.unwrap().lines.len() > 2);
+        plan.dimensions.clear();
+        plan.gdt = vec![first, frame("pmi:second", &natural, Vec::new())];
+        let contact = |p: &Problem| {
+            p.code == "annotation_ink_overlap" && p.subjects == ["pmi:first", "pmi:second"]
+        };
+        assert!(crate::dims::recheck(&analysis, &plan).iter().any(contact));
+        crate::dims::contacts::report(&analysis, &mut plan);
+        crate::dims::contacts::report(&analysis, &mut plan);
+        assert_eq!(plan.problems.iter().filter(|p| contact(p)).count(), 1);
+        plan.gdt[1] = frame("pmi:second", &clear, Vec::new());
+        assert!(!crate::dims::recheck(&analysis, &plan).iter().any(contact));
+        crate::dims::contacts::report(&analysis, &mut plan);
+        assert!(!plan.problems.iter().any(contact));
+    }
+
+    #[test]
     fn datum_route_inventory_tries_straight_before_square_stub_bends() {
         let a = crate::model::analyse_native(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -3211,7 +3883,9 @@ mod tests {
             labels: std::iter::once(first.label_box)
                 .chain(first.fills.iter().map(|f| fill_box(f)))
                 .collect(),
+            rings: Vec::new(),
             lines: first.lines.clone(),
+            heads: Vec::new(),
             frame_leaders: Vec::new(),
         };
         // The letter boxes and shafts are disjoint in every case. Identical,
@@ -3252,7 +3926,9 @@ mod tests {
             parallel_gap: None,
             triangles: Vec::new(),
             labels: vec![[40.0, 180.25, 45.0, 185.25]],
+            rings: Vec::new(),
             lines: Vec::new(),
+            heads: Vec::new(),
             frame_leaders: Vec::new(),
         };
         // The shaft misses the box, but its 0.25 mm gap reads as touching text.
@@ -3287,6 +3963,8 @@ mod tests {
             triangles: Vec::new(),
             // Both left-hand tiers cross this label on their way from the face.
             labels: vec![[57., 80., 59., 85.], right.label_box],
+            rings: Vec::new(),
+            heads: Vec::new(),
             frame_leaders: right.lines.clone(),
             lines: right.lines,
         };

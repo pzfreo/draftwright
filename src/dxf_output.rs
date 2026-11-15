@@ -28,9 +28,61 @@ pub struct Structure {
     pub furniture_views: BTreeMap<String, String>,
     pub dimensions: BTreeMap<String, Dimension>,
     pub frames: BTreeMap<String, Frame>,
+    pub leaders: BTreeMap<String, Leader>,
+    pub tables: BTreeMap<String, Vec<NativeTable>>,
     pub title: Range<usize>,
     pub labels: Vec<TextRun>,
     pub title_fields: Vec<(String, TextRun)>,
+}
+/// Native annotation data copied from its plan, never recovered from nearby ink.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Leader {
+    pub lines: Vec<[P; 2]>,
+    pub arrows: Vec<[P; 2]>,
+    /// Item offsets painted by the native leader (the frame/ring remains separate).
+    pub ink: Vec<Range<usize>>,
+    pub dot: bool,
+    /// Baseline origin used to size a wrapped callout's MTEXT box. Run centres stay live.
+    pub text_at: Option<P>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct NativeTable {
+    pub rows: Vec<Vec<String>>,
+    pub placed: crate::tables::PlacedTable,
+    pub ruled: bool,
+    pub left_aligned: bool,
+    pub title_row: bool,
+    pub header_row: bool,
+}
+impl NativeTable {
+    pub(crate) fn planned(table: &crate::tables::PlannedTable) -> Vec<Self> {
+        let Some(p) = &table.placed else {
+            return Vec::new();
+        };
+        if p.blocks.is_empty() {
+            return vec![Self {
+                rows: table.rows.clone(),
+                placed: p.clone(),
+                ruled: true,
+                left_aligned: false,
+                title_row: false,
+                header_row: true,
+            }];
+        }
+        // The planner divides body rows down, then across, repeating row zero.
+        let rows = crate::hole_table::split(&table.rows[..1], &table.rows[1..], p.blocks.len());
+        rows.into_iter()
+            .zip(&p.blocks)
+            .map(|(rows, p)| Self {
+                rows,
+                placed: p.clone(),
+                ruled: true,
+                left_aligned: false,
+                title_row: false,
+                header_row: true,
+            })
+            .collect()
+    }
 }
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CuttingPlane {
@@ -359,6 +411,18 @@ impl Tags {
         self.tag(code + 10, p[1]);
         self.tag(code + 20, 0);
     }
+    fn long_text(&mut self, leading: i32, last: i32, value: &str) {
+        let mut tail = value;
+        while tail.len() >= 250 {
+            let mut end = 250;
+            while !tail.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.tag(leading, &tail[..end]);
+            tail = &tail[end..];
+        }
+        self.tag(last, tail);
+    }
     fn handle(&mut self, code: i32, h: u64) {
         self.tag(code, format_args!("{h:X}"));
     }
@@ -371,6 +435,15 @@ struct Block {
     at: P,
     entities: Tags,
 }
+#[derive(Clone, Copy)]
+struct TableStyle {
+    id: u64,
+    margin: f64,
+    ruled: bool,
+    left: bool,
+    title: bool,
+    header: bool,
+}
 struct Writer {
     next: u64,
     model: u64,
@@ -380,11 +453,15 @@ struct Writer {
     weight: Option<i16>,
     colour: Option<u32>,
     continuous: bool,
+    mleader_style: u64,
+    table_style: u64,
+    table_styles: Vec<TableStyle>,
+    annotation_reactors: BTreeMap<u64, Vec<u64>>,
 }
 impl Writer {
     fn new() -> Self {
         Self {
-            next: 0x100,
+            next: 0x104,
             model: 0,
             blocks: Vec::new(),
             entities: Tags::default(),
@@ -392,6 +469,10 @@ impl Writer {
             weight: None,
             colour: None,
             continuous: false,
+            mleader_style: 0x100,
+            table_style: 0x101,
+            table_styles: Vec::new(),
+            annotation_reactors: BTreeMap::new(),
         }
     }
     fn id(&mut self) -> u64 {
@@ -424,11 +505,17 @@ impl Writer {
         if self.continuous {
             t.tag(6, "CONTINUOUS");
         }
-        if let Some(weight) = self.weight {
-            t.tag(370, weight);
-        }
-        if let Some(colour) = self.colour {
-            t.tag(420, colour);
+        if block.is_some_and(|i| self.blocks[i].name.starts_with("DW_LEADER_")) {
+            // Arrow definitions inherit their referencing annotation's appearance.
+            t.tag(62, 0);
+            t.tag(370, -2);
+        } else {
+            if let Some(weight) = self.weight {
+                t.tag(370, weight);
+            }
+            if let Some(colour) = self.colour {
+                t.tag(420, colour);
+            }
         }
         (h, t)
     }
@@ -758,6 +845,510 @@ impl Writer {
         h
     }
 }
+impl Writer {
+    /// QLEADER's tolerance form, or a graphic-only leader without an annotation.
+    fn frame_leader(
+        &mut self,
+        leader: &Leader,
+        annotation: Option<(u64, P)>,
+        style: &str,
+        layer: &str,
+    ) -> Vec<u64> {
+        let dot = leader
+            .dot
+            .then(|| self.leader_arrow_block(1., true).unwrap());
+        let paths = leader_paths(&leader.lines);
+        let mut dots = Vec::new();
+        if let Some(block) = dot {
+            for vertices in &paths {
+                let (h, mut t) = self.entity("INSERT", layer, None);
+                t.tag(100, "AcDbBlockReference");
+                t.tag(2, &self.blocks[block].name);
+                t.point(10, vertices[0]);
+                self.put(t, None);
+                dots.push(h);
+            }
+        }
+        let mut handles: Vec<_> = paths
+            .into_iter()
+            .map(|vertices| {
+                let last = *vertices.last().unwrap();
+                let (h, mut t) = self.entity("LEADER", layer, None);
+                t.tag(100, "AcDbLeader");
+                t.tag(3, style);
+                t.tag(71, usize::from(!leader.arrows.is_empty()));
+                t.tag(72, 0);
+                t.tag(73, if annotation.is_some() { 1 } else { 3 });
+                t.tag(74, 0);
+                t.tag(75, 0); // the plan already includes its landing
+                t.tag(76, vertices.len());
+                for p in vertices {
+                    t.point(10, p);
+                }
+                if let Some((annotation, _)) = annotation {
+                    t.handle(340, annotation);
+                }
+                t.tag(210, 0);
+                t.tag(220, 0);
+                t.tag(230, 1);
+                t.point(211, [1., 0.]);
+                t.point(212, [0., 0.]);
+                // DXF 213 is the last vertex relative to the annotation's placement,
+                // including a frame attached at its right edge rather than its insertion.
+                t.point(
+                    213,
+                    annotation.map_or([0., 0.], |(_, at)| [last[0] - at[0], last[1] - at[1]]),
+                );
+                self.put(t, None);
+                if let Some((annotation, _)) = annotation {
+                    self.annotation_reactors
+                        .entry(annotation)
+                        .or_default()
+                        .push(h);
+                }
+                h
+            })
+            .collect();
+        handles.extend(dots);
+        handles
+    }
+
+    fn leader_arrow_block(&mut self, arrow_size: f64, dot: bool) -> Option<usize> {
+        // A block arrow preserves the existing dot attachment, including its 0.3 mm radius.
+        if dot {
+            let i = if let Some(i) = self.blocks.iter().position(|b| b.name == "DW_LEADER_DOT") {
+                i
+            } else {
+                let i = self.block("DW_LEADER_DOT".into(), [0., 0.]);
+                self.item(
+                    &Item::Face(vec![vec![Curve::Conic {
+                        centre: [0., 0.],
+                        radii: [0.3, 0.3],
+                        x_axis: [1., 0.],
+                        y_axis: [0., 1.],
+                        t0: 0.,
+                        t1: std::f64::consts::TAU,
+                    }]]),
+                    "0",
+                    Some(i),
+                );
+                i
+            };
+            Some(i)
+        } else if arrow_size > 0. && (arrow_size - crate::dims::ARROW).abs() > 1e-9 {
+            // Short shafts shorten the head, but the renderer keeps its 0.45 mm half width.
+            // A normalized block preserves that shape when the reader scales the arrow.
+            let name = format!("DW_LEADER_ARROW_{:X}", arrow_size.to_bits());
+            let i = if let Some(i) = self.blocks.iter().position(|b| b.name == name) {
+                i
+            } else {
+                let i = self.block(name, [0., 0.]);
+                let half = crate::dims::ARROW_HALF / arrow_size;
+                let points = [[0., 0.], [-1., half], [-1., -half], [0., 0.]];
+                self.item(
+                    &Item::Face(vec![
+                        points.windows(2).map(|p| Curve::Line(p[0], p[1])).collect(),
+                    ]),
+                    "0",
+                    Some(i),
+                );
+                i
+            };
+            Some(i)
+        } else {
+            None
+        }
+    }
+
+    fn multileader(&mut self, leader: &Leader, text: &[&TextRun], layer: &str) -> u64 {
+        let r = text[0];
+        let height = text_height(r);
+        let (sin, cos) = r.rotation.to_radians().sin_cos();
+        let mut at = r.at;
+        let wrapped = text.len() > 1 && leader.text_at.is_some();
+        // MULTILEADER's attachment point is 1..=3 (top left/centre/right), not
+        // MTEXT's nine-point enum. Normalize middle/baseline runs to a top anchor.
+        let top = if r.v_align == VAlign::Baseline {
+            height
+        } else {
+            height / 2.
+        };
+        at = [at[0] - sin * top, at[1] + cos * top];
+        let alignment = match r.h_align {
+            HAlign::Left => 1,
+            HAlign::Center => 2,
+            HAlign::Right => 3,
+        };
+        let width = if wrapped {
+            text.iter()
+                .map(|run| {
+                    let shift = (run.at[0] - r.at[0]) * cos + (run.at[1] - r.at[1]) * sin;
+                    text_advance(run) + 2. * shift.abs() + 2. * height
+                })
+                .fold(0_f64, f64::max)
+        } else {
+            0.
+        };
+        let content = text
+            .iter()
+            .map(|run| {
+                let mut content = format!(
+                    "{{\\W{:.6};{}}}",
+                    text_width(run),
+                    symbol_text(&asme_words(&run.text), false)
+                );
+                if wrapped {
+                    // Both indents are non-negative: AutoCAD clamps negative indents.
+                    // Their difference translates a centred paragraph without moving
+                    // the source run's centre. The wide box prevents an extra wrap.
+                    let shift =
+                        ((run.at[0] - r.at[0]) * cos + (run.at[1] - r.at[1]) * sin) / height;
+                    let left = (2. * shift).max(0.);
+                    let right = (-2. * shift).max(0.);
+                    content = format!("\\pxi0,l{left:.9},r{right:.9},qc;{content}");
+                }
+                content
+            })
+            .collect::<Vec<_>>()
+            .join("\\P");
+        let arrow_size = leader
+            .arrows
+            .first()
+            .map_or(if leader.dot { 1. } else { 0. }, |[a, b]| {
+                (b[0] - a[0]).hypot(b[1] - a[1])
+            });
+        let arrow_block = self.leader_arrow_block(arrow_size, leader.dot);
+        let paths = leader_paths(&leader.lines);
+        let paths: Vec<_> = paths
+            .iter()
+            .map(|vertices| mleader_path(vertices, [cos, sin], r.at))
+            .collect();
+        let dogleg_length = paths.iter().map(|p| p.dogleg_length).fold(0_f64, f64::max);
+        let half = match r.h_align {
+            HAlign::Left => 0.,
+            HAlign::Center => 0.5,
+            HAlign::Right => 1.,
+        };
+        let left = half * text_advance(r);
+        let base = [
+            at[0] - cos * left + sin * height / 2.,
+            at[1] - sin * left - cos * height / 2.,
+        ];
+
+        let (h, mut t) = self.entity("MULTILEADER", layer, None);
+        t.tag(100, "AcDbMLeader");
+        t.tag(270, 2);
+        t.tag(300, "CONTEXT_DATA{");
+        t.tag(40, 1);
+        t.point(10, base);
+        t.tag(41, height);
+        t.tag(140, arrow_size);
+        t.tag(145, 0);
+        for (c, v) in [(174, 1), (175, 1), (176, 0), (177, 0), (290, 1)] {
+            t.tag(c, v);
+        }
+        t.tag(304, content);
+        t.tag(11, 0);
+        t.tag(21, 0);
+        t.tag(31, 1);
+        t.tag(340, format!("__TEXTSTYLE_{}__", text_font(r)));
+        t.point(12, at);
+        t.point(13, [cos, sin]);
+        t.tag(42, r.rotation.to_radians());
+        t.tag(43, width);
+        t.tag(44, 0);
+        let spacing = text.get(1).map_or(1., |next| {
+            ((next.at[0] - r.at[0]) * sin - (next.at[1] - r.at[1]) * cos).abs() / (height * 5. / 3.)
+        });
+        t.tag(45, spacing);
+        t.tag(170, 2);
+        t.tag(90, -1073741824);
+        t.tag(171, alignment);
+        t.tag(172, 1);
+        t.tag(91, -1073741824);
+        // CONTEXT_DATA is positional: keep Autodesk/ezdxf's MTextData order.
+        t.tag(141, 1.5);
+        t.tag(92, 0);
+        t.tag(291, 0);
+        t.tag(292, 0);
+        t.tag(173, 0);
+        t.tag(293, 0);
+        t.tag(142, 0);
+        t.tag(143, 0);
+        t.tag(294, 0);
+        t.tag(295, 1);
+        t.tag(296, 0);
+        t.point(110, [0., 0.]);
+        t.point(111, [1., 0.]);
+        t.point(112, [0., 1.]);
+        t.tag(297, 0);
+        for (index, path) in paths.iter().enumerate() {
+            t.tag(302, "LEADER{");
+            t.tag(290, 1);
+            t.tag(291, 1);
+            t.point(10, path.connection);
+            t.point(11, path.dogleg);
+            t.tag(90, index);
+            t.tag(40, path.dogleg_length);
+            t.tag(304, "LEADER_LINE{");
+            for p in &path.vertices {
+                t.point(10, *p);
+            }
+            t.tag(91, index);
+            t.tag(92, -1073741824);
+            t.tag(305, "}");
+            t.tag(271, 0);
+            t.tag(303, "}");
+        }
+        t.tag(272, 9);
+        t.tag(273, 9);
+        t.tag(301, "}");
+        t.handle(340, self.mleader_style);
+        t.tag(90, 0x7fff_ffff);
+        t.tag(170, 1);
+        t.tag(91, -1073741824);
+        t.tag(341, "__CONTINUOUS__");
+        t.tag(171, -1); // ByLayer, like the original leader strokes
+        t.tag(290, 1);
+        t.tag(291, usize::from(dogleg_length > 0.));
+        t.tag(41, dogleg_length);
+        if let Some(arrow) = arrow_block {
+            t.handle(342, self.blocks[arrow].record);
+        }
+        t.tag(42, arrow_size);
+        t.tag(172, 2);
+        t.tag(343, format!("__TEXTSTYLE_{}__", text_font(r)));
+        for (c, v) in [
+            (173, 1),
+            (95, 1),
+            (174, 1),
+            (175, 0),
+            (92, -1073741824),
+            (292, 0),
+            (93, -1073741824),
+        ] {
+            t.tag(c, v);
+        }
+        t.tag(10, 1);
+        t.tag(20, 1);
+        t.tag(30, 1);
+        t.tag(43, 0);
+        t.tag(176, 0);
+        t.tag(293, 0);
+        t.tag(294, 0);
+        t.tag(178, 0);
+        t.tag(179, alignment);
+        t.tag(45, 1);
+        t.tag(271, 0);
+        t.tag(272, 9);
+        t.tag(273, 9);
+        t.tag(295, 0);
+        self.put(t, None);
+        h
+    }
+
+    fn native_table(&mut self, table: &NativeTable, layer: &str, index: usize) -> u64 {
+        let p = &table.placed;
+        let row_height = (p.cells[3] - p.cells[1]) / table.rows.len() as f64;
+        let margin =
+            crate::tables::PAD.min((row_height - crate::tables::TEXT * 0.698).max(0.) / 2.);
+        // A real style preserves note alignment and compact/unruled defaults without
+        // relying on reader-specific interpretation of cell override masks.
+        let table_style = if table.left_aligned
+            || !table.ruled
+            || margin != crate::tables::PAD
+            || table.title_row
+            || !table.header_row
+        {
+            let id = self.id();
+            self.table_styles.push(TableStyle {
+                id,
+                margin,
+                ruled: table.ruled,
+                left: table.left_aligned,
+                title: table.title_row,
+                header: table.header_row,
+            });
+            id
+        } else {
+            self.table_style
+        };
+        let at = [p.cells[0], p.cells[3]];
+        let block = self.block(format!("*T{index}"), [0., 0.]);
+        let local = |p: P| [p[0] - at[0], p[1] - at[1]];
+        if table.ruled {
+            for [a, b] in crate::tables::rules(p) {
+                self.curve(&Curve::Line(local(a), local(b)), layer, Some(block));
+            }
+        }
+        for (row, positions) in table.rows.iter().zip(&p.cells_at) {
+            for (cell, position) in row.iter().zip(positions) {
+                if let Some(position) = position {
+                    self.text(
+                        &TextRun {
+                            text: cell.trim().into(),
+                            at: local(*position),
+                            size: crate::tables::TEXT,
+                            rotation: 0.,
+                            font: crate::dims::FONT.into(),
+                            h_align: HAlign::Center,
+                            v_align: VAlign::Middle,
+                        },
+                        layer,
+                        Some(block),
+                        None,
+                    );
+                }
+            }
+        }
+        let (h, mut t) = self.entity("ACAD_TABLE", layer, None);
+        t.tag(100, "AcDbBlockReference");
+        t.tag(2, &self.blocks[block].name);
+        t.point(10, at);
+        t.tag(100, "AcDbTable");
+        t.tag(280, 0);
+        t.handle(342, table_style);
+        t.handle(343, self.blocks[block].record);
+        t.point(11, [1., 0.]);
+        t.tag(90, 0);
+        t.tag(91, table.rows.len());
+        t.tag(92, p.columns.len() - 1);
+        t.tag(93, 0);
+        t.tag(94, 0);
+        t.tag(95, 0);
+        t.tag(96, 0);
+        for _ in &table.rows {
+            t.tag(141, row_height);
+        }
+        for x in p.columns.windows(2) {
+            t.tag(142, x[1] - x[0]);
+        }
+        for row in &table.rows {
+            for c in 0..p.columns.len() - 1 {
+                t.tag(171, 1);
+                t.tag(172, 0);
+                t.tag(173, 0);
+                t.tag(174, 0);
+                t.tag(175, 1);
+                t.tag(176, 1);
+                t.tag(91, 0);
+                t.tag(178, 0);
+                t.tag(145, 0);
+                let cell = row.get(c).map_or("", |s| {
+                    if table.left_aligned {
+                        s.trim_end()
+                    } else {
+                        s.trim()
+                    }
+                });
+                let words = asme_words(cell);
+                let width = cad_width(crate::dims::FONT)
+                    * if words.is_empty() {
+                        1.
+                    } else {
+                        cell.chars().count() as f64 / words.chars().count() as f64
+                    };
+                let content = format!("{{\\W{width:.6};{}}}", symbol_text(&words, false));
+                // AutoCAD's 2007+ AcValue payload, as in ezdxf's
+                // AutoCAD-authored examples_dxf/acad_table_simple.dxf.
+                // 1/2 stores the string value; 302 stores the formatted display string.
+                t.tag(92, 0);
+                t.tag(301, "CELL_VALUE");
+                t.tag(93, 2);
+                t.tag(90, 4); // AcValue data type: string
+                t.long_text(2, 1, &content);
+                t.tag(94, 0);
+                t.tag(300, "");
+                t.tag(302, content);
+                t.tag(304, "ACVALUE_END");
+            }
+        }
+        // All appearance and row-role defaults come from this table's TABLESTYLE.
+        // The table/cell override masks are zero, so no override properties follow.
+
+        self.put(t, None);
+        h
+    }
+}
+
+fn text_height(r: &TextRun) -> f64 {
+    r.size
+        * font_data(&r.font)
+            .and_then(|b| ttf_parser::Face::parse(b, 0).ok())
+            .map_or(0.7, |f| {
+                f.capital_height().unwrap_or(700) as f64 / f.units_per_em() as f64
+            })
+}
+fn text_advance(r: &TextRun) -> f64 {
+    font_data(&r.font)
+        .and_then(|b| ttf_parser::Face::parse(b, 0).ok())
+        .map_or(0., |face| {
+            r.text
+                .chars()
+                .map(|c| {
+                    let glyph =
+                        crate::text::Font::glyph(&face, c).unwrap_or(ttf_parser::GlyphId(0));
+                    face.glyph_hor_advance(glyph).unwrap_or(0) as f64 * r.size
+                        / face.units_per_em() as f64
+                })
+                .sum()
+        })
+}
+struct MLeaderPath {
+    vertices: Vec<P>,
+    connection: P,
+    dogleg: P,
+    dogleg_length: f64,
+}
+fn mleader_path(vertices: &[P], axis: P, text: P) -> MLeaderPath {
+    let last = *vertices.last().unwrap();
+    let before = vertices[vertices.len() - 2];
+    let d = [last[0] - before[0], last[1] - before[1]];
+    let length = d[0].hypot(d[1]);
+    // Only an explicit final shelf becomes a dogleg. Single straight leaders,
+    // including origin axes, retain their full line and have no extra segment.
+    let shelf =
+        vertices.len() >= 3 && length > 0. && (d[0] * axis[1] - d[1] * axis[0]).abs() < 1e-9;
+    let side = if (text[0] - last[0]) * axis[0] + (text[1] - last[1]) * axis[1] >= 0. {
+        1.
+    } else {
+        -1.
+    };
+    MLeaderPath {
+        vertices: vertices[..vertices.len() - if shelf { 2 } else { 1 }].to_vec(),
+        connection: if shelf { before } else { last },
+        dogleg: if shelf {
+            [d[0] / length, d[1] / length]
+        } else {
+            [side * axis[0], side * axis[1]]
+        },
+        dogleg_length: if shelf { length } else { 0. },
+    }
+}
+fn text_width(r: &TextRun) -> f64 {
+    let words = asme_words(&r.text);
+    cad_width(text_font(r))
+        * if words.is_empty() {
+            1.
+        } else {
+            r.text.chars().count() as f64 / words.chars().count() as f64
+        }
+}
+/// Connectivity is explicit in the plan's ordered segments; no nearby ink is searched.
+fn leader_paths(lines: &[[P; 2]]) -> Vec<Vec<P>> {
+    let mut paths: Vec<Vec<P>> = Vec::new();
+    for [a, b] in lines {
+        if let Some(path) = paths.last_mut()
+            && path.last() == Some(a)
+        {
+            path.push(*b);
+        } else {
+            paths.push(vec![*a, *b]);
+        }
+    }
+    paths
+}
+
 /// The letters of gdt.shx (AutoCAD; QCAD ships the same mapping as gdt.cxf) that draw the
 /// symbols haecceity writes in a frame: its characteristics, the zone's diameter sign and the
 /// circled modifiers. Any other symbol is written as plain text (`asme_words`).
@@ -796,10 +1387,13 @@ fn fcf_text(cells: &[String]) -> String {
     cells.join("%%v")
 }
 fn fcf_cell(cell: &str) -> String {
+    symbol_text(cell, true)
+}
+fn symbol_text(cell: &str, frame: bool) -> String {
     let mut out = String::new();
     let mut plain = String::new();
     for c in cell.chars() {
-        if let Some((_, g)) = GDT.iter().find(|(u, _)| *u == c) {
+        if let Some((_, g)) = GDT.iter().find(|(u, _)| *u == c && (frame || c != '⌀')) {
             out.push_str(&encode_mtext(&asme_words(&plain)));
             plain.clear();
             write!(out, "{{\\Fgdt;{g}}}").unwrap();
@@ -1006,6 +1600,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     let mut consumed: BTreeSet<(usize, usize)> = BTreeSet::new();
     let mut runs = BTreeSet::new();
     let mut run_handles = BTreeMap::new();
+    let mut table_run_handles = BTreeMap::new();
     // View blocks use sheet coordinates about a sheet-coordinate base point. INSERT
     // translation thus moves the whole view without altering its 1:1 paper depiction.
     for view in &drawing.sheet.dxf.views {
@@ -1048,6 +1643,33 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     let mut styles: BTreeMap<String, DimStyle> = BTreeMap::new();
     let mut view_handles: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     let mut dim_index = 0;
+    let mut table_index = 0;
+    // Write tables before row-claim annotations: their runs live in the *T graphics,
+    // and row groups refer to the table instead of duplicating its text in model space.
+    for (name, tables) in &drawing.sheet.dxf.tables {
+        let mut handles = Vec::new();
+        for table in tables {
+            table_index += 1;
+            handles.push(w.native_table(table, TEXT, table_index));
+        }
+        if let Some(range) = drawing.sheet.dxf.furniture.get(name)
+            && let Some(l) = drawing.layers.get(2)
+        {
+            for i in range.clone() {
+                consumed.insert((2, i));
+                if let Some(Item::Glyph(_, r) | Item::TextStroke(_, r) | Item::FrameText(_, r)) =
+                    l.items.get(i)
+                {
+                    runs.insert(*r);
+                    table_run_handles.insert(*r, handles.clone());
+                }
+            }
+        }
+        if let Some(v) = drawing.sheet.dxf.furniture_views.get(name) {
+            view_handles.entry(v.clone()).or_default().extend(&handles);
+        }
+        w.group(name.clone(), handles);
+    }
     for a in &drawing.annotations {
         let range = drawing
             .sheet
@@ -1078,12 +1700,19 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         });
         let mut handles = Vec::new();
         let frame = drawing.sheet.dxf.frames.get(&a.name);
+        // Measured diameter/radius callouts retain main's live DIMENSION and its graphics.
+        let leader = native
+            .is_none()
+            .then(|| drawing.sheet.dxf.leaders.get(&a.name))
+            .flatten();
         if let Some(l) = drawing.layers.get(2) {
             for i in range.clone() {
                 if let Some(item) = l.items.get(i) {
-                    let own =
-                        frame.is_some_and(|f| f.ink.iter().any(|r| r.contains(&(i - range.start))));
-                    if !own {
+                    let own = frame
+                        .is_some_and(|f| f.ink.iter().any(|r| r.contains(&(i - range.start))))
+                        || leader
+                            .is_some_and(|f| f.ink.iter().any(|r| r.contains(&(i - range.start))));
+                    if !own && !consumed.contains(&(2, i)) {
                         handles.extend(w.item(item, layer, block));
                     }
                     consumed.insert((2, i));
@@ -1096,9 +1725,37 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 ..DimStyle::default()
             };
             styles.insert(style.name(), style);
-            handles.push(w.tolerance(f, layer, &style.name()));
+            let tolerance = w.tolerance(f, layer, &style.name());
+            handles.push(tolerance);
+            if let Some(leader) = leader {
+                handles.extend(w.frame_leader(
+                    leader,
+                    Some((tolerance, f.at)),
+                    &style.name(),
+                    layer,
+                ));
+            }
+        } else if let Some(leader) = leader {
+            let text: Vec<_> = a.runs.iter().filter_map(|r| drawing.text.get(*r)).collect();
+            if !text.is_empty() {
+                let h = w.multileader(leader, &text, layer);
+                handles.push(h);
+                for &r in &a.runs {
+                    runs.insert(r);
+                    run_handles.insert(r, Some(h));
+                }
+            } else {
+                handles.extend(w.frame_leader(leader, None, "STANDARD", layer));
+            }
         }
         for (n, &r) in a.runs.iter().enumerate() {
+            if runs.contains(&r) {
+                handles.extend(run_handles.get(&r).copied().flatten());
+                if let Some(table) = table_run_handles.get(&r) {
+                    handles.extend(table);
+                }
+                continue;
+            }
             if frame.is_some_and(|f| n >= f.lead) {
                 runs.insert(r);
                 continue;
@@ -1221,6 +1878,9 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     }
     if let Some(l) = drawing.layers.get(2) {
         for (name, range) in &drawing.sheet.dxf.furniture {
+            if drawing.sheet.dxf.tables.contains_key(name) {
+                continue;
+            }
             let layer = if drawing
                 .sheet
                 .items
@@ -1232,10 +1892,40 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 TEXT
             };
             let mut handles = Vec::new();
+            let leader = drawing.sheet.dxf.leaders.get(name);
+            if let Some(leader) = leader {
+                let indices: BTreeSet<_> = l.items[range.clone()]
+                    .iter()
+                    .filter_map(|item| match item {
+                        Item::Glyph(_, r) | Item::TextStroke(_, r) | Item::FrameText(_, r) => {
+                            Some(*r)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let text: Vec<_> = indices
+                    .iter()
+                    .filter_map(|r| drawing.text.get(*r))
+                    .collect();
+                if !text.is_empty() {
+                    let h = w.multileader(leader, &text, layer);
+                    handles.push(h);
+                    for r in indices {
+                        runs.insert(r);
+                        run_handles.insert(r, Some(h));
+                    }
+                } else {
+                    handles.extend(w.frame_leader(leader, None, "STANDARD", layer));
+                }
+            }
             for i in range.clone() {
                 if let Some(item) = l.items.get(i) {
                     if !consumed.contains(&(2, i)) {
-                        handles.extend(w.item(item, layer, None));
+                        if !leader
+                            .is_some_and(|f| f.ink.iter().any(|r| r.contains(&(i - range.start))))
+                        {
+                            handles.extend(w.item(item, layer, None));
+                        }
                         consumed.insert((2, i));
                     }
                     if let Item::Glyph(_, r) | Item::TextStroke(_, r) | Item::FrameText(_, r) = item
@@ -1461,8 +2151,10 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     // at a placeholder held in ACAD_PLOTSTYLENAME.
     let plot_styles = w.id();
     let normal = w.id();
+    let mleader_dict = w.id();
+    let table_dict = w.id();
     let group_ids: Vec<_> = (0..w.groups.len()).map(|_| w.id()).collect();
-    let mut reactors: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
+    let mut reactors = std::mem::take(&mut w.annotation_reactors);
     for ((_, handles), id) in w.groups.iter().zip(&group_ids) {
         for h in handles {
             reactors.entry(*h).or_default().push(*id);
@@ -1545,6 +2237,49 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     out.tag(0, "ENDSEC");
     out.tag(0, "SECTION");
     out.tag(2, "CLASSES");
+    for (name, cpp, app, flags, entity, count) in [
+        (
+            "MULTILEADER",
+            "AcDbMLeader",
+            "ACDB_MLEADER_CLASS",
+            3071,
+            1,
+            w.entities.0.matches("\nMULTILEADER\n").count(),
+        ),
+        (
+            "MLEADERSTYLE",
+            "AcDbMLeaderStyle",
+            "ACDB_MLEADERSTYLE_CLASS",
+            4095,
+            0,
+            2,
+        ),
+        (
+            "ACAD_TABLE",
+            "AcDbTable",
+            "ObjectDBX Classes",
+            1025,
+            1,
+            table_count(&drawing.sheet.dxf),
+        ),
+        (
+            "TABLESTYLE",
+            "AcDbTableStyle",
+            "ObjectDBX Classes",
+            4095,
+            0,
+            2 + w.table_styles.len(),
+        ),
+    ] {
+        out.tag(0, "CLASS");
+        out.tag(1, name);
+        out.tag(2, cpp);
+        out.tag(3, app);
+        out.tag(90, flags);
+        out.tag(91, count);
+        out.tag(280, 0);
+        out.tag(281, entity);
+    }
     out.tag(0, "CLASS");
     out.tag(1, "LAYOUT");
     out.tag(2, "AcDbLayout");
@@ -1623,6 +2358,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(0, "ENDTAB");
     }
     let lt = w.id();
+    let mut continuous = 0;
     table(&mut out, "LTYPE", lt, 5);
     for (name, pattern) in [
         ("ByBlock", vec![]),
@@ -1631,14 +2367,11 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         ("ISO_DASH", vec![1.5875, -0.79375]),
         ("ISO_CHAIN", vec![8., -1.5, 0.2, -1.5]),
     ] {
-        record(
-            &mut out,
-            "LTYPE",
-            w.id(),
-            lt,
-            "AcDbLinetypeTableRecord",
-            name,
-        );
+        let id = w.id();
+        if name == "CONTINUOUS" {
+            continuous = id;
+        }
+        record(&mut out, "LTYPE", id, lt, "AcDbLinetypeTableRecord", name);
         out.tag(3, name);
         out.tag(72, 65);
         out.tag(73, pattern.len());
@@ -1774,7 +2507,10 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(8, "0");
         out.tag(100, "AcDbBlockBegin");
         out.tag(2, &b.name);
-        out.tag(70, usize::from(b.name.starts_with("*D")));
+        out.tag(
+            70,
+            usize::from(b.name.starts_with("*D") || b.name.starts_with("*T")),
+        );
         out.point(10, b.at);
         out.tag(3, &b.name);
         out.tag(1, "");
@@ -1803,6 +2539,143 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     out.handle(350, plot_settings);
     out.tag(3, "ACAD_PLOTSTYLENAME");
     out.handle(350, plot_styles);
+    out.tag(3, "ACAD_MLEADERSTYLE");
+    out.handle(350, mleader_dict);
+    out.tag(3, "ACAD_TABLESTYLE");
+    out.handle(350, table_dict);
+    dictionary(&mut out, mleader_dict, root);
+    out.tag(3, "Standard");
+    out.handle(350, 0x102);
+    out.tag(3, "Draftwright");
+    out.handle(350, w.mleader_style);
+    dictionary(&mut out, table_dict, root);
+    out.tag(3, "Standard");
+    out.handle(350, 0x103);
+    out.tag(3, "Draftwright");
+    out.handle(350, w.table_style);
+    for s in &w.table_styles {
+        out.tag(3, format!("Draftwright_{:X}", s.id));
+        out.handle(350, s.id);
+    }
+    for (id, name) in [(0x102, "Standard"), (w.mleader_style, "Draftwright")] {
+        out.tag(0, "MLEADERSTYLE");
+        out.handle(5, id);
+        out.tag(102, "{ACAD_REACTORS");
+        out.handle(330, mleader_dict);
+        out.tag(102, "}");
+        out.handle(330, mleader_dict);
+        out.tag(100, "AcDbMLeaderStyle");
+        // Canonical AcDbMLeaderStyle order (Autodesk and ezdxf's reference).
+        out.tag(179, 2);
+        out.tag(170, 2);
+        out.tag(171, 1);
+        out.tag(172, 0);
+        out.tag(90, 2);
+        out.tag(40, 0.);
+        out.tag(41, 0.);
+        out.tag(173, 1);
+        out.tag(91, -1073741824);
+        out.handle(340, continuous);
+        out.tag(92, -1);
+        out.tag(290, 1);
+        out.tag(42, 0.);
+        out.tag(291, 1);
+        out.tag(43, 3.);
+        out.tag(3, name);
+        out.tag(44, crate::dims::ARROW);
+        out.tag(300, "");
+        out.handle(342, textstyles[crate::dims::FONT]);
+        out.tag(174, 1);
+        out.tag(175, 1);
+        out.tag(176, 0);
+        out.tag(178, 1);
+        out.tag(93, -1073741824);
+        out.tag(45, crate::dims::TEXT * 0.698);
+        out.tag(292, 0);
+        out.tag(297, 0);
+        out.tag(46, 0.);
+        out.tag(94, -1073741824);
+        out.tag(47, 1.);
+        out.tag(49, 1.);
+        out.tag(140, 1.);
+        out.tag(294, 1);
+        out.tag(141, 0.);
+        out.tag(177, 0);
+        out.tag(142, 1.);
+        out.tag(295, 0);
+        out.tag(296, 0);
+        out.tag(143, 0.);
+        out.tag(271, 0);
+        out.tag(272, 9);
+        out.tag(273, 9);
+    }
+    for TableStyle {
+        id,
+        margin,
+        ruled,
+        left,
+        title,
+        header,
+    } in std::iter::once(TableStyle {
+        id: w.table_style,
+        margin: crate::tables::PAD,
+        ruled: true,
+        left: false,
+        title: false,
+        header: true,
+    })
+    .chain(std::iter::once(TableStyle {
+        id: 0x103,
+        margin: crate::tables::PAD,
+        ruled: true,
+        left: false,
+        title: false,
+        header: true,
+    }))
+    .chain(w.table_styles.iter().copied())
+    {
+        out.tag(0, "TABLESTYLE");
+        out.handle(5, id);
+        out.tag(102, "{ACAD_REACTORS");
+        out.handle(330, table_dict);
+        out.tag(102, "}");
+        out.handle(330, table_dict);
+        out.tag(100, "AcDbTableStyle");
+        out.tag(280, 0);
+        out.tag(
+            3,
+            if id == 0x103 {
+                "Standard"
+            } else {
+                "Draftwright"
+            },
+        );
+        out.tag(70, 0);
+        out.tag(71, 0);
+        out.tag(40, crate::tables::PAD);
+        out.tag(41, margin);
+        out.tag(280, usize::from(!title));
+        out.tag(281, usize::from(!header));
+        for _ in 0..3 {
+            out.tag(7, style(crate::dims::FONT));
+            out.tag(140, crate::tables::TEXT * 0.698);
+            out.tag(170, if left { 4 } else { 5 });
+            out.tag(62, 0);
+            out.tag(63, 7);
+            out.tag(283, 0);
+            out.tag(90, 1);
+            out.tag(91, 0);
+            for code in 274..=279 {
+                out.tag(code, -2);
+            }
+            for code in 284..=289 {
+                out.tag(code, usize::from(ruled));
+            }
+            for code in 64..=69 {
+                out.tag(code, 0);
+            }
+        }
+    }
     out.tag(0, "ACDBDICTIONARYWDFLT");
     out.handle(5, plot_styles);
     out.handle(330, root);
@@ -1851,9 +2724,17 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     }
     out.tag(0, "ENDSEC");
     out.tag(0, "EOF");
-    out.0
+    let mut text = out
+        .0
         .replace("__HANDSEED__", &format!("{:X}", w.next))
-        .into_bytes()
+        .replace("__CONTINUOUS__", &format!("{continuous:X}"));
+    for (font, id) in textstyles {
+        text = text.replace(&format!("__TEXTSTYLE_{font}__"), &format!("{id:X}"));
+    }
+    text.into_bytes()
+}
+fn table_count(s: &Structure) -> usize {
+    s.tables.values().map(Vec::len).sum()
 }
 /// R2000+ layouts have reciprocal links with their BLOCK_RECORDs.
 fn layout(t: &mut Tags, id: u64, owner: u64, block: u64, name: &str, tab: usize, page: P) {
@@ -2204,5 +3085,286 @@ mod tolerance_tests {
         };
         // Degrees are degrees on an inch sheet too.
         assert_eq!(live_label(&angle, 5, true), "<>");
+    }
+}
+
+#[cfg(test)]
+mod native_annotation_tests {
+    use super::*;
+
+    fn pairs(tags: &Tags) -> Vec<(i32, String)> {
+        tags.0
+            .lines()
+            .collect::<Vec<_>>()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| (p[0].trim().parse().unwrap(), p[1].to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn wrapped_leader_keeps_run_centres_and_baseline_spacing() {
+        for rotation in [0_f64, 30., 90.] {
+            for v_align in [VAlign::Baseline, VAlign::Middle] {
+                let (sin, cos) = rotation.to_radians().sin_cos();
+                let origin = [20., 40.];
+                let run = |x, y, text: &str| TextRun {
+                    text: text.into(),
+                    at: [origin[0] + x * cos - y * sin, origin[1] + x * sin + y * cos],
+                    size: 3.,
+                    rotation,
+                    font: crate::dims::FONT.into(),
+                    h_align: HAlign::Center,
+                    v_align,
+                };
+                let first = run(18., 0., "⌀10 THRU CBORE");
+                let second = run(3., -4.2, "↧ 5");
+                let leader = Leader {
+                    lines: vec![[[1., 2.], [3., 4.]], [[3., 4.], [5., 4.]]],
+                    arrows: vec![[[1., 2.], [2., 3.]]],
+                    text_at: Some(origin),
+                    ..Default::default()
+                };
+                let mut w = Writer::new();
+                w.multileader(&leader, &[&first, &second], DIMS);
+                let tags = pairs(&w.entities);
+                let number = |code| {
+                    tags.iter()
+                        .find(|t| t.0 == code)
+                        .unwrap()
+                        .1
+                        .parse::<f64>()
+                        .unwrap()
+                };
+                let height = text_height(&first);
+                assert!((number(45) * height * 5. / 3. - 4.2).abs() < 1e-12);
+                let top = if v_align == VAlign::Baseline {
+                    height
+                } else {
+                    height / 2.
+                };
+                assert!((number(12) - (first.at[0] - sin * top)).abs() < 1e-12);
+                assert!((number(22) - (first.at[1] + cos * top)).abs() < 1e-12);
+                assert_eq!(number(171), 2.); // retain the original run's centre attachment
+                assert!((number(140) - 2_f64.sqrt()).abs() < 1e-12);
+                let content = &tags.iter().find(|t| t.0 == 304).unwrap().1;
+                assert!(content.contains("%%c10 THRU CBORE"));
+                assert!(content.contains("\\P"));
+                assert!(content.contains("DEEP 5"));
+                let paragraph = content.split("\\P").nth(1).unwrap();
+                let props = paragraph[..paragraph.find(';').unwrap()]
+                    .split(',')
+                    .collect::<Vec<_>>();
+                let left: f64 = props[1][1..].parse().unwrap();
+                let right: f64 = props[2][1..].parse().unwrap();
+                assert!(left >= 0. && right >= 0., "AutoCAD-safe paragraph indents");
+                assert!(
+                    ((left - right) * height / 2. + 15.).abs() < 1e-8,
+                    "the second row must keep its planned centre, 15 mm before the first"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mleader_uses_reference_context_order_and_explicit_connections_on_both_sides() {
+        for (points, at, expected_direction, length) in [
+            (vec![[1.0001, 2.], [3., 4.]], [5., 4.], [1., 0.], 0.),
+            (vec![[1., 2.], [3., 4.], [6., 4.]], [10., 4.], [1., 0.], 3.),
+            (
+                vec![[20., 2.], [17., 4.], [14., 4.]],
+                [10., 4.],
+                [-1., 0.],
+                3.,
+            ),
+        ] {
+            let run = TextRun {
+                text: "C5".into(),
+                at,
+                size: 3.,
+                rotation: 0.,
+                font: crate::dims::FONT.into(),
+                h_align: HAlign::Center,
+                v_align: VAlign::Middle,
+            };
+            let leader = Leader {
+                lines: points.windows(2).map(|p| [p[0], p[1]]).collect(),
+                arrows: vec![[points[0], [points[0][0] + 1., points[0][1]]]],
+                ..Default::default()
+            };
+            let mut w = Writer::new();
+            w.multileader(&leader, &[&run], DIMS);
+            let tags = pairs(&w.entities);
+            let begin = tags.iter().position(|t| t.0 == 304).unwrap();
+            let end = tags.iter().position(|t| t.0 == 296).unwrap();
+            assert_eq!(
+                tags[begin..end].iter().map(|t| t.0).collect::<Vec<_>>(),
+                [
+                    304, 11, 21, 31, 340, 12, 22, 32, 13, 23, 33, 42, 43, 44, 45, 170, 90, 171,
+                    172, 91, 141, 92, 291, 292, 173, 293, 142, 143, 294, 295
+                ]
+            );
+            let group = tags.iter().position(|t| t.0 == 302).unwrap();
+            let line = tags[group..].iter().position(|t| t.0 == 304).unwrap() + group;
+            let number = |part: &[(i32, String)], code| {
+                part.iter()
+                    .find(|t| t.0 == code)
+                    .unwrap()
+                    .1
+                    .parse::<f64>()
+                    .unwrap()
+            };
+            assert_eq!(number(&tags[group..line], 290), 1.);
+            assert_eq!(number(&tags[group..line], 291), 1.);
+            assert_eq!(
+                [
+                    number(&tags[group..line], 11),
+                    number(&tags[group..line], 21)
+                ],
+                expected_direction
+            );
+            assert_eq!(number(&tags[group..line], 40), length);
+            assert_eq!(
+                tags[line..]
+                    .iter()
+                    .take_while(|t| t.0 != 305)
+                    .filter(|t| t.0 == 10)
+                    .count(),
+                1
+            );
+            let connection = [
+                number(&tags[group..line], 10),
+                number(&tags[group..line], 20),
+            ];
+            assert_eq!(
+                connection,
+                points[if length > 0. { 1 } else { points.len() - 1 }]
+            );
+            assert_eq!(
+                [
+                    connection[0] + expected_direction[0] * length,
+                    connection[1] + expected_direction[1] * length
+                ],
+                *points.last().unwrap()
+            );
+            assert_eq!(number(&tags[begin..end], 171), 2.);
+            assert_eq!(tags.iter().find(|t| t.0 == 179).unwrap().1, "2");
+            assert!((number(&tags[begin..end], 22) - at[1] - text_height(&run) / 2.).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn graphic_only_leader_keeps_its_dot_and_arrow_blocks_inherit_byblock() {
+        let mut w = Writer::new();
+        w.weight = Some(50);
+        w.colour = Some(0xff0000);
+        let leader = Leader {
+            lines: vec![[[2., 3.], [4., 5.]]],
+            dot: true,
+            ..Default::default()
+        };
+        assert_eq!(w.frame_leader(&leader, None, "STANDARD", DIMS).len(), 2);
+        let tags = pairs(&w.entities);
+        let insert = tags
+            .split(|t| t.0 == 0)
+            .find(|t| t.contains(&(100, "AcDbBlockReference".into())))
+            .unwrap();
+        assert!(insert.contains(&(2, "DW_LEADER_DOT".into())));
+        assert!(insert.contains(&(10, "2".into())) && insert.contains(&(20, "3".into())));
+        w.leader_arrow_block(1., false).unwrap();
+        assert_eq!(w.blocks.len(), 2);
+        for block in &w.blocks {
+            let ink = pairs(&block.entities);
+            assert!(ink.contains(&(8, "0".into())));
+            assert!(ink.contains(&(62, "0".into())));
+            assert!(ink.contains(&(370, "-2".into())));
+            assert!(!ink.iter().any(|t| t.0 == 420));
+        }
+        assert!(pairs(&w.blocks[0].entities).contains(&(40, "0.3".into())));
+        let arrow = pairs(&w.blocks[1].entities);
+        assert!(arrow.contains(&(21, crate::dims::ARROW_HALF.to_string())));
+    }
+
+    #[test]
+    fn table_keeps_compact_rows_local_graphics_and_long_editable_cells() {
+        let content = "long editable text ".repeat(40);
+        let table = NativeTable {
+            rows: vec![vec!["HEADER".into()], vec![content]],
+            placed: crate::tables::PlacedTable {
+                cells: [20., 30., 100., 38.],
+                columns: vec![20., 100.],
+                cells_at: vec![vec![Some([60., 36.])], vec![Some([60., 32.])]],
+                blocks: Vec::new(),
+            },
+            ruled: false,
+            left_aligned: true,
+            title_row: true,
+            header_row: false,
+        };
+        let mut w = Writer::new();
+        w.native_table(&table, TEXT, 1);
+        let TableStyle {
+            margin,
+            ruled,
+            left,
+            title,
+            header,
+            ..
+        } = w.table_styles[0];
+        assert!(!ruled && left);
+        assert!(title && !header);
+        assert!(
+            (2. * margin + crate::tables::TEXT * 0.698 - 4.).abs() < 1e-12,
+            "the native style must allow the planned compact row height"
+        );
+        let tags = pairs(&w.entities);
+        assert_eq!(tags.iter().rev().find(|t| t.0 == 280).unwrap().1, "0");
+        assert_eq!(tags.iter().filter(|t| t.0 == 280).count(), 1);
+        assert!(!tags.iter().any(|t| {
+            [
+                7, 140, 170, 64, 63, 283, 289, 285, 286, 288, 70, 40, 41, 281,
+            ]
+            .contains(&t.0)
+        }));
+        assert_eq!(
+            tags.iter()
+                .filter(|t| t.0 == 141)
+                .map(|t| t.1.as_str())
+                .collect::<Vec<_>>(),
+            ["4", "4"]
+        );
+        assert!(tags.iter().any(|t| t.0 == 2 && t.1.len() == 250));
+        let chunks: String = tags
+            .iter()
+            .skip_while(|t| t.0 != 171)
+            .filter(|t| matches!(t.0, 1 | 2))
+            .map(|t| t.1.as_str())
+            .collect();
+        assert_eq!(chunks.matches("long editable text").count(), 40);
+        let displays: Vec<_> = tags
+            .iter()
+            .filter(|t| t.0 == 302)
+            .map(|t| t.1.as_str())
+            .collect();
+        assert_eq!(displays.len(), 2);
+        assert_eq!(displays[1].matches("long editable text").count(), 40);
+        assert_eq!(
+            tags.iter()
+                .filter(|t| t.0 == 301 && t.1 == "CELL_VALUE")
+                .count(),
+            2
+        );
+        assert_eq!(
+            tags.iter()
+                .filter(|t| t.0 == 304 && t.1 == "ACVALUE_END")
+                .count(),
+            2
+        );
+        let graphics = &w.blocks[0];
+        assert_eq!(graphics.at, [0., 0.]);
+        let ink = pairs(&graphics.entities);
+        assert!(!ink.iter().any(|t| t.0 == 0 && t.1 == "LINE"));
+        assert!(ink.contains(&(10, "40".into())) && ink.contains(&(20, "-2".into())));
     }
 }

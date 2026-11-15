@@ -825,6 +825,12 @@ fn settle_counted_stack(
         let bare = base.gdt[carrier].placed.as_ref()?;
         let lift = plan.gdt[carrier].placed.as_ref()?.label_box[3] - bare.label_box[3] + GAP;
         for dy in [0.0, lift] {
+            // A scope carrier's ring and horizontal shelf are already reserved.
+            // The lifting dogleg has no shelf at its first bend; keep this
+            // carrier fixed and try another stack site instead.
+            if dy > 0.0 && !base.gdt[carrier].modifiers.is_empty() {
+                continue;
+            }
             let mut trial = base.clone();
             let mut next = gdt::translated(next.clone(), [0., dy]);
             gdt::with_count(&mut next, n);
@@ -839,14 +845,6 @@ fn settle_counted_stack(
                     lifted.lines = vec![*first, [first[1], raised]];
                     lifted.lines.extend(rest.into_iter().skip(1));
                     lifted.arrows.clone_from(&old.arrows);
-                    // The all-around/all-over rings stay at the original first bend.
-                    let rings: usize = trial.gdt[carrier]
-                        .modifiers
-                        .iter()
-                        .map(|m| if m == "all_over" { 2 } else { 1 })
-                        .sum();
-                    let end = old.arcs.len();
-                    lifted.arcs[end - rings..].copy_from_slice(&old.arcs[end - rings..]);
                 }
                 trial.gdt[gi].placed = Some(next.clone());
                 let mut own = attached.clone();

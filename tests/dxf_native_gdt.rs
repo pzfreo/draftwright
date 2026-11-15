@@ -59,7 +59,10 @@ fn decode(s: &str) -> Vec<String> {
                 rest = &rest[i + 7 + g.len_utf8() + 1..];
             }
             out.push_str(rest);
-            out.replace("%%c", "⌀").replace('X', "×")
+            out.replace("%%c", "⌀")
+                .replace("%%d", "°")
+                .replace("%%p", "±")
+                .replace('X', "×")
         })
         .collect()
 }
@@ -99,7 +102,11 @@ fn text_of(e: &Entity) -> String {
     // A TOLERANCE's group 3 is its dimension style; an MTEXT's are its leading chunks.
     e.tags
         .iter()
-        .filter(|t| t.0 == 1 || (t.0 == 3 && e.kind != "TOLERANCE"))
+        .filter(|t| {
+            t.0 == 1
+                || (t.0 == 3 && e.kind != "TOLERANCE")
+                || (t.0 == 304 && e.kind == "MULTILEADER")
+        })
         .map(|t| t.1.as_str())
         .collect()
 }
@@ -123,6 +130,54 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
         }
     }
     let all = entities(&bytes);
+    for table in plan
+        .hole_table
+        .iter()
+        .chain(&plan.hole_tables)
+        .filter(|t| drawing.sheet.dxf.tables.contains_key(&t.id))
+    {
+        for native in &drawing.sheet.dxf.tables[&table.id] {
+            assert_eq!(
+                native.title_row,
+                table.view.is_some(),
+                "{name}: hole view title"
+            );
+            assert!(native.header_row, "{name}: hole column headings");
+        }
+    }
+    for id in ["general_notes", "blend_radius_notes"] {
+        if let Some(tables) = drawing.sheet.dxf.tables.get(id) {
+            assert!(
+                tables.iter().all(|t| t.title_row && !t.header_row),
+                "{name}: notes heading"
+            );
+        }
+    }
+    for d in plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && drawing.annotations.iter().any(|a| a.name == d.id))
+    {
+        let p = d.placed.as_ref().unwrap();
+        if !p.lines.is_empty() {
+            let leader = &drawing.sheet.dxf.leaders[&d.id];
+            assert_eq!(leader.lines, p.lines, "{name}: {} leader plan", d.id);
+            assert_eq!(leader.arrows, p.arrows, "{name}: {} arrows", d.id);
+        }
+    }
+    for g in plan
+        .gdt
+        .iter()
+        .filter(|g| g.kind != "datum_feature" && drawing.annotations.iter().any(|a| a.name == g.id))
+    {
+        let p = g.placed.as_ref().unwrap();
+        if !p.lines.is_empty() {
+            let leader = &drawing.sheet.dxf.leaders[&g.id];
+            assert_eq!(leader.lines, p.lines, "{name}: {} frame leader plan", g.id);
+            assert_eq!(leader.arrows, p.arrows, "{name}: {} frame arrows", g.id);
+        }
+    }
+    check_native_annotations(name, drawing, &all);
     let geometry = |all: &[Entity]| {
         let mut n = BTreeMap::new();
         for e in all.iter().filter(|e| {
@@ -246,7 +301,12 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     let texts = all
         .iter()
         .filter(|e| matches!(e.kind.as_str(), "TEXT" | "MTEXT" | "ATTRIB"))
-        .count();
+        .count()
+        + all
+            .iter()
+            .filter(|e| e.kind == "MULTILEADER")
+            .map(|e| tag(e, 304).unwrap().matches("\\P").count() + 1)
+            .sum::<usize>();
     let dxf = &drawing.sheet.dxf;
     let field_runs = drawing
         .text
@@ -270,7 +330,14 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     for e in &all {
         if matches!(
             e.kind.as_str(),
-            "TEXT" | "MTEXT" | "ATTRIB" | "ATTDEF" | "TOLERANCE" | "DIMENSION"
+            "TEXT"
+                | "MTEXT"
+                | "ATTRIB"
+                | "ATTDEF"
+                | "TOLERANCE"
+                | "DIMENSION"
+                | "MULTILEADER"
+                | "ACAD_TABLE"
         ) {
             let t = text_of(e);
             assert!(t.is_ascii(), "{name}: {} has {t:?}", e.kind);
@@ -309,12 +376,429 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
         }
         for a in &p.arcs[n - rings..] {
             assert!(has(a), "{name}: {} lost a bend ring", g.id);
+            let bounds = p.strokes[..p.frame_strokes].iter().flatten().fold(
+                [
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                ],
+                |b, q| {
+                    [
+                        b[0].min(q[0]),
+                        b[1].min(q[1]),
+                        b[2].max(q[0]),
+                        b[3].max(q[1]),
+                    ]
+                },
+            );
+            let nearest = [
+                a[0].clamp(bounds[0], bounds[2]),
+                a[1].clamp(bounds[1], bounds[3]),
+            ];
+            assert!(
+                (nearest[0] - a[0]).hypot(nearest[1] - a[1]) > a[2],
+                "{name}: {} ring {a:?} intersects frame {bounds:?}",
+                g.id
+            );
+            // These shafts are vertical on main; scope clearance must not tilt them.
+            let vertical_on_main = (name.contains("nist_ftc_07_")
+                && g.modifiers.iter().any(|m| m == "all_over"))
+                || (name.contains("nist_ftc_10_") && g.id.contains("perpendicularity"))
+                || (name.contains("nist_stc_09_") && g.id.contains("position"));
+            if vertical_on_main {
+                assert!(
+                    (p.lines[0][0][0] - p.lines[0][1][0]).abs() < 1e-6,
+                    "{name}: {} acquired a leaning shaft",
+                    g.id
+                );
+            }
+            let bend = p.lines[0][1];
+            assert!(
+                (bend[0] - a[0]).hypot(bend[1] - a[1]) < 1e-9,
+                "{name}: {} ring left its bend",
+                g.id
+            );
+            let stub = p
+                .lines
+                .iter()
+                .find(|l| l[0] == bend && (l[1][1] - bend[1]).abs() < 1e-9)
+                .unwrap_or_else(|| panic!("{name}: {} has no horizontal bend stub", g.id));
+            // The visible segment past the outer ring retains the contact audit's
+            // half-millimetre text clearance. Check every ring, on every part.
+            assert!(
+                (stub[1][0] - bend[0]).abs() >= a[2] + 0.5 - 1e-9,
+                "{name}: {} ring hides its stub {stub:?}",
+                g.id
+            );
         }
         found.counted += usize::from(p.runs.len() > g.cells.len());
         found.filled += usize::from(!p.fills.is_empty());
     }
     found.written = raw;
     found
+}
+
+fn owner(e: &Entity) -> Option<&str> {
+    let mut reactor = false;
+    for (code, value) in &e.tags {
+        if *code == 102 {
+            reactor = value != "}";
+        }
+        if *code == 330 && !reactor {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// An independent tag-level check: the Rust DXF reader skips MULTILEADER and TABLE.
+fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
+    let by_handle: BTreeMap<_, _> = all.iter().filter_map(|e| Some((tag(e, 5)?, e))).collect();
+    let resolve = |handle: &str, kind: &str| {
+        let e = by_handle
+            .get(handle)
+            .unwrap_or_else(|| panic!("{name}: missing handle {handle}"));
+        assert_eq!(e.kind, kind, "{name}: {handle}");
+    };
+    let point = |tags: &[(i32, String)], code: i32| -> [f64; 2] {
+        [code, code + 10].map(|c| tags.iter().find(|t| t.0 == c).unwrap().1.parse().unwrap())
+    };
+    let mut written_paths = Vec::new();
+    for e in all
+        .iter()
+        .filter(|e| e.kind == "MULTILEADER" || e.kind == "LEADER")
+    {
+        resolve(owner(e).unwrap(), "BLOCK_RECORD");
+        if e.kind == "LEADER" {
+            if tag(e, 73) == Some("1") {
+                resolve(tag(e, 340).unwrap(), "TOLERANCE");
+            } else {
+                assert_eq!(tag(e, 73), Some("3"));
+                assert!(tag(e, 340).is_none());
+            }
+            let vertices: Vec<_> = e
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.0 == 10)
+                .map(|(i, _)| point(&e.tags[i..], 10))
+                .collect();
+            assert_eq!(
+                tag(e, 76).unwrap().parse::<usize>().unwrap(),
+                vertices.len()
+            );
+            let offset = point(&e.tags, 213);
+            if let Some(handle) = tag(e, 340) {
+                let at = point(&by_handle[handle].tags, 10);
+                let last = vertices.last().unwrap();
+                assert_eq!(
+                    offset,
+                    [last[0] - at[0], last[1] - at[1]],
+                    "{name}: frame attachment offset"
+                );
+            } else {
+                assert_eq!(offset, [0., 0.]);
+            }
+            written_paths.extend(vertices.windows(2).map(|p| [p[0], p[1]]));
+        } else {
+            let common = e.tags.iter().position(|t| t.0 == 301).unwrap() + 1;
+            let common_tag = |code| {
+                e.tags[common..]
+                    .iter()
+                    .find(|t| t.0 == code)
+                    .unwrap()
+                    .1
+                    .as_str()
+            };
+            resolve(common_tag(340), "MLEADERSTYLE");
+            resolve(common_tag(343), "STYLE");
+            resolve(common_tag(341), "LTYPE");
+            assert_eq!(common_tag(171), "-1", "{name}: leader uses layer weight");
+            assert_eq!(
+                tag(by_handle[common_tag(340)], 92),
+                Some("-1"),
+                "{name}: leader style uses layer weight"
+            );
+            resolve(tag(e, 340).unwrap(), "STYLE");
+            assert!(!tag(e, 304).unwrap().is_empty());
+            assert!(
+                matches!(common_tag(179), "1" | "2" | "3"),
+                "{name}: legal text attachment"
+            );
+            assert_eq!(common_tag(290), "1", "{name}: landing enabled");
+            assert!(!tag(e, 304).unwrap().contains("l-"));
+            assert!(!tag(e, 304).unwrap().contains("r-"));
+            // A line stores vertices before the final connection. Its last segment
+            // and optional dogleg are separate data, as in the ezdxf/QCAD probes.
+            for (i, _) in e
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.0 == 302 && t.1 == "LEADER{")
+            {
+                let end = i + e.tags[i..].iter().position(|t| t.0 == 303).unwrap();
+                let leader = &e.tags[i..end];
+                assert_eq!(leader.iter().find(|t| t.0 == 290).unwrap().1, "1");
+                assert_eq!(leader.iter().find(|t| t.0 == 291).unwrap().1, "1");
+                let connection = point(leader, 10);
+                let vector = point(leader, 11);
+                assert!((vector[0].hypot(vector[1]) - 1.).abs() < 1e-12);
+                let length: f64 = leader
+                    .iter()
+                    .find(|t| t.0 == 40)
+                    .unwrap()
+                    .1
+                    .parse()
+                    .unwrap();
+                let line = leader
+                    .iter()
+                    .position(|t| t.0 == 304 && t.1 == "LEADER_LINE{")
+                    .unwrap();
+                let mut vertices: Vec<_> = leader[line..]
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.0 == 10)
+                    .map(|(j, _)| point(&leader[line + j..], 10))
+                    .collect();
+                assert!(!vertices.is_empty());
+                assert_ne!(
+                    vertices.last().unwrap(),
+                    &connection,
+                    "{name}: no duplicated connection point"
+                );
+                vertices.push(connection);
+                if length > 0. {
+                    assert_eq!(common_tag(291), "1");
+                    vertices.push([
+                        connection[0] + vector[0] * length,
+                        connection[1] + vector[1] * length,
+                    ]);
+                }
+                written_paths.extend(vertices.windows(2).map(|p| [p[0], p[1]]));
+            }
+        }
+    }
+    let native_dimensions: BTreeMap<_, _> = all
+        .iter()
+        .filter(|e| e.kind == "DIMENSION")
+        .filter_map(|e| {
+            let app = e
+                .tags
+                .iter()
+                .position(|t| t.0 == 1001 && t.1 == "DRAFTWRIGHT")?;
+            Some((e.tags[app + 1].1.as_str(), e))
+        })
+        .collect();
+    let mut planned_paths = Vec::new();
+    for (id, leader) in &drawing.sheet.dxf.leaders {
+        if let Some(dim) = native_dimensions.get(id.as_str()) {
+            // Live radius/diameter dimensions retain their complete planned fallback
+            // graphics. These are not MULTILEADERs and must still contain every shaft.
+            let block = all
+                .iter()
+                .find(|e| e.kind == "BLOCK_RECORD" && tag(e, 2) == tag(dim, 2))
+                .unwrap();
+            for planned in &leader.lines {
+                assert!(
+                    all.iter().any(|e| e.kind == "LINE"
+                        && owner(e) == tag(block, 5)
+                        && [point(&e.tags, 10), point(&e.tags, 11)] == *planned),
+                    "{name}: {id} lost a live dimension leader segment"
+                );
+            }
+        } else {
+            planned_paths.extend(leader.lines.clone());
+        }
+    }
+    let sort = |paths: &mut Vec<[[f64; 2]; 2]>| {
+        paths.sort_by(|a, b| {
+            a.iter()
+                .flatten()
+                .zip(b.iter().flatten())
+                .find_map(|(a, b)| (a != b).then(|| a.total_cmp(b)))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    };
+    sort(&mut planned_paths);
+    sort(&mut written_paths);
+    assert_eq!(
+        written_paths.len(),
+        planned_paths.len(),
+        "{name}: every planned segment exactly once"
+    );
+    for (written, planned) in written_paths.iter().zip(&planned_paths) {
+        for (a, b) in written.iter().zip(planned) {
+            // A unit dogleg vector times its length incurs ordinary float rounding.
+            assert!(
+                (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-9,
+                "{name}: {written:?} != {planned:?}"
+            );
+        }
+    }
+    // Both style dictionaries contain real, independently owned Standard objects.
+    let dictionaries: Vec<_> = all
+        .iter()
+        .filter(|e| e.kind == "DICTIONARY" && e.tags.contains(&(3, "Draftwright".into())))
+        .collect();
+    assert_eq!(dictionaries.len(), 2);
+    for dictionary in dictionaries {
+        for key in ["Standard", "Draftwright"] {
+            let i = dictionary
+                .tags
+                .iter()
+                .position(|t| t.0 == 3 && t.1 == key)
+                .unwrap();
+            let style = by_handle[dictionary.tags[i + 1].1.as_str()];
+            assert!(matches!(style.kind.as_str(), "MLEADERSTYLE" | "TABLESTYLE"));
+            assert_eq!(owner(style), tag(dictionary, 5));
+            assert_eq!(tag(style, 3), Some(key));
+        }
+    }
+    for style in all.iter().filter(|e| e.kind == "MLEADERSTYLE") {
+        let start = style.tags.iter().position(|t| t.0 == 100).unwrap() + 1;
+        assert_eq!(
+            style.tags[start..].iter().map(|t| t.0).collect::<Vec<_>>(),
+            [
+                179, 170, 171, 172, 90, 40, 41, 173, 91, 340, 92, 290, 42, 291, 43, 3, 44, 300,
+                342, 174, 175, 176, 178, 93, 45, 292, 297, 46, 94, 47, 49, 140, 294, 141, 177, 142,
+                295, 296, 143, 271, 272, 273
+            ],
+            "{name}: canonical MLEADERSTYLE order"
+        );
+    }
+    for block in all.iter().filter(|e| {
+        e.kind == "BLOCK_RECORD" && tag(e, 2).is_some_and(|s| s.starts_with("DW_LEADER_"))
+    }) {
+        let ink: Vec<_> = all
+            .iter()
+            .filter(|e| {
+                owner(e) == tag(block, 5)
+                    && matches!(e.kind.as_str(), "CIRCLE" | "ELLIPSE" | "LINE" | "SOLID")
+            })
+            .collect();
+        assert!(!ink.is_empty());
+        for e in ink {
+            assert_eq!(tag(e, 8), Some("0"));
+            assert_eq!(tag(e, 62), Some("0"));
+            assert_eq!(tag(e, 370), Some("-2"));
+        }
+    }
+    let tables: Vec<_> = all.iter().filter(|e| e.kind == "ACAD_TABLE").collect();
+    assert_eq!(
+        tables.len(),
+        drawing
+            .sheet
+            .dxf
+            .tables
+            .values()
+            .map(Vec::len)
+            .sum::<usize>()
+    );
+    for (e, table) in tables
+        .into_iter()
+        .zip(drawing.sheet.dxf.tables.values().flatten())
+    {
+        resolve(owner(e).unwrap(), "BLOCK_RECORD");
+        resolve(tag(e, 342).unwrap(), "TABLESTYLE");
+        let style = by_handle[tag(e, 342).unwrap()];
+        assert_eq!(tag(e, 93), Some("0"));
+        assert!(
+            !e.tags.iter().any(|t| [
+                7, 140, 170, 64, 63, 283, 289, 285, 286, 288, 70, 40, 41, 281
+            ]
+            .contains(&t.0)),
+            "{name}: no inactive overrides"
+        );
+        assert_eq!(
+            style.tags.iter().rev().find(|t| t.0 == 280).unwrap().1,
+            usize::from(!table.title_row).to_string(),
+            "{name}: title row role"
+        );
+        assert_eq!(
+            tag(style, 281).unwrap(),
+            usize::from(!table.header_row).to_string(),
+            "{name}: column heading role"
+        );
+        resolve(tag(e, 343).unwrap(), "BLOCK_RECORD");
+        let block = by_handle[tag(e, 343).unwrap()];
+        assert_eq!(tag(block, 2), tag(e, 2));
+        assert!(tag(e, 2).unwrap().starts_with("*T"));
+        assert_eq!(
+            tag(e, 91).unwrap().parse::<usize>().unwrap(),
+            table.rows.len()
+        );
+        assert_eq!(
+            tag(e, 92).unwrap().parse::<usize>().unwrap(),
+            table.placed.columns.len() - 1
+        );
+        assert_eq!(
+            e.tags.iter().filter(|t| t.0 == 141).count(),
+            table.rows.len()
+        );
+        let widths: Vec<f64> = e
+            .tags
+            .iter()
+            .filter(|t| t.0 == 142)
+            .map(|t| t.1.parse().unwrap())
+            .collect();
+        assert_eq!(
+            widths,
+            table
+                .placed
+                .columns
+                .windows(2)
+                .map(|p| p[1] - p[0])
+                .collect::<Vec<_>>()
+        );
+        let values: Vec<_> = e.tags.split(|t| t.0 == 171).skip(1).collect();
+        assert_eq!(values.len(), table.rows.len() * widths.len());
+        for cell in values {
+            let start = cell
+                .iter()
+                .position(|t| t.0 == 301 && t.1 == "CELL_VALUE")
+                .unwrap();
+            assert_eq!(cell[..start].iter().find(|t| t.0 == 91).unwrap().1, "0");
+            assert_eq!(cell[..start].iter().find(|t| t.0 == 92).unwrap().1, "0");
+            assert_eq!(cell[start + 1], (93, "2".into()));
+            assert_eq!(cell[start + 2], (90, "4".into()));
+            assert!(cell.contains(&(304, "ACVALUE_END".into())));
+            let string_value: String = cell
+                .iter()
+                .filter(|t| matches!(t.0, 1 | 2))
+                .map(|t| t.1.as_str())
+                .collect();
+            assert_eq!(cell.iter().find(|t| t.0 == 302).unwrap().1, string_value);
+        }
+        let cells: Vec<_> = e.tags.iter().filter(|t| t.0 == 1).collect();
+        assert_eq!(cells.len(), table.rows.len() * widths.len());
+        for (cell, planned) in cells.iter().zip(table.rows.iter().flatten()) {
+            let expected = planned
+                .trim()
+                .replace('↧', "DEEP")
+                .replace('⌴', "CBORE")
+                .replace('⌵', "CSK")
+                .replace(['ø', 'Ø'], "⌀")
+                .replace(['−', '–', '—'], "-")
+                .replace('Ⓕ', "(F)")
+                .replace('Ⓜ', "(M)")
+                .replace('Ⓛ', "(L)")
+                .replace('Ⓟ', "(P)")
+                .replace('×', "X");
+            let content = &cell.1[cell.1.find(';').unwrap() + 1..cell.1.len() - 1];
+            let actual = decode(content).join("").replace('×', "X").trim().to_owned();
+            assert_eq!(actual, expected, "{name}: table cell content");
+        }
+        assert_eq!(
+            point(&e.tags, 10),
+            [table.placed.cells[0], table.placed.cells[3]]
+        );
+        assert!(
+            all.iter()
+                .any(|ink| owner(ink) == tag(e, 343)
+                    && matches!(ink.kind.as_str(), "TEXT" | "MTEXT"))
+        );
+    }
 }
 
 fn drawings(a: &draftwright::model::Analysis, part: &draftwright::haecceity::Part) -> Vec<Drawing> {
@@ -537,4 +1021,30 @@ fn quality_parts_write_no_text_as_geometry_and_only_ascii() {
     // The quality parts carry no PMI, so they hold no frame: what is checked here is that no
     // text ink is geometry and all text is ASCII (`check`); the frame checks run on the fixtures.
     eprintln!("frames per part: {frames:?}");
+}
+
+#[test]
+fn pack_ga_has_native_parts_list_and_source_owned_leaders() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let pack = draftwright::pack::build(
+        &root.join("tests/fixtures/assembly/pack-small.step.gz"),
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(pack.report.general_assembly.is_some());
+    let drawing = &pack.drawings[0];
+    let all = entities(&drawing.dxf());
+    check_native_annotations("pack GA", drawing, &all);
+    assert!(all.iter().any(|e| e.kind == "ACAD_TABLE"));
+    assert!(all.iter().any(|e| e.kind == "MULTILEADER"));
+    let list = &pack
+        .report
+        .general_assembly
+        .as_ref()
+        .unwrap()
+        .parts_list
+        .as_ref()
+        .unwrap()
+        .rows;
+    assert_eq!(drawing.sheet.dxf.tables["t:1"][0].rows, *list);
 }
