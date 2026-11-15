@@ -1230,10 +1230,15 @@ fn ftc09_slot_callout_leader_crosses_no_other_feature() {
     };
     let (part, a) = cache::native(&corpus.join("nist/nist_ftc_09_asme1_rd.stp"));
     let plan = cache::default_plan(&a, true);
+    let expected = format!(
+        "2× SLOT {} × {}",
+        plan.sheet.units.format(6.35),
+        plan.sheet.units.format(25.4)
+    );
     let callout = plan
         .dimensions
         .iter()
-        .find(|d| d.label == "2× SLOT 6.35 × 25.4")
+        .find(|d| d.label == expected)
         .expect("the slot callout");
     drawn(&plan, callout);
     let crossings: Vec<_> = plan
