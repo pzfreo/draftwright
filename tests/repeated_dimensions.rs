@@ -33,7 +33,7 @@ fn marks(plan: &Plan) -> Vec<Mark> {
         .iter()
         .map(|d| Mark {
             precision: None,
-            units: Default::default(),
+            units: plan.sheet.units,
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -481,7 +481,7 @@ fn a_counted_boss_height_also_states_its_face_level() {
     let size = claiming(&plan, "f:boss:f21", "boss_height.length");
     let level = claiming(&plan, "step_level", "step_height.length.f11");
     assert_eq!(size.id, level.id);
-    assert_eq!(size.label, "4× 38.1");
+    assert_eq!(size.label, format!("4× {}", plan.sheet.units.format(38.1)));
     for b in ["f:boss:f33", "f:boss:f35", "f:boss:f37"] {
         assert_eq!(claiming(&plan, b, "boss_height.length").id, size.id);
     }
