@@ -204,7 +204,17 @@ fn a_hole_callout_claims_everything_it_prints() {
         for d in plan.dimensions.iter().filter(|d| hole_callout(d)) {
             seen += 1;
             let numbers: BTreeSet<String> = printed(&d.label).into_iter().collect();
-            let claimed: BTreeSet<String> = d.measurements.iter().map(|m| fmt(m.value)).collect();
+            let claimed: BTreeSet<String> = d
+                .measurements
+                .iter()
+                .map(|m| {
+                    if m.parameter.contains("angle") {
+                        fmt(m.value)
+                    } else {
+                        plan.sheet.units.format(m.value)
+                    }
+                })
+                .collect();
             assert_eq!(numbers, claimed, "{name}: {} prints {:?}", d.id, d.label);
             assert_eq!(
                 d.label,
@@ -387,7 +397,7 @@ fn a_scale_that_does_not_fit_is_reported() {
         let fallback = ["scale_fallback_applied", "views_do_not_fit"]
             .iter()
             .any(|c| codes(plan).contains(c));
-        let standard = draftwright::layout::SCALES
+        let standard = draftwright::units::scales(plan.sheet.units)
             .iter()
             .any(|s| (s - plan.sheet.scale_factor).abs() < 1e-12);
         assert!(
@@ -400,7 +410,8 @@ fn a_scale_that_does_not_fit_is_reported() {
             (Some("A4"), "10:1", Some("page_fit_uncertain")),
             (Some("A0"), "1:10000", None),
         ] {
-            let mut asked = json!({ "sheet": { "scale": scale } });
+            // The explicit 10:1/1:10000 cases exercise the metric scale ladder.
+            let mut asked = json!({ "units": "mm", "sheet": { "scale": scale } });
             if let Some(s) = size {
                 asked["sheet"]["size"] = s.into();
             }
@@ -1002,7 +1013,12 @@ fn fillets_share_a_callout_only_when_their_radii_are_equal() {
         {
             let printed = d.label.rsplit('R').next().unwrap();
             for m in &d.measurements {
-                assert_eq!(fmt(radius(&m.feature)), printed, "{name}: {}", d.id);
+                assert_eq!(
+                    plan.sheet.units.format(radius(&m.feature)),
+                    printed,
+                    "{name}: {}",
+                    d.id
+                );
             }
             let count = d.measurements.len();
             assert!(
@@ -1171,7 +1187,7 @@ fn the_parts_extents_never_leave_the_drawing_silently() {
             .filter(|d| d.id.starts_with("d:envelope/") || d.id.ends_with("/step.length"))
             .map(|d| Mark {
                 precision: None,
-                units: Default::default(),
+                units: plan.sheet.units,
                 name: d.id.clone(),
                 view: Some(d.view.clone()),
                 text: d.label.clone(),
@@ -1445,7 +1461,16 @@ fn every_authored_tolerance_reaches_the_label_that_claims_it() {
         let bands: BTreeMap<&str, String> = ids
             .iter()
             .enumerate()
-            .map(|(i, id)| (*id, format!("±0.{:04}", i + 1)))
+            .map(|(i, id)| {
+                (
+                    *id,
+                    format!(
+                        "±{}{:04}",
+                        if plan.sheet.units.is_mm() { "0." } else { "." },
+                        i + 1
+                    ),
+                )
+            })
             .collect();
         let pairs: Vec<(&str, &str)> = bands.iter().map(|(id, b)| (*id, b.as_str())).collect();
         let toleranced = model::plan(analysis, &tolerances(&pairs)).unwrap();
