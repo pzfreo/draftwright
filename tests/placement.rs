@@ -23,6 +23,7 @@ mod corpus;
 #[path = "common/facts.rs"]
 mod facts;
 
+use crate::cache;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -321,7 +322,7 @@ fn omitting_one_dimension_moves_no_other() {
     let mut edits = 0;
     let mut shared = 0;
     for (name, analysis) in &parts {
-        let full = model::plan(analysis, &Spec::default()).unwrap();
+        let full = cache::default_plan(analysis, false);
         let all = placed(&full);
         let authored = |listed: &[&str]| Spec {
             dimension_source: DimensionSource::Authored,

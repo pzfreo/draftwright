@@ -17,6 +17,6 @@
  {
   "rule": "identity/plate.spec1.json",
   "verdict": "rust-correct",
-  "reason": "H7 moves the historical plate hole-pattern callout to a shorter proven-blank interior ray. plate.interior_basis.json records the exact changed basis and complete placement. identity.rs still compares every other legacy field, plus separately verdicted title/reporting additions. Stable IDs and the measurements are unchanged; the spec/1 migration retains the authored intent."
+  "reason": "H7 moves the historical plate hole-pattern callout to a shorter proven-blank interior ray. The identity migration test compares the complete current plan with an independently renamed current-Spec input, including interior placement, title furniture and reporting. Its unreachable historical interior-basis capture was removed; stable IDs, measurements and authored intent remain checked."
  }
 ]

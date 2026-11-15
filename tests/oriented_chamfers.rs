@@ -1,5 +1,6 @@
 #[path = "common/corpus.rs"]
 mod corpus;
+use crate::cache;
 use draftwright::{
     api,
     items::State,
@@ -23,7 +24,11 @@ fn parse(v: serde_json::Value) -> Spec {
     serde_json::from_value(v).unwrap()
 }
 fn plan(s: &Spec) -> Plan {
-    model::plan_recovered(&ctc().1, s).unwrap()
+    if *s == Spec::default() {
+        cache::default_plan(&ctc().1, true)
+    } else {
+        model::plan_recovered(&ctc().1, s).unwrap()
+    }
 }
 #[test]
 fn ctc01_consumes_bevel_faces_and_sizes_both_notches_without_duplicate_c50() {
@@ -418,7 +423,7 @@ fn native_oriented_records_are_checked_and_non45_callouts_state_both_values() {
         .insert("angle".into(), json!(26.57));
     let mut a = a.clone();
     model::recognise_document(part, &mut a, &doc).unwrap();
-    let q = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let q = cache::default_plan(&a, true);
     let d = q
         .dimensions
         .iter()
@@ -454,7 +459,7 @@ fn bevel_run_midpoints_do_not_invent_locations_or_force_sheet_enlargement() {
         ("mfcadpp/1007.step", 1, "C0.1"),
         ("nist/nist_ctc_04_asme1_rd.stp", 4, "12× C5"),
     ] {
-        let (_, a) = model::analyse_native(&corpus::dir().unwrap().join(file)).unwrap();
+        let (_, a) = cache::native(&corpus::dir().unwrap().join(file));
         assert_eq!(
             a.features
                 .iter()
@@ -462,7 +467,7 @@ fn bevel_run_midpoints_do_not_invent_locations_or_force_sheet_enlargement() {
                 .count(),
             count
         );
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let p = cache::default_plan(&a, true);
         assert_eq!(p.dimensions.iter().filter(|d| d.label == label).count(), 1);
         assert!(
             !p.dimensions
@@ -487,8 +492,8 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
         "mfcadpp/10046.step",
         "nist/nist_ftc_08_asme1_rc.stp",
     ] {
-        let (_, a) = model::analyse_native(&corpus::dir().unwrap().join(file)).unwrap();
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let (_, a) = cache::native(&corpus::dir().unwrap().join(file));
+        let p = cache::default_plan(&a, true);
         if file.contains("10020") {
             assert_eq!(
                 p.dimensions
@@ -681,9 +686,8 @@ fn source_pmi_owns_a_notch_angle_at_another_normal_section_without_duplicate_ink
 
 #[test]
 fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
-    let (part, a) =
-        model::analyse_native(&corpus::dir().unwrap().join("mfcadpp/10020.step")).unwrap();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (part, a) = cache::native(&corpus::dir().unwrap().join("mfcadpp/10020.step"));
+    let p = cache::default_plan(&a, true);
     let depth = p
         .dimensions
         .iter()
@@ -780,9 +784,8 @@ fn notch_dimensions_leave_the_boss_leader_clear_of_hidden_ink_and_witnesses() {
         }
         lo <= hi
     }
-    let (part, a) =
-        model::analyse_native(&corpus::dir().unwrap().join("mfcadpp/10020.step")).unwrap();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (part, a) = cache::native(&corpus::dir().unwrap().join("mfcadpp/10020.step"));
+    let p = cache::default_plan(&a, true);
     let boss = p
         .dimensions
         .iter()

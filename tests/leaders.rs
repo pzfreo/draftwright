@@ -255,10 +255,14 @@ fn crossings(plan: &Plan, analysis: &Analysis) -> BTreeMap<String, BTreeSet<Stri
     out
 }
 
+/// Every callout is placed or explicitly refused, and every drawn leader has a
+/// horizontal shoulder with its label beyond it, on the side the leader runs to (draftwright's
+/// `text_side`).
+///
 /// The maintainer's acceptance: no callout leader crosses a view, another annotation or the
 /// title block, except the listed, each with a verdict.
 #[test]
-fn callout_leaders_cross_nothing_unlisted() {
+fn callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders() {
     let parts = parts();
     if parts.is_empty() {
         return;
@@ -333,6 +337,48 @@ fn callout_leaders_cross_nothing_unlisted() {
                 );
             }
         }
+        for d in plan.dimensions.iter().filter(|d| d.kind == "callout") {
+            // ISSUE-798-a: only an item no shown view carries is unplaced.
+            let Some(p) = d.placed.as_ref() else {
+                let draftwright::items::State::NotDrawable { reason_code } = &d.state else {
+                    panic!("{name}: {} has no explicit refusal state", d.id);
+                };
+                assert!(reason_code == "view_plan_incomplete");
+                assert!(
+                    plan.problems
+                        .iter()
+                        .any(|q| q.code == *reason_code && q.subjects.contains(&d.id)),
+                    "{name}: {} is neither placed nor reported",
+                    d.id
+                );
+                continue;
+            };
+            assert_eq!(p.lines.len(), 2, "{name}: {}", d.id);
+            let [tip, elbow] = p.lines[0];
+            let [from, end] = p.lines[1];
+            assert_eq!(from, elbow, "{name}: {}", d.id);
+            assert!(
+                (end[1] - elbow[1]).abs() < 1e-9,
+                "{name}: {} shoulder",
+                d.id
+            );
+            let out = end[0] - elbow[0];
+            assert!(
+                (elbow[0] - tip[0]) * out >= -1e-9,
+                "{name}: {} shoulder doubles back",
+                d.id
+            );
+            let b = p.label_box;
+            assert!(
+                if out > 0.0 {
+                    b[0] >= end[0] - 1e-9
+                } else {
+                    b[2] <= end[0] + 1e-9
+                },
+                "{name}: {} label beyond the shoulder",
+                d.id
+            );
+        }
         if report {
             for d in plan.dimensions.iter().filter(|d| d.kind == "callout") {
                 let Some(p) = d.placed.as_ref() else { continue };
@@ -384,62 +430,4 @@ fn callout_leaders_cross_nothing_unlisted() {
          of {VERDICTS:?}) and the evidence:\n{}",
         wrong.join("\n")
     );
-}
-
-/// Every callout is placed or explicitly refused, and every drawn leader has a
-/// horizontal shoulder with its label beyond it, on the side the leader runs to (draftwright's
-/// `text_side`).
-#[test]
-fn a_leader_has_a_horizontal_shoulder_and_reads_outward() {
-    let parts = parts();
-    for (name, analysis) in &parts {
-        let plan = model::plan(
-            analysis,
-            &serde_json::from_value(serde_json::json!({"sheet":{"preferred_max_size":"A0"}}))
-                .unwrap(),
-        )
-        .unwrap();
-        for d in plan.dimensions.iter().filter(|d| d.kind == "callout") {
-            // ISSUE-798-a: only an item no shown view carries is unplaced.
-            let Some(p) = d.placed.as_ref() else {
-                let draftwright::items::State::NotDrawable { reason_code } = &d.state else {
-                    panic!("{name}: {} has no explicit refusal state", d.id);
-                };
-                assert!(reason_code == "view_plan_incomplete");
-                assert!(
-                    plan.problems
-                        .iter()
-                        .any(|q| q.code == *reason_code && q.subjects.contains(&d.id)),
-                    "{name}: {} is neither placed nor reported",
-                    d.id
-                );
-                continue;
-            };
-            assert_eq!(p.lines.len(), 2, "{name}: {}", d.id);
-            let [tip, elbow] = p.lines[0];
-            let [from, end] = p.lines[1];
-            assert_eq!(from, elbow, "{name}: {}", d.id);
-            assert!(
-                (end[1] - elbow[1]).abs() < 1e-9,
-                "{name}: {} shoulder",
-                d.id
-            );
-            let out = end[0] - elbow[0];
-            assert!(
-                (elbow[0] - tip[0]) * out >= -1e-9,
-                "{name}: {} shoulder doubles back",
-                d.id
-            );
-            let b = p.label_box;
-            assert!(
-                if out > 0.0 {
-                    b[0] >= end[0] - 1e-9
-                } else {
-                    b[2] <= end[0] + 1e-9
-                },
-                "{name}: {} label beyond the shoulder",
-                d.id
-            );
-        }
-    }
 }

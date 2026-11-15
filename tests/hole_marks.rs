@@ -1,5 +1,6 @@
 //! #224: frames and datum symbols on holes attach to the holes' size callout or table tag where
 //! the holes are seen end-on, and a drawn frame citing an undrawn datum is said.
+use crate::cache;
 use std::path::Path;
 
 use draftwright::model::{self, Analysis, Plan, Spec};
@@ -8,7 +9,7 @@ fn nist(name: &str) -> Analysis {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/pmi/step")
         .join(name);
-    model::analyse_native(&path).unwrap().1
+    cache::native(&path).1
 }
 
 const FTC10: &str = "nist_ftc_10_asme1_ap242-e2.stp.gz";
@@ -39,7 +40,7 @@ fn mark_box(plan: &Plan, b: [f64; 4], gap: f64) -> Option<[f64; 4]> {
 #[test]
 fn ftc10_hole_frames_and_datums_attach_to_their_marks() {
     let a = nist(FTC10);
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     let callout = plan
         .dimensions
         .iter()
@@ -156,8 +157,8 @@ fn ftc10_hole_frames_and_datums_attach_to_their_marks() {
 fn ctc05_hidden_bore_frame_stays_on_its_callout() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/rule_pins/nist_ctc_05_asme1_ap242.stp.gz");
-    let a = model::analyse_native(&path).unwrap().1;
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let a = cache::native(&path).1;
+    let plan = cache::default_plan(&a, true);
     let callout = plan
         .dimensions
         .iter()
@@ -202,7 +203,7 @@ fn ctc05_hidden_bore_frame_stays_on_its_callout() {
 fn ftc07_frames_lead_to_their_own_holes() {
     use draftwright::output::Curve;
     let a = nist("nist_ftc_07_asme1_ap242-e2.stp.gz");
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     let view = plan.views.iter().find(|v| v.id == "v:plan").unwrap();
     let r = 0.5 * 15.082 * view.scale;
     // Each hole's centre mark in the plan view, by the faces of its hole.
@@ -316,9 +317,9 @@ fn a_placed_hole_frame_or_datum_keeps_its_lowered_attachment() {
 fn a_bare_pin_holds_an_attached_datum() {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pmi/step/spool_fits.step.gz");
-    let a = model::analyse_native(&path).unwrap().1;
+    let a = cache::native(&path).1;
     const DATUM_B: &str = "pmi:datum.datum:f55:t=B";
-    let free = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let free = cache::default_plan(&a, true);
     let spec: Spec = serde_json::from_value(serde_json::json!({"annotations": {
         DATUM_B: {"place": {"pinned": true}},
     }}))
@@ -343,7 +344,7 @@ fn a_bare_pin_holds_an_attached_datum() {
 #[test]
 fn frames_citing_undrawn_datums_are_said() {
     let a = nist("nist_stc_10_asme1_ap242-e2.stp.gz");
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
     assert_eq!(
         plan.gdt.iter().filter(|g| g.source == "datum:#117").count(),
@@ -490,7 +491,7 @@ fn hole_datums_attach_where_their_view_area_can_grow() {
         &["pmi:datum.datum:f75,76:t=C", "pmi:datum.datum:f89,90:t=B"][..],
     )] {
         let a = nist(part);
-        let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let plan = cache::default_plan(&a, true);
         let view = plan.views.iter().find(|v| v.id == "v:plan").unwrap();
         for id in datums {
             let datum = plan.gdt.iter().find(|g| g.id == *id).unwrap();
@@ -555,7 +556,7 @@ fn datum_id(a: &Analysis, letter: &str) -> String {
 fn a_width_datum_stands_on_its_size_dimension() {
     let a = nist(STC06);
     let b = datum_id(&a, "B");
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     let datum = plan.gdt.iter().find(|g| g.id == b).expect("datum B drawn");
     assert_eq!(datum.state, draftwright::items::State::Shown);
     assert!(datum.basis.contains("median plane"), "{}", datum.basis);
@@ -626,7 +627,7 @@ fn a_width_datum_stands_on_its_size_dimension() {
 fn a_datum_read_through_a_nonconformance_is_drawn() {
     let a = nist("nist_ctc_02_asme1_ap242-e2.stp.gz");
     let d = datum_id(&a, "D");
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     let datum = plan
         .gdt
         .iter()
@@ -649,7 +650,7 @@ const CTC05_CONCENTRICITY: &str =
 fn ctc05() -> Analysis {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/rule_pins/nist_ctc_05_asme1_ap242.stp.gz");
-    model::analyse_native(&path).unwrap().1
+    cache::native(&path).1
 }
 
 /// Project independently of the attachment planner, using the public camera and envelope.
@@ -776,7 +777,7 @@ fn assert_cylinder_attachment(a: &Analysis, plan: &Plan, id: &str) {
 #[test]
 fn ctc05_cylinder_frames_identify_their_own_surfaces() {
     let a = ctc05();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     for id in [CTC05_CIRCULARITY, CTC05_CONCENTRICITY] {
         assert_cylinder_attachment(&a, &p, id);
     }
@@ -845,7 +846,7 @@ fn ctc05_without_size_dimensions_uses_two_radial_rim_leaders() {
 #[test]
 fn stricter_centreline_clearance_keeps_thumbwheel_frame_on_its_rim() {
     let a = nist("thumbwheel_thread_knurl.step.gz");
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     const ID: &str = "pmi:geometric_tolerance.position:f12:ref=A,B:mod=diameter_zone";
     assert_cylinder_attachment(&a, &p, ID);
     let g = p.gdt.iter().find(|g| g.id == ID).unwrap();
@@ -863,7 +864,7 @@ fn stricter_centreline_clearance_keeps_thumbwheel_frame_on_its_rim() {
 #[test]
 fn intermediate_radial_directions_do_not_regress_an_existing_rim_attachment() {
     let a = nist("hw_every_kind.step.gz");
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     assert_cylinder_attachment(&a, &p, "pmi:geometric_tolerance.flatness:f0");
 }
 
@@ -873,7 +874,7 @@ fn intermediate_radial_directions_do_not_regress_an_existing_rim_attachment() {
 #[test]
 fn ctc_axis_repairs_preserve_stc09s_own_hole_attachment() {
     let a = nist("nist_stc_09_asme1_ap242-e4.stp.gz");
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     const ID: &str = "pmi:geometric_tolerance.position:f80,81,82,83:ref=A,D,B:mod=diameter_zone";
     let g = p.gdt.iter().find(|g| g.id == ID).unwrap();
     let placed = g.placed.as_ref().unwrap();
@@ -931,7 +932,7 @@ fn ctc_axis_repairs_preserve_stc09s_own_hole_attachment() {
 #[test]
 fn a_spool_frame_clears_the_reporters_centreline_contact_band() {
     let a = nist("hw_spool_fits_intent.step.gz");
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     const ID: &str = "pmi:geometric_tolerance.perpendicularity:f55:ref=A:mod=diameter_zone";
     assert_cylinder_attachment(&a, &p, ID);
     assert!(
@@ -944,7 +945,7 @@ fn a_spool_frame_clears_the_reporters_centreline_contact_band() {
 #[test]
 fn axis_repairs_keep_stc10s_eight_hole_frame_on_its_own_rim() {
     let a = nist("nist_stc_10_asme1_ap242-e2.stp.gz");
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     const ID: &str =
         "pmi:geometric_tolerance.position:f93,94,95,96,97,98,99,100:ref=A,B,C:mod=diameter_zone";
     let g = p.gdt.iter().find(|g| g.id == ID).unwrap();
@@ -978,7 +979,7 @@ fn axis_repairs_keep_stc10s_eight_hole_frame_on_its_own_rim() {
 #[test]
 fn a_hole_position_frame_stays_with_its_taller_size_label() {
     let a = nist("string_post_tapped.step.gz");
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     let size = plan
         .dimensions
         .iter()

@@ -1,4 +1,5 @@
 //! Native regressions for text association and collision-driven lane promotion.
+use crate::cache;
 use draftwright::model::{self, Spec};
 #[path = "common/corpus.rs"]
 mod corpus;
@@ -8,8 +9,12 @@ fn plan(path: &str) -> Option<model::Plan> {
 }
 
 fn plan_with(path: &str, spec: &Spec) -> Option<model::Plan> {
-    let a = model::analyse_native(&corpus::dir()?.join(path)).unwrap().1;
-    Some(model::plan_recovered(&a, spec).unwrap())
+    let a = cache::native(&corpus::dir()?.join(path)).1;
+    Some(if *spec == Spec::default() {
+        cache::default_plan(&a, true)
+    } else {
+        model::plan_recovered(&a, spec).unwrap()
+    })
 }
 
 fn adjacent(d: &draftwright::dims::PlannedDimension) -> bool {
@@ -136,11 +141,11 @@ fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("stc09.stp");
     std::fs::write(&path, step).unwrap();
-    let mut a = model::analyse_native(&path).unwrap().1;
+    let mut a = cache::native(&path).1;
     // Its slots 1 and 2 are congruent, so one slot callout would state them: slot 2 is split
     // from the callout, so slot 1 keeps the length that is slot 3's peer here.
     corpus::split_slot(&mut a, "f:slot:f98");
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     let placed = |id: &str| {
         p.dimensions
             .iter()

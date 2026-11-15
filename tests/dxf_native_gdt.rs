@@ -2,8 +2,7 @@
 //! over the quality parts and the NIST PMI fixtures, on the drawing model and the DXF text.
 //! Whether ink belongs to a frame is how it was built (`gdt::frame`), never where it lies.
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 #[path = "common/corpus.rs"]
 mod corpus;
 #[path = "common/support.rs"]

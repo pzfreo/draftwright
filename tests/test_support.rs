@@ -18,8 +18,7 @@ fn every_pmi_fixture_has_a_scheduled_case() {
     assert_eq!(actual, scheduled);
 }
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 fn plate() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step")

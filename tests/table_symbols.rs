@@ -1,7 +1,6 @@
 //! Table and note symbols must be ink, not the bundled face's .notdef box.
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 #[path = "common/corpus.rs"]
 mod corpus;
 #[path = "common/output.rs"]

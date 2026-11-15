@@ -12,8 +12,7 @@
 #[path = "common/support.rs"]
 mod support;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
@@ -121,7 +120,6 @@ fn the_spindles_unclaimed_faces_are_its_subjects() {
 
 /// #25 across the test parts and every AP242 fixture: `sheet` is the subject only of problems about paper, scale, fit
 /// or the title block drawn on it.
-#[test]
 fn only_sheet_problems_have_the_sheet_as_subject() {
     const SHEET: [&str; 18] = [
         "automatic_scale_limited",
@@ -416,7 +414,7 @@ fn assert_public_pmi_message(message: &str) {
 /// #24 across the test parts and every AP242 fixture: no problem message carries an internal
 /// ID (`d:`, `f:`, `v:`, `pmi:`, `n:`, `t:`, `face:`).
 #[test]
-fn no_problem_message_carries_an_internal_id() {
+fn problem_messages_are_public_and_only_sheet_problems_name_the_sheet() {
     let mut checked = 0;
     let mut found = Vec::new();
     for (name, plan) in plans() {
@@ -476,6 +474,8 @@ fn no_problem_message_carries_an_internal_id() {
         found.len(),
         found.join("\n")
     );
+    only_sheet_problems_have_the_sheet_as_subject();
+    problems_keep_tool_diagnostics_out_of_drawing_messages();
 }
 
 #[test]
@@ -528,7 +528,6 @@ fn recognition_warning_describes_the_part_and_retains_developer_provenance() {
     assert!(!p.message.contains("on this part:"));
 }
 
-#[test]
 fn problems_keep_tool_diagnostics_out_of_drawing_messages() {
     for (name, plan) in plans() {
         for p in &plan.problems {

@@ -1,8 +1,7 @@
 #[path = "common/mcp_schema.rs"]
 mod mcp_schema;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use draftwright::{
     Session, dims,
