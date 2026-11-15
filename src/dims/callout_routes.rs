@@ -258,6 +258,14 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
     if radius > 0.0 && next.lines.len() != 2 {
         return false;
     }
+    if radius > 0.0
+        && p.lines
+            .first()
+            .is_some_and(|[a, b]| (a[0] - b[0]).abs() < 1e-6)
+        && (next.lines[0][0][0] - next.lines[0][1][0]).abs() >= 1e-6
+    {
+        return false;
+    }
     let dx = next.label_box[0] - p.label_box[0];
     let dy = next.label_box[1] - p.label_box[1];
     let y = 0.5 * (bounds[1] + bounds[3]) + dy;
@@ -1486,6 +1494,12 @@ mod tests {
                 let mut straight = next.clone();
                 straight.lines = vec![[tip, end]];
                 assert!(!meet_frame(&scoped, &mut straight));
+                let mut vertical = scoped.clone();
+                vertical.placed.as_mut().unwrap().lines[0] = [tip, [tip[0], bend[1]]];
+                assert!(
+                    !meet_frame(&vertical, &mut next.clone()),
+                    "a clear ring must not buy a leaning shaft"
+                );
                 assert!(meet_frame(&scoped, &mut next));
                 let [a, b] = next.lines[1];
                 assert_eq!(a[0], bend[0], "retain the reserved ring's x position");

@@ -2319,6 +2319,16 @@ fn plan_search(
                     sides.clone()
                 };
                 for side in choices {
+                    // Scope rings keep the shaft normal to the source strip. Moving a
+                    // frame to a lateral fallback must not turn its vertical shaft
+                    // into a different attachment merely to clear the ring.
+                    if !authored
+                        && ring_radius(&planned.modifiers) > 0.0
+                        && matches!(item.side, "above" | "below")
+                        && !matches!(side, "above" | "below")
+                    {
+                        continue;
+                    }
                     let positions = if inside && datum {
                         // The uncited fallback lets exact obstacle grading test a narrow
                         // shoulder gap that the conservative first-stroke band rejects.

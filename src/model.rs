@@ -4010,6 +4010,9 @@ fn recover_candidates(
     let mut diagnostic_assessments = Vec::new();
     let mut candidates = Vec::new();
     let mut fitting_incomplete: Option<(usize, usize, usize, Plan)> = None;
+    // An unreadable estimate is not a layout worth preserving. Keep a readable,
+    // physically fitting alternative even when source PMI prevents a clean sheet.
+    let mut readable_incomplete: Option<((usize, usize, usize, usize), Plan)> = None;
     let mut smallest = None;
     let mut smallest_iso: Option<f64> = None;
     let mut recipes = BTreeMap::new();
@@ -4400,6 +4403,23 @@ fn recover_candidates(
                         fitting_incomplete = Some((f.hard, f.dropped, i, p.clone()));
                     }
                 }
+                if first.sheet.scale_factor + 1e-9 < min_legible_scale
+                    && actual_fit
+                    && over_views(&p) == 0
+                    && carried(&first).is_subset(&carried(&p))
+                    && undrawn_gdt(&p) <= undrawn_gdt(&first)
+                    && f.hard < findings(&first).hard
+                    && f.dropped <= findings(&first).dropped
+                    && unreadable_steps == 0
+                {
+                    let rank = (f.dropped, ink_findings(&p), f.hard, i);
+                    if readable_incomplete
+                        .as_ref()
+                        .is_none_or(|(old, _)| rank < *old)
+                    {
+                        readable_incomplete = Some((rank, p.clone()));
+                    }
+                }
                 // Valid and complete: no hard finding, nothing dropped or undrawn, and no more
                 // annotations over another view than the seed (the port's own gate).
                 if !complete_candidate(f, over)
@@ -4501,6 +4521,18 @@ fn recover_candidates(
                 tried.join("; ")
             );
             return Ok(fitting);
+        }
+        if let Some((_, mut readable)) = readable_incomplete {
+            readable.spec = spec.clone();
+            readable.sheet.default = true;
+            readable.sheet.basis += "; unreadable initial estimate replaced by a readable fitting drawing retaining all seed measurements; source/layout findings remain";
+            readable.problems.push(Problem {
+                id: "p:layout_recovery_exhausted:sheet".into(), code: "layout_recovery_exhausted".into(), severity: "info".into(),
+                message: format!("No clean complete standard pair was found. {} at {} retains every initial measurement at a readable scale with fewer layout conflicts; the remaining findings are reported.", readable.sheet.size, readable.sheet.scale),
+                subjects: vec!["sheet".into()], ..Default::default()
+            });
+            readable.status = crate::completeness::status(&readable.problems);
+            return Ok(readable);
         }
         // No valid complete pair: keep the initial drawing and its findings, on its own paper.
         // Only a seed below the absolute floor (1:10, the smallest scale the automatic choice
