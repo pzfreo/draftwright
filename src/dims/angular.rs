@@ -635,11 +635,23 @@ pub(super) fn place(
         .expect("reversing both rays preserves the angle");
         extended.lengths = [0.0; 2];
         let ink = &ink;
-        let mut candidates = (0..TRIES).flat_map(|n| {
-            [&geometry, &extended]
+        let sectors = [&geometry, &extended];
+        // Exhaust midpoint placements before trying either arc continuation.
+        // PMI and notch angles obey the same text attachment rule as corners.
+        let mut candidates =
+            [None, Some(false), Some(true)]
                 .into_iter()
-                .filter_map(move |g| g.placed(g.minimum + n as f64 * STEP, ink))
-        });
+                .flat_map(move |extension| {
+                    (0..TRIES).flat_map(move |n| {
+                        sectors.into_iter().filter_map(move |g| {
+                            let radius = g.minimum + n as f64 * STEP;
+                            match extension {
+                                None => g.placed(radius, ink),
+                                Some(after) => g.extended_label(radius, ink, after),
+                            }
+                        })
+                    })
+                });
         let others: Vec<&Placed> = placed
             .iter()
             .enumerate()
@@ -1209,27 +1221,29 @@ mod tests {
     fn outside_text_is_carried_by_an_arc_extension_without_changing_the_angle() {
         for (label, start, end) in [("2× 135°", 225.0, 360.0), ("45°", 0.0, 45.0)] {
             let terms = vec![label.to_string()];
-            let g = ink([100.0, 100.0], start, end, &terms).compact();
-            let text = label_ink(&terms, font());
-            let normal = g.placed(g.minimum, &text).unwrap();
-            for after in [false, true] {
-                let p = g.extended_label(g.minimum, &text, after).unwrap();
-                assert_eq!(p.arrows, normal.arrows);
-                assert_eq!(&p.lines[..normal.lines.len()], normal.lines.as_slice());
-                let arc_radius = g.minimum - LIFT - g.radial_half;
-                let endpoint = p.lines.last().unwrap()[1];
-                let b = p.label_box;
-                let centre = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
-                let radial = [centre[0] - g.vertex[0], centre[1] - g.vertex[1]];
-                let n = radial[0].hypot(radial[1]);
-                let at = [endpoint[0] - g.vertex[0], endpoint[1] - g.vertex[1]];
-                assert!((at[0].hypot(at[1]) - arc_radius).abs() < 1e-9);
-                assert!((radial[0] * at[1] - radial[1] * at[0]).abs() < 1e-9);
-                assert!((n - g.radial_half - arc_radius - LIFT).abs() < 1e-9);
-                let extension = &p.lines[normal.lines.len()..];
-                let arrow = normal.arrows[usize::from(after)][0];
-                assert_eq!(extension[0][0], arrow);
-                assert!(extension.windows(2).all(|pair| pair[0][1] == pair[1][0]));
+            let geometry = ink([100.0, 100.0], start, end, &terms);
+            for g in [geometry.clone(), geometry.compact()] {
+                let text = label_ink(&terms, font());
+                let normal = g.placed(g.minimum, &text).unwrap();
+                for after in [false, true] {
+                    let p = g.extended_label(g.minimum, &text, after).unwrap();
+                    assert_eq!(p.arrows, normal.arrows);
+                    assert_eq!(&p.lines[..normal.lines.len()], normal.lines.as_slice());
+                    let arc_radius = g.minimum - LIFT - g.radial_half;
+                    let endpoint = p.lines.last().unwrap()[1];
+                    let b = p.label_box;
+                    let centre = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
+                    let radial = [centre[0] - g.vertex[0], centre[1] - g.vertex[1]];
+                    let n = radial[0].hypot(radial[1]);
+                    let at = [endpoint[0] - g.vertex[0], endpoint[1] - g.vertex[1]];
+                    assert!((at[0].hypot(at[1]) - arc_radius).abs() < 1e-9);
+                    assert!((radial[0] * at[1] - radial[1] * at[0]).abs() < 1e-9);
+                    assert!((n - g.radial_half - arc_radius - LIFT).abs() < 1e-9);
+                    let extension = &p.lines[normal.lines.len()..];
+                    let arrow = normal.arrows[usize::from(after)][0];
+                    assert_eq!(extension[0][0], arrow);
+                    assert!(extension.windows(2).all(|pair| pair[0][1] == pair[1][0]));
+                }
             }
         }
     }
