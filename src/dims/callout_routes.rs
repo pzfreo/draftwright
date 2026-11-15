@@ -276,8 +276,15 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
             -1.0
         };
         let reach = radius + super::contacts::TEXT_CLEAR;
-        if dir * (shelf[1][0] - shelf[0][0]) < reach {
-            shelf[0][0] = x - dir * reach;
+        let shortfall = reach - dir * (shelf[1][0] - shelf[0][0]);
+        if shortfall > 0.0 {
+            // Keep the bend whose ring the route search already reserved.
+            // Extend the shelf by translating the rigid frame instead.
+            let dx = dir * shortfall;
+            shelf[1][0] += dx;
+            next.label_box[0] += dx;
+            next.label_box[2] += dx;
+            next.label_at[0] += dx;
         }
     }
     if last > 0 {
@@ -1481,6 +1488,8 @@ mod tests {
                 assert!(!meet_frame(&scoped, &mut straight));
                 assert!(meet_frame(&scoped, &mut next));
                 let [a, b] = next.lines[1];
+                assert_eq!(a[0], bend[0], "retain the reserved ring's x position");
+                assert!((next.label_box[0] - 40.) * direction > 0.0);
                 assert!(
                     (direction * (b[0] - a[0]) - radius - super::super::contacts::TEXT_CLEAR).abs()
                         < 1e-9
