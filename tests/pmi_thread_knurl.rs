@@ -1463,8 +1463,49 @@ fn assert_plain_shaft_callout(part: &draftwright::haecceity::Part, a: &Analysis,
     assert_eq!(refused(&plan, &record.source_id), None);
     let font =
         draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
-    let svg = model::render(part, a, &plan, &font).unwrap().svg();
-    assert!(pdf::svg_text(&svg).join(" ").contains(expected));
+    let drawing = model::render(part, a, &plan, &font).unwrap();
+    assert!(pdf::svg_text(&drawing.svg()).join(" ").contains(expected));
+    let marks = draftwright::lint::marks(&drawing);
+    assert!(draftwright::lint::coverage::feature_coverage(a, &marks).is_empty());
+    if kind == "external_thread" {
+        let index = marks
+            .iter()
+            .position(|m| {
+                m.claims
+                    .iter()
+                    .any(|c| c.feature == body.id && c.parameter == "turned_body.diameter")
+            })
+            .unwrap();
+        for text in ["M9-6g", "M11-6g", "10", "NOTE M10-6g", "M10junk"] {
+            let mut wrong = marks.clone();
+            wrong[index].text = text.into();
+            let findings = draftwright::lint::coverage::feature_coverage(a, &wrong);
+            assert!(
+                findings
+                    .iter()
+                    .any(|f| f.code == "feature_not_dimensioned" && f.subjects.contains(&body.id)),
+                "{text}: {findings:#?}"
+            );
+        }
+        // Preserve the existing coarse backstop's geometric-size tolerance: a
+        // nominal M10 designation still covers a cylinder measured just below 10.
+        let mut rounded = a.clone();
+        rounded
+            .features
+            .iter_mut()
+            .find(|f| f.id == body.id)
+            .unwrap()
+            .parameters
+            .insert("od".into(), serde_json::json!(9.999));
+        assert!(draftwright::lint::coverage::feature_coverage(&rounded, &marks).is_empty());
+        let mut unbound = marks.clone();
+        unbound[index].claims.retain(|c| c.feature != body.id);
+        assert!(
+            draftwright::lint::coverage::feature_coverage(a, &unbound)
+                .iter()
+                .any(|f| f.code == "feature_not_dimensioned" && f.subjects.contains(&body.id))
+        );
+    }
 }
 
 #[test]

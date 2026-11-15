@@ -317,6 +317,9 @@ pub fn not_dimensioned(
 /// The diameter findings on a drawing whose annotations are *marks*. A mark claiming a boss's
 /// diameter mentions it, as a hole callout's claims do, whether or not its text prints `ø`: an
 /// external thread's designation stands in place of the diameter it is cut on (`M90 x 2`).
+/// A turned body's OD claim also counts when its leading metric thread designation positively
+/// states that body's nominal diameter. A claim alone, an unrelated note, or a wrong size does
+/// not earn that credit.
 pub fn feature_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let holes = holes_by_id(analysis);
     let boss = |id: &str| {
@@ -334,8 +337,37 @@ pub fn feature_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 .iter()
                 .filter(|c| c.parameter == "boss.diameter")
                 .filter_map(|c| boss(&c.feature));
-            let m = mentions(&holes, m);
-            m.structured.into_iter().chain(m.text).chain(claimed)
+            let body_threads = m
+                .claims
+                .iter()
+                .filter(|c| c.parameter == "turned_body.diameter")
+                .filter_map(|c| {
+                    let diameter = analysis
+                        .features
+                        .iter()
+                        .find(|f| f.id == c.feature && f.kind == "turned_body")?
+                        .parameters
+                        .get("od")?
+                        .as_f64()?;
+                    // Metric nominal sizes remain millimetres even on an inch drawing.
+                    // Match only a leading, complete designation, not an arbitrary M-number
+                    // elsewhere in a note or a value copied from the measurement ledger.
+                    let words: Vec<_> = m.text.split_whitespace().take(5).collect();
+                    (1..=words.len())
+                        .any(|n| {
+                            let prefix = words[..n].join(" ");
+                            crate::spec_notes::metric(prefix.trim_end_matches([';', ',']))
+                                .is_ok_and(|(d, _)| (d - diameter).abs() <= DIAMETER_TOL)
+                        })
+                        .then_some(diameter)
+                });
+            let mentions = mentions(&holes, m);
+            mentions
+                .structured
+                .into_iter()
+                .chain(mentions.text)
+                .chain(claimed)
+                .chain(body_threads)
         })
         .collect();
     not_dimensioned(&inventory(analysis), &mentioned, &[], Severity::Warning)
