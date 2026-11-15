@@ -6338,18 +6338,14 @@ fn measure_at_bounds(
     // Material re-entry (ADR2-8): measured by the predicate lint's `leader_crosses_silhouette`
     // shares, it is a hard blocker, and its depth (in micrometres) is added to the length so a
     // shallower cut is preferred when every candidate re-enters.
-    // GD&T's own placer admits face-interior starts. Keep that eligibility
-    // when the source frame uses this sweep; native dimensions still obey
-    // the material re-entry veto unchanged.
-    let cut = if job.source_frame {
-        0.0
-    } else {
-        crate::material::reentry(job.footprints.solids(), segs[0])
-    };
+    // Face-interior starts remain legitimate exits, including for source
+    // frames. Re-entry and excessive length must be vetoed here: the final
+    // code-count ratchet does not measure these findings for GD&T proxies.
+    let cut = crate::material::reentry(job.footprints.solids(), segs[0]);
     if cut > 0.0 {
         hard += 1;
     }
-    if !job.source_frame && too_long(shaft) {
+    if too_long(shaft) {
         hard += 1;
     }
     // A leader along the silhouette it points at lies on the part's edge: ISO 128-22's leader
@@ -7990,6 +7986,67 @@ pub(super) fn settled_routes(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn source_frames_keep_material_reentry_and_length_vetoes() {
+        let analysis: crate::model::Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding": {"source_sha256":"", "part":"test", "face_count":0, "loader":"test"},
+            "envelope":[[-10,-10,-10],[10,10,10]], "iso_bounds":[0,0,20,20]
+        }))
+        .unwrap();
+        let sheet = serde_json::from_value(serde_json::json!({
+            "size":"A3", "page":[420,297], "scale":"1:1", "scale_factor":1,
+            "arrangement":"columns", "title_block":[300,10,410,40],
+            "default":true, "basis":"test", "state":{"kind":"shown"}, "title":{}
+        }))
+        .unwrap();
+        let frame = Frame::looking(&analysis, [0., -1., 0.], [0., 0., 1.], [200., 200.], 1.);
+        let footprints = Footprints::new(&analysis, &frame, "front");
+        let page = Page::new(&analysis, &sheet, &[]);
+        let job = Job {
+            side: None,
+            view: "front",
+            footprints: &footprints,
+            outline: frame.outline(),
+            area: None,
+            sites: vec![],
+            radial: false,
+            silhouette: None,
+            model: None,
+            corridors: false,
+            slot: false,
+            directed: false,
+            short_profile: false,
+            inward: false,
+            edge_attachment: false,
+            source_frame: true,
+            bend_radius: 0.,
+            interior_proof: None,
+            profile_proof: None,
+            steer: std::cell::Cell::new(None),
+            ink_min: [0., -1.],
+            ink_max: [5., 1.],
+            stroke_pad: 0.,
+            reach: 0.,
+            beyond: [CLEAR; 4],
+        };
+        let measure = |tip, elbow: P2| {
+            measure_at_bounds(
+                &job,
+                tip,
+                elbow,
+                [elbow[0] + SHOULDER, elbow[1]],
+                true,
+                &page,
+            )
+            .unwrap()
+        };
+        // A face-interior start can leave its own body without re-entering it.
+        assert_eq!(measure([200., 200.], [230., 200.]).hard, 0);
+        assert!(measure([180., 200.], [230., 200.]).hard > 0);
+        assert!(measure([200., 200.], [300., 200.]).hard > 0);
+    }
+
     #[test]
     fn radius_nominals_do_not_take_fit_clearance() {
         let clearance = |words: &[&str]| {
