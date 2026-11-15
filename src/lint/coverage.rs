@@ -356,7 +356,7 @@ pub fn feature_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     (1..=words.len())
                         .any(|n| {
                             let prefix = words[..n].join(" ");
-                            crate::spec_notes::metric(prefix.trim_end_matches([';', ',']))
+                            crate::thread_designation::metric(prefix.trim_end_matches([';', ',']))
                                 .is_ok_and(|(d, _)| (d - diameter).abs() <= DIAMETER_TOL)
                         })
                         .then_some(diameter)

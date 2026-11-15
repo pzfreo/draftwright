@@ -35,7 +35,7 @@ const FORBIDDEN: [&str; 14] = [
 ];
 
 /// The `crate::` paths lint may use.
-const ALLOWED: [&str; 13] = [
+const ALLOWED: [&str; 14] = [
     "crate::model::Analysis",
     "crate::model::dimension_geometry::Reference",
     "crate::bridge",
@@ -49,6 +49,7 @@ const ALLOWED: [&str; 13] = [
     "crate::finding",
     "crate::quiddity_evidence",
     "crate::geometry_ids",
+    "crate::thread_designation",
 ];
 
 /// *source* with its comments and string and character literals blanked out.
@@ -200,6 +201,8 @@ fn module_violations() -> Vec<(String, Vec<String>)> {
     files.push(dir.parent().unwrap().join("finding.rs"));
     // Ladder identities are pure functions of Analysis face evidence; audit them too.
     files.push(dir.parent().unwrap().join("geometry_ids.rs"));
+    // Metric designation parsing has no authoring or drawing state; audit it too.
+    files.push(dir.parent().unwrap().join("thread_designation.rs"));
     files
         .into_iter()
         .filter(|p| p.file_name().unwrap() != "guard.rs")
@@ -234,6 +237,7 @@ mod tests {
             "let s = drawing.spec.clone();",
             "crate::model::plan(&a, &s)",
             "use crate::api::review;",
+            "crate::spec_notes::metric(text)",
             "use crate::layout;",
             "crate::fixes::scope(&[])",
             "let v: Vec<crate::model::PlannedView> = vec![];",
@@ -245,6 +249,7 @@ mod tests {
             "use crate::model::Analysis;",
             "use crate::output::{Claim, Drawing};",
             "use crate::bridge::Feature;",
+            "crate::thread_designation::metric(text)",
             "let scope = crate::remedy_scope::UNBOUND_SCOPE;",
             "let m = crate::material::solids(a, f);",
             "let r = crate::radius::projected(a, id, n, page);",
