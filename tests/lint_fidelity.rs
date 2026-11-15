@@ -353,6 +353,39 @@ fn an_angle_draws_an_arc_about_its_vertex_with_extension_lines_past_it() {
 }
 
 #[test]
+fn an_arc_extension_must_carry_nearby_text_on_the_same_circle() {
+    for (root, station) in [(0.0, -20.0), (60.0, 80.0)] {
+        let mut d = angle(0.0, 60.0, 20.0);
+        let at = polar(22.5, station);
+        let b = [at[0] - 1.5, at[1] - 1.5, at[0] + 1.5, at[1] + 1.5];
+        d.label = Some(b);
+        d.ink = b;
+        for i in 0..8 {
+            let t = |i: usize| root + (station - root) * i as f64 / 8.0;
+            d.lines.push([polar(20.0, t(i)), polar(20.0, t(i + 1))]);
+        }
+        let issues = structural::check(&sheet(1.0, corner(), vec![(d.clone(), "60")]));
+        assert!(fidelity(&issues).is_empty(), "{issues:?}");
+        for defect in ["detached", "wrong_circle", "no_label", "remote_label"] {
+            let mut broken = d.clone();
+            match defect {
+                "detached" => broken.lines.last_mut().unwrap()[0] = polar(20.0, station - 1.0),
+                "wrong_circle" => broken.lines.last_mut().unwrap()[1] = polar(21.0, station),
+                "no_label" => broken.label = None,
+                "remote_label" => broken.label = Some([300.0, 200.0, 303.0, 203.0]),
+                _ => unreachable!(),
+            }
+            let issues = structural::check(&sheet(1.0, corner(), vec![(broken, "60")]));
+            assert_eq!(
+                found(&issues, "angular_geometry_mismatch").len(),
+                1,
+                "{defect}: {issues:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn an_angles_rays_are_the_corners_physical_edges() {
     let code = "angular_support_mismatch";
     // No edge of the view along one ray: the angle is not between the corner's edges.

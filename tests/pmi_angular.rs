@@ -395,3 +395,76 @@ fn an_angle_no_view_shows_true_is_refused() {
         p.message
     );
 }
+
+/// DXF's native angular entity follows planned text, while an arc continuation
+/// beyond an arrowhead must not redefine the measured angle.
+#[test]
+fn dxf_angular_text_follows_the_plan_and_extensions_keep_the_measured_sector() {
+    let (part, analysis) = analysed("dxf_arc_extension", "nist_ctc_01_asme1_ap242-e1.stp");
+    let mut plan = model::plan_recovered(&analysis, &Spec::default()).unwrap();
+    let font = draftwright::text::Font::open(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fonts")
+            .join(draftwright::dims::FONT),
+    )
+    .unwrap();
+    for continuation in [false, true] {
+        if continuation {
+            let p = plan
+                .dimensions
+                .iter_mut()
+                .find(|d| d.id == ID)
+                .unwrap()
+                .placed
+                .as_mut()
+                .unwrap();
+            let end = p.lines.last().unwrap()[1];
+            p.lines.push([end, [end[0] + 1.0, end[1] + 1.0]]);
+            for k in 0..2 {
+                p.label_at[k] += 2.0;
+                p.label_box[k] += 2.0;
+                p.label_box[k + 2] += 2.0;
+            }
+        }
+        let drawing = model::render(&part, &analysis, &plan, &font).unwrap();
+        let bytes = drawing.dxf();
+        let text = String::from_utf8(bytes).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        let mut entities: Vec<Vec<(i32, &str)>> = Vec::new();
+        for pair in lines.as_chunks::<2>().0 {
+            let code: i32 = pair[0].trim().parse().unwrap();
+            if code == 0 {
+                entities.push(Vec::new());
+            }
+            if let Some(e) = entities.last_mut() {
+                e.push((code, pair[1].trim()));
+            }
+        }
+        let expected = the_angle(&plan).placed.as_ref().unwrap();
+        // Select by its planned text centre, since live text uses DXF degree escapes.
+        let b = expected.label_box;
+        let centre = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
+        let number = |e: &Vec<(i32, &str)>, code| {
+            e.iter()
+                .find(|p| p.0 == code)
+                .unwrap()
+                .1
+                .parse::<f64>()
+                .unwrap()
+        };
+        let angular = entities
+            .iter()
+            .find(|e| {
+                e.contains(&(0, "DIMENSION"))
+                    && e.contains(&(100, "AcDb3PointAngularDimension"))
+                    && (number(e, 11) - centre[0]).abs() < 1e-8
+                    && (number(e, 21) - centre[1]).abs() < 1e-8
+            })
+            .expect("angular DIMENSION at the planned text centre (code 11)");
+        for (k, coordinate) in centre.into_iter().enumerate() {
+            assert!((number(angular, 11 + 10 * k as i32) - coordinate).abs() < 1e-8);
+            assert!((number(angular, 13 + 10 * k as i32) - expected.arrows[0][0][k]).abs() < 1e-8);
+            assert!((number(angular, 14 + 10 * k as i32) - expected.arrows[1][0][k]).abs() < 1e-8);
+        }
+    }
+}
