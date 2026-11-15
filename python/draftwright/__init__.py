@@ -6,9 +6,10 @@ classes are unavailable.
 from ._native import DraftwrightError, __version__
 from ._drawing import make_drawing
 from ._part import Part
+from ._pack import Pack
 from ._legacy import install as _install, removed as _removed
 
-__all__ = ["make_drawing", "Part", "DraftwrightError", "__version__"]
+__all__ = ["make_drawing", "Part", "Pack", "DraftwrightError", "__version__"]
 _install()
 
 

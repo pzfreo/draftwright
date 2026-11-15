@@ -12,14 +12,57 @@ impl PartChoice {
     pub(crate) fn resolve(&self, parts: &[FilePart]) -> Result<usize, Invalid> {
         match self {
             Self::Index(k) => Ok(*k),
-            Self::Key(key) => crate::pack::part_keys(parts)
-                .iter()
-                .position(|k| k == key)
-                .map(|i| parts[i].part)
-                .ok_or_else(|| invalid(format!("Spec part {key:?} is not a part key; use draftwright parts to list the persistent keys."))),
+            Self::Key(key) => {
+                let keys = crate::pack::part_keys(parts);
+                let matches: Vec<_> = keys.iter().enumerate().filter(|(_, k)| *k == key).collect();
+                match matches.as_slice() {
+                    [(i, _)] => Ok(parts[*i].part),
+                    [] if parts.iter().filter(|p| p.name.trim() == key).count() > 1 => {
+                        Err(invalid(format!(
+                            "part key {key:?} is ambiguous; use draftwright parts <step> to list the distinct persistent keys."
+                        )))
+                    }
+                    [] => Err(invalid(format!(
+                        "part {key:?} is not a part key; use draftwright parts <step> to list the persistent keys."
+                    ))),
+                    _ => Err(invalid(format!(
+                        "part key {key:?} is ambiguous; use draftwright parts <step> to list the persistent keys."
+                    ))),
+                }
+            }
         }
     }
 }
+/// CLI text may denote an index or a persistent key. Numeric product keys must
+/// not silently select a different indexed product.
+pub(crate) fn cli(value: &str, parts: &[FilePart]) -> Result<usize, Invalid> {
+    let key = PartChoice::Key(value.into());
+    match value.parse::<usize>() {
+        Ok(index) => {
+            if crate::pack::part_keys(parts).iter().any(|k| k == value) {
+                let keyed = key.resolve(parts)?;
+                if keyed != index && parts.iter().any(|p| p.part == index) {
+                    return Err(invalid(format!(
+                        "--part {value:?} is ambiguous: index {index} and persistent key for part {keyed}; use draftwright parts <step> and choose a distinct key, or the Spec part field"
+                    )));
+                }
+                return Ok(keyed);
+            }
+            Ok(index)
+        }
+        Err(_)
+            if value.starts_with('-')
+                && value[1..].parse::<usize>().is_ok()
+                && !crate::pack::part_keys(parts).iter().any(|k| k == value) =>
+        {
+            Err(invalid(format!(
+                "--part {value:?} is not a part's index; use draftwright parts <step> to list persistent keys and indices"
+            )))
+        }
+        Err(_) => key.resolve(parts),
+    }
+}
+
 fn invalid(message: String) -> Invalid {
     Invalid {
         message,
@@ -82,5 +125,34 @@ pub(crate) fn selected(analysis: &Analysis, choice: &PartChoice) -> Result<usize
             }])
         }
         _ => choice.resolve(&analysis.parts),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numeric_keys_refuse_a_conflicting_index_and_allow_unambiguous_keys() {
+        let parts = vec![
+            FilePart {
+                part: 0,
+                name: "1".into(),
+                product_id: "one".into(),
+                faces: 6,
+                instances: 1,
+            },
+            FilePart {
+                part: 1,
+                name: "-1".into(),
+                product_id: "two".into(),
+                faces: 6,
+                instances: 1,
+            },
+        ];
+        assert!(cli("1", &parts).unwrap_err().message.contains("ambiguous"));
+        assert_eq!(cli("0", &parts).unwrap(), 0);
+        assert_eq!(cli("-1", &parts).unwrap(), 1);
+        assert_eq!(PartChoice::Key("1".into()).resolve(&parts).unwrap(), 0);
     }
 }

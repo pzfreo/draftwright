@@ -318,27 +318,7 @@ pub fn render_model(
             "caller shape and analysis have different face counts",
         ));
     }
-    let mut analysis = analysis.clone();
-    analysis.pmi = Some(crate::pmi::Reading::Read(
-        crate::pmi::from_model(part, pmi).map_err(Error::invalid)?,
-    ));
-    // Manufacturing process is a caller-stated PMI attribute, never a Spec edit.
-    for attribute in &pmi.attributes {
-        if attribute.name == "manufacturing process" && attribute.on.is_none() {
-            for (_, value) in &attribute.items {
-                if let haecceity::pmi::AttributeValue::Text(text) = value {
-                    let text = match text.as_str() {
-                        "cnc-milled" | "cnc-turned" => "machined",
-                        other => other,
-                    };
-                    let process = serde_json::from_value(serde_json::json!(text)).map_err(|e| {
-                        Error::invalid(format!("invalid manufacturing process: {e}"))
-                    })?;
-                    analysis.bom.get_or_insert_with(Default::default).process = Some(process);
-                }
-            }
-        }
-    }
+    let analysis = with_model(part, analysis, pmi)?;
     let mut plan = planned(&analysis, spec)?;
     let font = Font::new(MONO.to_vec()).expect("bundled font");
     let drawings = model::render_sheets(part, &analysis, &plan, &font)
