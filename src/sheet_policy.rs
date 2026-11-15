@@ -2109,6 +2109,9 @@ fn refused_annotation(name: &str, count: usize) -> String {
 
 /// Summarise the diagnostics for the reader; the complete trace stays in the basis.
 fn scale_refusal_reason(raw: &str) -> Option<String> {
+    // A later paper-count retry can repeat the same refusal with this trace-only
+    // suffix. It is not a second reason for refusing the scale.
+    let raw = raw.split(" [sheet limit ").next().unwrap_or(raw);
     if raw.starts_with("valid and complete")
         || raw.starts_with("base retained")
         || raw == "automatic baseline reused"
@@ -2989,6 +2992,17 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn scale_refusal_ignores_sheet_limit_retry_metadata() {
+        let reason = "not planned: aligned front and side views need at least 374 mm across at 10:1; A4 drawable area is 271 × 184 mm";
+        let expected = Some(reason.strip_prefix("not planned: ").unwrap().to_string());
+        assert_eq!(scale_refusal_reason(reason), expected);
+        assert_eq!(
+            scale_refusal_reason(&format!("{reason} [sheet limit 2]")),
+            expected
+        );
     }
 
     #[test]
