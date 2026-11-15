@@ -1004,7 +1004,12 @@ fn recovered_ftc09_keeps_a1_and_perpendicular_witnesses() {
         draftwright::lint::slots::ALONE.into(),
         serde_json::Value::Bool(true),
     );
-    let plan = cache::default_plan(&a, true);
+    // Preserve the historical ISO A1 1:1 split-slot route and orientation recipe.
+    let metric = draftwright::model::Spec {
+        units: draftwright::units::Units::Mm,
+        ..Default::default()
+    };
+    let plan = model::plan_recovered(&a, &metric).unwrap();
     let drawing = model::render(&part, &a, &plan, &font()).unwrap();
     assert_eq!(
         (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
