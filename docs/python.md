@@ -200,7 +200,7 @@ that angle. A straight knurl refuses `helix_angle`. Diagonal knurls are refused
 because the engine does not lower them.
 Standalone chamfer requirements are omitted: the engine has no chamfer PMI form
 that it draws (geometry recognition can still dimension modelled chamfers).
-AP242/Specify mapping and Pack remain deferred.
+AP242/Specify mapping remains deferred. Packs use the same in-memory PMI directly.
 
 The following complete example renders each new requirement on a real turned
 cylinder. Each sheet has its own Part so the fit, thread, knurl and numeric size
@@ -311,6 +311,69 @@ one document containing every sheet. PNG uses the engine's default resolution.
 `drawing.problems` contains the most recent successful render's findings. Every dictionary
 includes the engine-owned `tier`: `fix_before_printing`, `tidy`, or `information`.
 See the [code-to-tier table](finding-impact.md), including its explicit severity-dependent rules.
+
+## Assembly drawing packs (`Pack`, 0.6.0-alpha.3)
+
+`Pack(assembly, parts=[...], title=..., number=...)` renders the Rust pack pipeline:
+a GA followed by made-part sheets, with one PDF, CSV and JSON report. `assembly`
+is a build123d Compound whose leaf children are located shapes with unique product
+labels matching `Part.name`. A STEP path also works, or pass a list of Parts as
+`Pack([base, lid], ...)`; each stays where it was modelled. build123d remains
+optional for STEP-only packs. Products without a supplied Part draw from geometry,
+with the CLI's normal make/buy policy.
+
+`title` and `number` in the constructor identify the GA. Part numbers and drawing
+titles come from each Part. `pack.title(drawn_by=..., date=..., revision=...)`
+sets [pack-wide title-block defaults](model.md#drawing-packs-41), inherited field
+by field; `title` and `number` in this method are errors. `pack.part(name)` returns
+a layout Drawing: use `.update(spec_dict)` or `.title(...)` for individual overrides.
+Requirements belong on Part; they never enter the drawing Spec or STEP sidecars.
+
+This complete example runs with build123d 0.13.0 and is executed by the Python tests:
+
+```python
+from build123d import BuildPart, Box, Hole, Locations, Axis, Compound, Pos
+from draftwright import Part, Pack
+
+with BuildPart() as body:
+    Box(60, 40, 8)
+    with Locations((12, 6)):
+        bore = Hole(radius=4)
+base_shape = body.part
+base_shape.label = "base"
+lid_shape = Pos(0, 0, 16) * Box(60, 40, 3)
+lid_shape.label = "lid"
+
+base = Part(base_shape, "base", number="DWG-101", title="Enclosure base")
+base.process("machined").material("6082-T6").general_tolerance("ISO 2768-mK")
+A = base.datum("A", body.faces().sort_by(Axis.Z)[0])
+base.hole(bore).fit("H7").position(0.1, A)
+lid = Part(lid_shape, "lid", number="DWG-102", title="Enclosure lid")
+lid.process("machined").material("6082-T6")
+
+assembly = Compound(children=[base_shape, lid_shape])
+pack = Pack(assembly, parts=[base, lid], title="Enclosure", number="ASM-100")
+pack.title(drawn_by="PA", date="2026-11-15", revision="B")
+pack.part("lid").update({"sheet": {"title": {"revision": "C"}}})
+written = pack.render("enclosure", formats=("pdf", "csv", "json"))
+print(written)
+print(pack.rows, pack.findings)
+```
+
+`render(out, formats=("pdf", "csv", "json"))` returns every written path, in format
+order. `out` is a stem (`"enclosure"` produces `enclosure.pdf`, `.csv`, `.json`).
+`pack.rows` and `pack.findings` are dictionaries from the latest successful Rust
+report; `pack.report` also includes the page count and GA details. Row `problems`
+and `error` retain individual failures. Findings never block completed output.
+
+The Python wrapper exports assembly geometry to memory and transfers each Part's
+cached geometry and native PartPmi to one Rust pack entry point. Part face names
+bind the caller's PMI to its native reference B-rep. Rust requires the assembly
+product to have exactly the same B-rep, including face order, before using those
+indices; no geometric nearest-face guess is made. Export the assembly from the
+same shapes, preserving product-local frames. A STEP path with supplied Parts
+must preserve that same geometry; a mismatch remains a row error and the other
+sheets render. No temporary files or PMI sidecars are created.
 
 ## Commands and interrupts
 

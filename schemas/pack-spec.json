@@ -17,6 +17,40 @@
     },
     "ga": {
       "$ref": "#/$defs/ga"
+    },
+    "title": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "material": {
+          "type": "string"
+        },
+        "tolerance": {
+          "type": "string"
+        },
+        "drawn_by": {
+          "type": "string"
+        },
+        "approved_by": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        },
+        "company": {
+          "type": "string"
+        },
+        "document_type": {
+          "type": "string"
+        }
+      },
+      "description": "Shared title-block defaults for every GA and made-part sheet. Per-sheet fields override individually. TITLE and DWG NO. belong in each drawing, never here."
     }
   },
   "$defs": {

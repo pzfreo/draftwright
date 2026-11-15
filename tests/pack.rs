@@ -1885,3 +1885,76 @@ fn pdf_page_contents(pdf: &[u8]) -> Vec<&[u8]> {
         })
         .collect()
 }
+
+#[test]
+fn shared_title_defaults_reach_ga_and_every_part_sheet_with_field_overrides() {
+    let spec: PackSpec = serde_json::from_value(json!({
+        "title": {"drawn_by":"PA", "date":"2026-11-15", "revision":"B",
+                  "approved_by":"QA", "company":"Workshop", "tolerance":"ISO 2768-mK"},
+        "ga":{"drawing":{"sheet":{"title":{"revision":"GA-C"}}}},
+        "parts":{"plate":{"drawing":{"sheet":{"title":{"drawn_by":"AB"}},
+                 "sheets":{"max":2}, "views":{"iso":{"sheet":2}}}}}
+    }))
+    .unwrap();
+    let pack = pack::build(&fixture("pack-small.step.gz"), &spec).unwrap();
+    assert!(pack.report.general_assembly.is_some());
+    assert!(pack.drawings.len() >= 3);
+    for (i, drawing) in pack.drawings.iter().enumerate() {
+        let spec: draftwright::model::Spec =
+            serde_json::from_str(drawing.spec.as_ref().unwrap()).unwrap();
+        let title = &spec.sheet.title;
+        assert_eq!(title["date"], "2026-11-15");
+        assert_eq!(title["company"], "Workshop");
+        assert_eq!(title["approved_by"], "QA");
+        assert_eq!(title["tolerance"], "ISO 2768-mK");
+        assert_eq!(title["revision"], if i == 0 { "GA-C" } else { "B" });
+    }
+    let plate = pack.report.rows.iter().find(|r| r.key == "plate").unwrap();
+    assert_eq!(plate.sheets.len(), 2);
+    for page in &plate.sheets {
+        assert_eq!(
+            serde_json::from_str::<draftwright::model::Spec>(
+                pack.drawings[page - 1].spec.as_ref().unwrap()
+            )
+            .unwrap()
+            .sheet
+            .title["drawn_by"],
+            "AB"
+        );
+    }
+    for field in ["title", "number"] {
+        let bad = serde_json::from_value(json!({"title":{field:"copied identity"}})).unwrap();
+        let error = pack::build(&fixture("pack-small.step.gz"), &bad)
+            .err()
+            .unwrap();
+        assert!(error.message.contains("per sheet"), "{error:?}");
+    }
+}
+
+#[test]
+fn cli_pack_honours_shared_title_defaults() {
+    let dir =
+        std::env::temp_dir().join(format!("draftwright-pack-title-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("spec.json");
+    std::fs::write(
+        &path,
+        json!({"title":{"drawn_by":"PA", "date":"2026-11-15", "revision":"B"}}).to_string(),
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .arg("pack")
+        .arg(fixture("pack-small.step.gz"))
+        .arg("-o")
+        .arg(&dir)
+        .arg("--spec")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let spec = draftwright::api::spec(&dir.join("pack.pdf")).unwrap();
+    assert_eq!(spec.sheet.title["drawn_by"], "PA");
+    assert_eq!(spec.sheet.title["date"], "2026-11-15");
+    assert_eq!(spec.sheet.title["revision"], "B");
+    std::fs::remove_dir_all(dir).unwrap();
+}

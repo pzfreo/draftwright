@@ -589,9 +589,9 @@ class Drawing:
         self._part = part
         self._spec = {"units": units, "sheet": {"title": {}}}
         title = self._spec["sheet"]["title"]
-        if part.title is not None:
+        if part is not None and part.title is not None:
             title["title"] = part.title
-        if part.number is not None:
+        if part is not None and part.number is not None:
             title["number"] = part.number
         if sheet is not None:
             self._spec["sheet"]["size"] = sheet

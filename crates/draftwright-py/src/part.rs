@@ -583,7 +583,7 @@ impl Pmi {
 
 #[pyclass]
 pub struct Geometry {
-    part: haecceity::Part,
+    pub(crate) part: std::sync::Arc<haecceity::Part>,
     analysis: draftwright::model::Analysis,
     mapping: Vec<usize>,
 }
@@ -633,7 +633,7 @@ impl Geometry {
                 })
                 .collect::<PyResult<Vec<_>>>()?;
             Ok(Self {
-                part,
+                part: std::sync::Arc::new(part),
                 analysis,
                 mapping,
             })
@@ -718,7 +718,7 @@ impl Geometry {
     }
 }
 impl Geometry {
-    fn bound(&self, pmi: &Pmi) -> PyResult<PartPmi> {
+    pub(crate) fn bound(&self, pmi: &Pmi) -> PyResult<PartPmi> {
         if pmi.faces != self.mapping.len() {
             return Err(raised("PMI and shape face counts differ"));
         }

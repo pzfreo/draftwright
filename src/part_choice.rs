@@ -127,3 +127,32 @@ pub(crate) fn selected(analysis: &Analysis, choice: &PartChoice) -> Result<usize
         _ => choice.resolve(&analysis.parts),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numeric_keys_refuse_a_conflicting_index_and_allow_unambiguous_keys() {
+        let parts = vec![
+            FilePart {
+                part: 0,
+                name: "1".into(),
+                product_id: "one".into(),
+                faces: 6,
+                instances: 1,
+            },
+            FilePart {
+                part: 1,
+                name: "-1".into(),
+                product_id: "two".into(),
+                faces: 6,
+                instances: 1,
+            },
+        ];
+        assert!(cli("1", &parts).unwrap_err().message.contains("ambiguous"));
+        assert_eq!(cli("0", &parts).unwrap(), 0);
+        assert_eq!(cli("-1", &parts).unwrap(), 1);
+        assert_eq!(PartChoice::Key("1".into()).resolve(&parts).unwrap(), 0);
+    }
+}

@@ -74,6 +74,8 @@ pub struct PackSpec {
     pub schema: String,
     pub parts: BTreeMap<String, PartSpec>,
     pub ga: GaSpec,
+    /// Shared title-block defaults; sheet identity is always authored per drawing.
+    pub title: BTreeMap<String, String>,
 }
 
 impl Default for PackSpec {
@@ -82,6 +84,30 @@ impl Default for PackSpec {
             schema: SPEC_SCHEMA.into(),
             parts: BTreeMap::new(),
             ga: GaSpec::default(),
+            title: BTreeMap::new(),
+        }
+    }
+}
+
+impl PackSpec {
+    pub fn check_title(&self) -> Result<(), Error> {
+        for field in ["title", "number"] {
+            if self.title.contains_key(field) {
+                return Err(Error::invalid(format!(
+                    "pack title/{field} is per sheet; set ga/drawing/sheet/title/{field} or parts/<key>/drawing/sheet/title/{field} instead"
+                )));
+            }
+        }
+        crate::title_block::check(&self.title).map_err(Error::from)
+    }
+
+    fn inherit_title(&self, drawing: &mut Spec) {
+        for (key, value) in &self.title {
+            drawing
+                .sheet
+                .title
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
         }
     }
 }
@@ -124,6 +150,7 @@ pub struct Row {
 #[serde(rename_all = "lowercase")]
 pub enum ValueSource {
     Spec,
+    Pmi,
     File,
     Suggested,
     Guess,
@@ -226,15 +253,34 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     build_bytes(&step.display().to_string(), &bytes, spec)
 }
 
+/// Caller-owned PMI for one product, indexed against its proven reference B-rep.
+/// Neither this model nor its requirements are serialized into the pack Spec or STEP.
+pub struct ProductPmi {
+    pub model: haecceity::pmi::PartPmi,
+    pub reference: std::sync::Arc<Part>,
+}
+
 /// Build from STEP or gzip bytes without filesystem access. `name` supplies the
 /// same display name and filename stem as the path-based API.
 pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Error> {
+    build_bytes_with_pmi(name, bytes, spec, &BTreeMap::new())
+}
+
+/// The ordinary pack pipeline with per-product, in-memory semantic PMI. Products
+/// with authored requirements stay separate, so geometry equality cannot erase intent.
+pub fn build_bytes_with_pmi(
+    name: &str,
+    bytes: &[u8],
+    spec: &PackSpec,
+    pmi: &BTreeMap<String, ProductPmi>,
+) -> Result<Pack, Error> {
     let step = Path::new(name);
     if spec.schema != SPEC_SCHEMA {
         return Err(Error::invalid(format!(
             "pack Spec schema must be {SPEC_SCHEMA}"
         )));
     }
+    spec.check_title()?;
     let mut timings = Timings::default();
     let started = Instant::now();
     let bytes = model::step_bytes(bytes)
@@ -251,6 +297,13 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
             .iter()
             .map(|d| (d.name.as_str(), d.product_id.as_str())),
     );
+    for key in pmi.keys() {
+        if !keys.contains(key) {
+            return Err(Error::invalid(format!(
+                "unknown PMI product {key:?}; use draftwright parts <step> to list persistent keys"
+            )));
+        }
+    }
     let mut groups: Vec<Group> = Vec::new();
     // Retain the already-proven proper-rigid correspondence for GA projection
     // reuse, including equal geometry exported under different products/frames.
@@ -258,7 +311,7 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
     let mut findings = Vec::new();
     for (i, d) in file.parts.iter().enumerate() {
         let key = &keys[i];
-        let separate = spec.parts.get(key).is_some_and(|p| p.separate);
+        let separate = pmi.contains_key(key) || spec.parts.get(key).is_some_and(|p| p.separate);
         let part = file.part(i).map_err(|e| e.to_string());
         let mut identity = None;
         let mut correspondence = Motion::IDENTITY;
@@ -728,11 +781,36 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
                     row.buy_reasons.push(reason);
                 }
                 model::recognise_document(&part, &mut analysis, &doc).map_err(Error::failed)?;
+                if let Some(authored) = pmi.get(&keys[row.part_indices[0]]) {
+                    if !part.same_brep(&authored.reference) {
+                        return Err(Error::invalid(format!(
+                            "{}: PMI reference geometry differs from the assembly product; export the assembly from the same Part shapes in their product-local frames",
+                            row.key
+                        )));
+                    }
+                    analysis = crate::api::with_model(&part, &analysis, &authored.model)?;
+                }
                 Ok((part, analysis))
             })())
         } else {
             None
         };
+        if let Some(authored) = pmi.get(&keys[row.part_indices[0]])
+            && let Some(Ok((_, analysis))) = &analysed
+        {
+            if row.sources.get("material") != Some(&ValueSource::Spec)
+                && let Some(material) = &authored.model.material
+            {
+                row.bom.material = Some(material.id.clone());
+                row.sources.insert("material".into(), ValueSource::Pmi);
+            }
+            if drawing_spec.process.is_none()
+                && let Some(process) = analysis.bom.as_ref().and_then(|b| b.process)
+            {
+                row.bom.process = Some(process);
+                row.sources.insert("process".into(), ValueSource::Pmi);
+            }
+        }
         timing.analysis_seconds = started.elapsed().as_secs_f64();
         let guessed = if !row.buy_reasons.is_empty() && file.parts.len() > 1 {
             Supply::Buy
@@ -779,6 +857,7 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
         } else {
             findings.push(finding("pack_make_guess", format!("{}: guessed make; custom drawing identifier or no bounded purchased-part name/shape evidence (supply override wins)", row.name), row.products.clone()));
         }
+        spec.inherit_title(&mut drawing_spec);
         let started = Instant::now();
         let planned = if row.supply != Supply::Buy {
             match analysed
@@ -878,6 +957,8 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
             reserved.insert(next);
         }
     }
+    let mut ga_settings = spec.ga.clone();
+    spec.inherit_title(&mut ga_settings.drawing);
     let ga_started = Instant::now();
     let reused: BTreeMap<_, _> = rows
         .iter()
@@ -892,7 +973,7 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
             step,
             &doc,
             &file,
-            &spec.ga,
+            &ga_settings,
             rows.iter().map(|(r, ..)| r),
             &reused,
             &aliases,
@@ -1026,6 +1107,7 @@ impl Report {
                     .get(field)
                     .map(|v| match v {
                         ValueSource::Spec => "spec",
+                        ValueSource::Pmi => "pmi",
                         ValueSource::File => "file",
                         ValueSource::Guess => "guess",
                         ValueSource::Suggested => "suggested",
@@ -1147,19 +1229,29 @@ fn render_bytes_profiled(
         return Err(Error::invalid("pack formats must be pdf,csv,json"));
     }
     let pack = build_bytes(name, bytes, spec)?;
-    let mut files = Vec::new();
-    for &format in formats {
-        let bytes = match format {
-            "pdf" => pack.pdf(),
-            "csv" => pack.report.csv().into_bytes(),
-            _ => serde_json::to_vec_pretty(&pack.report).expect("report serialises"),
-        };
-        files.push((format.into(), bytes));
-    }
+    let files = pack.encode(formats)?;
     Ok((pack.report, files, pack.timings))
 }
 
 impl Pack {
+    /// Encode this completed pack without building it a second time.
+    pub fn encode(&self, formats: &[&str]) -> Result<Files, Error> {
+        if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
+            return Err(Error::invalid("pack formats must be pdf,csv,json"));
+        }
+        Ok(formats
+            .iter()
+            .map(|&format| {
+                let bytes = match format {
+                    "pdf" => self.pdf(),
+                    "csv" => self.report.csv().into_bytes(),
+                    _ => serde_json::to_vec_pretty(&self.report).expect("report serialises"),
+                };
+                (format.into(), bytes)
+            })
+            .collect())
+    }
+
     /// A page's SVG, numbered from one in PDF order (GA first when present).
     pub fn page_svg(&self, page: usize) -> Result<String, Error> {
         page.checked_sub(1)
@@ -1180,5 +1272,88 @@ impl Pack {
             crate::title_block::FONT => Some(crate::title_block::FONT_DATA.to_vec()),
             _ => None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use haecceity::pmi;
+
+    #[test]
+    fn caller_pmi_pack_annotations_match_the_single_part_pipeline() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/assembly/assembly_pin_pmi.step.gz");
+        let bytes = model::read_step_file(&path).unwrap();
+        let file = haecceity::step::StepFile::read(&bytes).unwrap();
+        let doc = haecceity::p21::Document::parse(bytes.clone()).unwrap();
+        let models = pmi::read(&doc, &file.parts).unwrap();
+        let (part, mut analysis) = model::analyse_native_part(&path, Some(1)).unwrap();
+        let model = models.parts[1].clone();
+        let report = crate::pmi::from_model(&part, &model).unwrap();
+        assert!(report.records.iter().any(|r| r.kind == "datum"));
+        assert!(report.records.iter().any(|r| r.kind == "position"));
+        analysis = crate::api::with_model(&part, &analysis, &model).unwrap();
+        let single_spec = Spec::default();
+        let single_plan = crate::api::plan_analysed(&analysis, &single_spec).unwrap();
+        let font = Font::new(crate::api::MONO.to_vec()).unwrap();
+        let single = model::render_sheets(&part, &analysis, &single_plan, &font).unwrap();
+        let mut spec = PackSpec::default();
+        spec.ga.include = Some(false);
+        spec.parts.insert(
+            "pin".into(),
+            PartSpec {
+                supply: Some(Supply::Make),
+                ..Default::default()
+            },
+        );
+        spec.parts.insert(
+            "plate".into(),
+            PartSpec {
+                supply: Some(Supply::Buy),
+                ..Default::default()
+            },
+        );
+        let inputs = BTreeMap::from([(
+            "pin".into(),
+            ProductPmi {
+                model,
+                reference: std::sync::Arc::new(part),
+            },
+        )]);
+        let pack = build_bytes_with_pmi("assembly.step", &bytes, &spec, &inputs).unwrap();
+        let row = pack.report.rows.iter().find(|r| r.key == "pin").unwrap();
+        assert!(row.error.is_none(), "{:?}", row.error);
+        assert_eq!(row.sheets.len(), single.len());
+        fn annotations(drawing: &Drawing) -> Vec<(String, Option<String>, Vec<String>)> {
+            drawing
+                .annotations
+                .iter()
+                .filter(|a| a.view.is_some() || a.name.starts_with("pmi"))
+                .map(|a| {
+                    (
+                        a.name.clone(),
+                        a.view.clone(),
+                        a.runs
+                            .iter()
+                            .map(|&i| drawing.text[i].text.clone())
+                            .collect(),
+                    )
+                })
+                .collect()
+        }
+        for (&page, single) in row.sheets.iter().zip(&single) {
+            assert_eq!(annotations(&pack.drawings[page - 1]), annotations(single));
+        }
+        let mut single_codes: Vec<_> = single_plan
+            .problems
+            .iter()
+            .chain(single.iter().flat_map(|d| &d.problems))
+            .map(|p| &p.code)
+            .collect();
+        let mut pack_codes: Vec<_> = row.problems.iter().map(|p| &p.code).collect();
+        single_codes.sort();
+        pack_codes.sort();
+        assert_eq!(pack_codes, single_codes);
     }
 }

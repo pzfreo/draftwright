@@ -3431,11 +3431,21 @@ items remain reported even with a position override. `general_assembly` in the
 pack report gives sheet, paper, scale, envelope, list, drawn/suppressed/unballooned
 items and problems; `ga_seconds` is outside the deterministic report.
 
+Pack-wide `title` supplies shared title-block defaults to the GA and every made-part
+sheet. `ga.drawing.sheet.title` and `parts/<key>/drawing/sheet/title` override
+individual fields, including explicit empty strings. Shared fields include
+`drawn_by`, `date`, `revision`, `approved_by`, `company` (LEGAL OWNER), `tolerance`,
+`material` and `document_type`. Pack-level `title.title` and `title.number` are
+errors: TITLE and DWG NO. identify individual sheets and belong in their drawing
+Specs. Global SHEET numbering is still allocated by the pack.
+
 The independent, strict pack Spec (`schemas/pack-spec.json`) contains intent:
 
 ```json
 {
   "schema": "draftwright.pack-spec/1",
+  "title": { "drawn_by": "PA", "date": "2026-11-15", "revision": "B",
+             "approved_by": "QA", "company": "Workshop", "tolerance": "ISO 2768-mK" },
   "parts": {
     "GRM-01 shank": {
       "supply": "make",
@@ -3704,3 +3714,8 @@ rule for coverage and PMI diagnostics. Severity, impact, finding order and drawi
 retain their existing meaning. MCP, WASM/JS JSON, and Python `drawing.problems` expose the
 same field. Tiers group issues; they never block export. They set which editor Issues group
 opens first, while printing and export remain available at every tier. CLI output stays JSON.
+
+Every CLI `--part` selector accepts the persistent key printed by `draftwright parts`
+or its zero-based index, for example `draftwright plan assembly.step --part "push rod"`.
+Unknown or ambiguous keys are errors; use `draftwright parts assembly.step` to list
+the distinct keys. The same resolver handles the drawing Spec’s `part` field.
