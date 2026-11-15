@@ -2812,11 +2812,13 @@ Every incremental result saves typed placement-only `engine_pins` in the Spec, w
 `written_by: "engine"` and schema `draftwright.spec/4`. The record contains the source
 revision, paper and scale, view frames, and annotation placements keyed by stable item id:
 `place` (view, side, offset, pinned), leader/witness routes, glyph translation steps, lane
-region and dimension origin choices. Coordinates are relative to the view where reversible
+region and dimension origin choices. A pin records whether its item was introduced in the
+kept layout, so constrained-placement findings can be re-evaluated without saving problems. Coordinates are relative to the view where reversible
 without rounding. It contains no requirement text, dimension terms, measurements, face
 indices, characteristics, table records, problems, author-Spec copy or derived Plan.
 Requirements and glyphs are regenerated from the current STEP and Spec; placement checks
-run again on the final ink. Table ids request the ordinary schedule planner.
+run again on the final ink. Table ids, block origins and tag routes request the ordinary schedule planner; its rows
+and measurements are always regenerated.
 
 Saving the Spec and reopening with the same STEP, including CLI rendering, replays these
 pins. Unknown item ids are dropped individually with `engine_pins_replanned` (information).

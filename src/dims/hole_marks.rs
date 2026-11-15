@@ -1712,6 +1712,14 @@ pub(super) fn settle(
     Some((side, next, area, before))
 }
 
+/// Derive a counted frame's current controlled-hole cohort from current STEP geometry/PMI.
+pub(crate) fn controlled_count(analysis: &Analysis, faces: &[usize]) -> Option<usize> {
+    let read = crate::bridge::holes::read(analysis);
+    let holes: Vec<&Hole> = read.iter().filter_map(|(_, h)| h.as_ref().ok()).collect();
+    let n = bore_owners(analysis, &holes, faces)?.len();
+    (n > 1).then_some(n)
+}
+
 /// Whether placement intent *p* keeps a glyph on its lowered attachment: it names a view other
 /// than *end_on* (where the glyph attaches), or a side, lane or position along a lowered strip.
 /// A bare pin, an offset, or a pin in *end_on* holds the attached ink instead.

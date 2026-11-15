@@ -63,10 +63,19 @@ pub struct Annotation {
     pub region: Option<crate::dims::CandidateRegion>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub absolute: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub introduced: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Route {
+    Marker {
+        leader: Option<[[f64; 2]; 2]>,
+        bounds: Option<[f64; 4]>,
+    },
+    Blocks {
+        offsets: Vec<[f64; 2]>,
+    },
     Dimension {
         #[serde(with = "paths")]
         lines: Vec<[[f64; 2]; 2]>,
@@ -134,16 +143,22 @@ pub(crate) fn views(views: &mut [model::PlannedView]) {
                 v.up = pin.up;
                 v.scale = pin.scale;
                 v.area = pin.area;
-                if pin.lifted && !v.basis.contains("free projection row lifted together") {
-                    if let Some(i)=v.basis.find("; Spec:"){v.basis.insert_str(i,"; free projection row lifted together using measured annotation bounds");}
+                if pin.lifted && !v.basis.contains("free projection row lifted together")
+                    && let Some(index) = v.basis.find("; Spec:") {
+                    v.basis.insert_str(index, "; free projection row lifted together using measured annotation bounds");
                 }
-                if v.id=="v:iso" {
-                    if let Some(i)=v.basis.find("; Spec:") {
-                        let suffix=v.basis[i..].to_string();
-                        let scale=pins.sheet.scale.split_once(':').and_then(|(a,b)|Some(a.parse::<f64>().ok()?/b.parse::<f64>().ok()?)).unwrap_or(1.);
-                        let factor=(pin.scale/scale*10000.).round()/10000.;
-                        v.basis=if pin.measured {format!("the automatic orientation view, fitted once around measured row blocks at {:.4} page mm per model mm (not to scale){suffix}",pin.scale)} else if factor==1. {format!("the isometric, centred in the largest space the other views leave{suffix}")} else {format!("the isometric, centred in the largest space the other views leave and scaled ×{factor} to fill it (not to scale){suffix}")};
-                    }
+                if v.id == "v:iso" && let Some(index) = v.basis.find("; Spec:") {
+                    let suffix = &v.basis[index..];
+                    let scale = pins.sheet.scale.split_once(':')
+                        .and_then(|(a,b)| Some(a.parse::<f64>().ok()? / b.parse::<f64>().ok()?)).unwrap_or(1.);
+                    let factor = (pin.scale / scale * 10000.).round() / 10000.;
+                    v.basis = if pin.measured {
+                        format!("the automatic orientation view, fitted once around measured row blocks at {:.4} page mm per model mm (not to scale){suffix}", pin.scale)
+                    } else if factor == 1. {
+                        format!("the isometric, centred in the largest space the other views leave{suffix}")
+                    } else {
+                        format!("the isometric, centred in the largest space the other views leave and scaled ×{factor} to fill it (not to scale){suffix}")
+                    };
                 }
             }
         }
@@ -314,6 +329,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                     omit: false,
                     region: d.region,
                     absolute: absolute_pin,
+                    introduced: false,
                 },
             );
         }
@@ -361,6 +377,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                     omit: false,
                     region: None,
                     absolute: absolute_pin,
+                    introduced: false,
                 },
             );
         }
@@ -376,6 +393,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
             omit: true,
             region: None,
             absolute: false,
+            introduced: false,
         });
     }
     for t in &plan.hole_tables {
@@ -387,11 +405,40 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                     pinned: true,
                     ..Default::default()
                 },
-                route: None,
+                route: Some(Route::Blocks {
+                    offsets: t
+                        .blocks
+                        .iter()
+                        .filter_map(|b| b.placed.as_ref().map(|p| [p.cells[0], p.cells[1]]))
+                        .collect(),
+                }),
                 basis: None,
                 omit: false,
                 region: None,
                 absolute: false,
+                introduced: false,
+            },
+        );
+    }
+    for marker in &plan.balloons {
+        annotations.insert(
+            marker.id.clone(),
+            Annotation {
+                place: Place {
+                    view: Some(marker.view.clone()),
+                    offset: Some(marker.at),
+                    pinned: true,
+                    ..Default::default()
+                },
+                route: Some(Route::Marker {
+                    leader: marker.leader,
+                    bounds: marker.label_box,
+                }),
+                basis: None,
+                omit: false,
+                region: None,
+                absolute: true,
+                introduced: false,
             },
         );
     }
@@ -407,6 +454,19 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                 origins[b.axis] = b.station;
             }
         }
+    }
+    for (id, pin) in &mut annotations {
+        pin.introduced = previous
+            .spec
+            .engine_pins
+            .as_ref()
+            .and_then(|p| p.annotations.get(id))
+            .is_some_and(|p| p.introduced)
+            || (!previous.dimensions.iter().any(|d| &d.id == id)
+                && !previous.gdt.iter().any(|g| &g.id == id)
+                && !previous.balloons.iter().any(|b| &b.id == id)
+                && !previous.hole_tables.iter().any(|t| &t.id == id)
+                && !previous.omitted.iter().any(|o| &o.id == id));
     }
     plan.spec.schema = SCHEMA.into();
     plan.spec.engine_pins = Some(Box::new(EnginePins {
@@ -531,7 +591,25 @@ fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String>
                         }
                     }
                 }
-                crate::dims::gdt::apply_pin(g, &decoded, item, plan.spec.units);
+                crate::dims::gdt::apply_pin(
+                    g,
+                    &decoded,
+                    item,
+                    plan.spec.units,
+                    crate::dims::hole_marks::controlled_count(analysis, &item.faces),
+                );
+            }
+        }
+    }
+    for marker in &mut plan.balloons {
+        if let Some(pin) = pins.annotations.get(&marker.id) {
+            remaining.remove(&marker.id);
+            if let (Some(at), Some(Route::Marker { leader, bounds })) =
+                (pin.place.offset, &pin.route)
+            {
+                marker.at = at;
+                marker.leader = *leader;
+                marker.label_box = *bounds;
             }
         }
     }
@@ -575,7 +653,21 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
             model::plan(a, s)
         }
     };
-    if pins.source_sha256 != a.binding.source_sha256
+    let camera_changed = base.views.iter().any(|(name, requested)| {
+        let pin = pins.views.get(&format!("v:{name}"));
+        (requested.omit && pin.is_some())
+            || requested
+                .direction
+                .is_some_and(|direction| pin.is_none_or(|pin| direction != pin.direction))
+    });
+    let table_changed = base.hole_table == crate::hole_table::Setting::Never
+        && pins
+            .annotations
+            .keys()
+            .any(|id| id.starts_with("hole_schedule_"));
+    if camera_changed
+        || table_changed
+        || pins.source_sha256 != a.binding.source_sha256
         || base
             .sheet
             .scale
@@ -591,7 +683,7 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
         finding(
             &mut result,
             vec!["engine_pins".into()],
-            "The STEP revision or requested sheet changed; the kept layout was re-planned and stale engine pins were dropped.",
+            "The STEP revision or requested layout changed; the kept layout was re-planned and stale engine pins were dropped.",
         );
         return Ok(result);
     }
@@ -619,13 +711,39 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
         }
     })?;
     with_pins(filtered.clone(), || views(&mut reference.views));
-    let dropped = apply(&mut reference, &filtered, a);
+    let mut dropped = apply(&mut reference, &filtered, a);
+    dropped.extend(
+        pins.views
+            .keys()
+            .filter(|id| !reference.views.iter().any(|v| &v.id == *id))
+            .cloned(),
+    );
     reference.spec = base.clone();
     reference.spec.engine_pins = Some(Box::new(filtered.clone()));
     // Reuse the ordinary planner's published-pin mechanism. No requirement content is read from pins.
     let mut result = with_pins(filtered.clone(), || {
         crate::incremental::plan(a, &reference, &base)
     })?;
+    let new_ink: BTreeSet<_> = result
+        .dimensions
+        .iter()
+        .map(|d| &d.id)
+        .chain(result.gdt.iter().map(|g| &g.id))
+        .filter(|id| !pins.annotations.contains_key(*id))
+        .collect();
+    if result
+        .problems
+        .iter()
+        .any(|p| p.severity != "info" && p.subjects.iter().any(|id| new_ink.contains(id)))
+    {
+        let mut full = run(&base)?;
+        finding(
+            &mut full,
+            vec!["engine_pins".into()],
+            "The content edit could not fit cleanly in the kept layout; full apply re-planned it and released engine pins.",
+        );
+        return Ok(full);
+    }
     result.spec = spec.clone();
     persist(a, &mut result, Some(&reference));
     if !dropped.is_empty() {
@@ -687,7 +805,8 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
     }
 }
 
-pub(crate) fn furniture_poses() -> Option<BTreeMap<String, ([f64; 2], Vec<[f64; 2]>)>> {
+type FurniturePoses = BTreeMap<String, ([f64; 2], Vec<[f64; 2]>)>;
+pub(crate) fn furniture_poses() -> Option<FurniturePoses> {
     LOADING.with(|p| {
         p.borrow().as_ref().map(|p| {
             p.views
@@ -736,4 +855,42 @@ mod paths {
             .flat_map(|p| p.windows(2).map(|p| [p[0], p[1]]).collect::<Vec<_>>())
             .collect())
     }
+}
+
+pub(crate) fn block_offsets(id: &str) -> Option<Vec<[f64; 2]>> {
+    LOADING.with(
+        |p| match p.borrow().as_ref()?.annotations.get(id)?.route.as_ref()? {
+            Route::Blocks { offsets } => Some(offsets.clone()),
+            _ => None,
+        },
+    )
+}
+
+type MarkerPlace = ([f64; 2], Option<[[f64; 2]; 2]>);
+pub(crate) fn marker_place(id: &str) -> Option<MarkerPlace> {
+    LOADING.with(|p| {
+        let p = p.borrow();
+        let pin = p.as_ref()?.annotations.get(id)?;
+        if let Some(Route::Marker { leader, .. }) = &pin.route {
+            Some((pin.place.offset?, *leader))
+        } else {
+            None
+        }
+    })
+}
+
+pub(crate) fn introduced() -> Vec<String> {
+    LOADING.with(|p| {
+        p.borrow().as_ref().map_or(Vec::new(), |p| {
+            p.annotations
+                .iter()
+                .filter(|(_, p)| p.introduced)
+                .map(|(id, _)| id.clone())
+                .collect()
+        })
+    })
+}
+
+pub(crate) fn origin_frame() -> Option<[f64; 3]> {
+    LOADING.with(|p| p.borrow().as_ref().map(|p| p.origins))
 }

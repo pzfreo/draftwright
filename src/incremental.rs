@@ -342,14 +342,7 @@ fn plan_revision(
         })
         .cloned()
         .collect();
-    if !affected.is_empty() {
-        after.problems.push(Problem {
-            id: format!("p:incremental_placement_constrained:{}", affected.join("|")),
-            code: "incremental_placement_constrained".into(), severity: "warning".into(),
-            message: "New annotation ink could not be placed cleanly in the retained layout. Existing placements were kept; inspect the placement findings or preview an explicit full apply.".into(),
-            subjects: affected, ..Default::default()
-        });
-    }
+    constrain(&mut after, affected);
     let signature = layout_signature(&after);
     after
         .incremental_findings
@@ -836,7 +829,34 @@ pub(crate) fn recheck(a: &Analysis, plan: &mut Plan) {
                         && !spec.features.contains_key(id)
                 }))
     });
+    if crate::engine_pins::loading() {
+        plan.problems
+            .retain(|p| p.code != "incremental_placement_constrained");
+        let affected = crate::engine_pins::introduced()
+            .into_iter()
+            .filter(|id| {
+                plan.problems.iter().any(|p| {
+                    p.subjects.contains(id)
+                        && (p.severity != "info"
+                            || p.code.starts_with("annotation_")
+                            || p.code == "label_crowded")
+                })
+            })
+            .collect();
+        constrain(plan, affected);
+    }
     let mut ids = BTreeSet::new();
     plan.problems.retain(|p| ids.insert(p.id.clone()));
     plan.status = crate::completeness::status(&plan.problems);
+}
+
+fn constrain(plan: &mut Plan, ids: Vec<String>) {
+    for id in ids {
+        plan.problems.push(Problem {
+            id: format!("p:incremental_placement_constrained:{id}"),
+            code: "incremental_placement_constrained".into(), severity: "warning".into(),
+            message: "New annotation ink could not be placed cleanly in the retained layout. Existing placements were kept; inspect the placement findings or preview an explicit full apply.".into(),
+            subjects: vec![id], ..Default::default()
+        });
+    }
 }

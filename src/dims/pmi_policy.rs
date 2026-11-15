@@ -335,32 +335,31 @@ pub(super) fn origins(a: &Analysis, s: &Spec, wants: &mut [Want]) -> Vec<Problem
         } else {
             None
         };
-        if let Some(pin) = kept_origin {
-            if let Shape::Linear {
+        if let Some(pin) = kept_origin
+            && let Shape::Linear {
                 a: p,
                 b: q,
                 axis: k,
                 ..
             } = &mut w.shape
-                && *k == pin.axis
+            && *k == pin.axis
+        {
+            if selected[*k]
+                .as_ref()
+                .is_some_and(|(v, _)| *v != pin.station)
+                && crate::engine_pins::pinned_ink(&w.id)
             {
-                if selected[*k]
-                    .as_ref()
-                    .is_some_and(|(v, _)| *v != pin.station)
-                    && crate::engine_pins::pinned_ink(&w.id)
-                {
-                    problems.extend(crate::incremental::basis_offers(a, &w.id, &w.measurements));
-                }
-                p[*k] = pin.station;
-                w.value = (q[*k] - pin.station).abs();
-                w.terms = vec![fmt(w.value)];
-                for m in &mut w.measurements {
-                    if location_role(&m.parameter) {
-                        m.value = w.value;
-                    }
-                }
-                continue;
+                problems.extend(crate::incremental::basis_offers(a, &w.id, &w.measurements));
             }
+            p[*k] = pin.station;
+            w.value = (q[*k] - pin.station).abs();
+            w.terms = vec![fmt(w.value)];
+            for m in &mut w.measurements {
+                if location_role(&m.parameter) {
+                    m.value = w.value;
+                }
+            }
+            continue;
         }
         if let Shape::Linear {
             a: p,
