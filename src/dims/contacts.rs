@@ -485,7 +485,7 @@ fn touching_frame_rows(plan: &Plan, a: &str, b: &str) -> bool {
 
 pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
     let mut all = plan.dimensions.clone();
-    all.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
+    all.extend(plan.gdt.iter().filter_map(super::gdt::contact_proxy));
     let mut out = Vec::new();
     for sheet in std::iter::once(&plan.sheet).chain(&plan.sheets) {
         let placed: Vec<(&PlannedDimension, &Placed)> = all

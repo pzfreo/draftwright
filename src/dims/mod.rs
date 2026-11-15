@@ -6000,7 +6000,7 @@ pub(crate) fn recheck_cached(
     cache: &footprints::Cache,
 ) -> Vec<Problem> {
     let mut all = plan.dimensions.clone();
-    all.extend(plan.gdt.iter().filter_map(gdt::proxy));
+    all.extend(plan.gdt.iter().filter_map(gdt::contact_proxy));
     std::iter::once(&plan.sheet)
         .chain(&plan.sheets)
         .flat_map(|sheet| placement::collisions_cached(analysis, &all, sheet, &plan.views, cache))

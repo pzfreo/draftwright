@@ -334,6 +334,18 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
                 "{name}: {} ring {a:?} intersects frame {bounds:?}",
                 g.id
             );
+            // These shafts are vertical on main; scope clearance must not tilt them.
+            let vertical_on_main = (name.contains("nist_ftc_07_")
+                && g.modifiers.iter().any(|m| m == "all_over"))
+                || (name.contains("nist_ftc_10_") && g.id.contains("perpendicularity"))
+                || (name.contains("nist_stc_09_") && g.id.contains("position"));
+            if vertical_on_main {
+                assert!(
+                    (p.lines[0][0][0] - p.lines[0][1][0]).abs() < 1e-6,
+                    "{name}: {} acquired a leaning shaft",
+                    g.id
+                );
+            }
             let bend = p.lines[0][1];
             assert!(
                 (bend[0] - a[0]).hypot(bend[1] - a[1]) < 1e-9,
