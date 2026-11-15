@@ -423,6 +423,43 @@ fn general_notes_reach_the_pdf_text_layer() {
         svg.iter().any(|t| t == "1  BREAK ALL SHARP EDGES"),
         "{svg:?}"
     );
+    // Keep a wrapped note's exact line anchors and row pitch. A single MTEXT cell
+    // would use font leading instead, changing these baselines and ruled divisions.
+    let native = &drawing.sheet.dxf.tables["general_notes"][0];
+    let expected: Vec<_> = std::iter::once(vec!["GENERAL NOTES".to_string()])
+        .chain(
+            plan.notes
+                .iter()
+                .filter(|n| n.placed.is_some())
+                .flat_map(|n| n.rows.iter().map(|r| vec![r.clone()])),
+        )
+        .collect();
+    assert_eq!(native.rows, expected);
+    let positions: Vec<_> = native
+        .placed
+        .cells_at
+        .iter()
+        .skip(1)
+        .map(|r| r[0].unwrap())
+        .collect();
+    let planned: Vec<_> = plan
+        .notes
+        .iter()
+        .filter_map(|n| n.placed.as_ref())
+        .flat_map(|p| p.rows_at.iter().copied())
+        .collect();
+    assert_eq!(positions, planned);
+    let row_height = (native.placed.cells[3] - native.placed.cells[1]) / native.rows.len() as f64;
+    assert_eq!(row_height, draftwright::notes::ROW);
+    assert!(row_height > 3. * 0.698 * 5. / 3.);
+    let pairs = dxf_pairs(&drawing.dxf());
+    assert_eq!(
+        pairs
+            .iter()
+            .filter(|p| **p == (301, "CELL_VALUE".into()))
+            .count(),
+        native.rows.len()
+    );
 }
 
 /// Native entities replace the old glyph-curve DXF contract. Read with the Rust
@@ -450,6 +487,20 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
                     .map(|a| a.value.clone()),
             ),
             _ => {}
+        }
+    }
+    // The crate reader skips MULTILEADER. Its embedded MTEXT replaces the original
+    // callout runs, so include those contents in the same exact-text conservation check.
+    for tags in dxf_pairs(&bytes)
+        .split(|p| p.0 == 0)
+        .filter(|tags| tags.iter().any(|p| p.0 == 100 && p.1 == "AcDbMLeader"))
+    {
+        let content = &tags.iter().find(|p| p.0 == 304).unwrap().1;
+        for line in content.split("\\P") {
+            let line = line.replace("{\\Fgdt;n}", "%%c");
+            let width = line.find("{\\W").unwrap();
+            let start = width + line[width..].find(';').unwrap() + 1;
+            strings.push(line[start..line.len() - 1].to_string());
         }
     }
     let escape = |s: &str| {
@@ -691,6 +742,47 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         .unwrap()
         .dimension_linear_measurement_scale_factor;
     assert!(((b.x - a.x).hypot(b.y - a.y) * factor - 6.).abs() < 1e-8);
+    // A graphic-only annotation still owns a leader when it has no text content.
+    let mut graphic = drawing.clone();
+    let id = graphic.sheet.dxf.leaders.keys().next().unwrap().clone();
+    graphic.sheet.dxf.dimensions.remove(&id);
+    graphic
+        .annotations
+        .iter_mut()
+        .find(|a| a.name == id)
+        .unwrap()
+        .runs
+        .clear();
+    let pairs = dxf_pairs(&graphic.dxf());
+    let leader = pairs
+        .split(|p| p.0 == 0)
+        .find(|tags| tags.contains(&(100, "AcDbLeader".into())) && tags.contains(&(73, "3".into())))
+        .expect("a native leader for a symbol without text");
+    assert!(!leader.iter().any(|p| p.0 == 340));
+    let planned = &graphic.sheet.dxf.leaders[&id].lines;
+    let vertices: Vec<_> = leader
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.0 == 10)
+        .map(|(i, _)| {
+            [10, 20].map(|code| {
+                leader[i..]
+                    .iter()
+                    .find(|p| p.0 == code)
+                    .unwrap()
+                    .1
+                    .parse::<f64>()
+                    .unwrap()
+            })
+        })
+        .collect();
+    assert_eq!(
+        vertices
+            .windows(2)
+            .map(|p| [p[0], p[1]])
+            .collect::<Vec<_>>(),
+        *planned
+    );
     // Isolated projected poles are not valid degree-zero DXF splines.
     let mut with_points = drawing.clone();
     with_points.layers[0].items.extend([

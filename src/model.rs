@@ -12384,8 +12384,19 @@ fn render_annotations_with_cuts(
             dims,
             Some(run),
         );
+        let leader_from = dims.len() - from;
         for [a, z] in &b.lines {
             dims.push(Item::Edge(Curve::Line(*a, *z)));
+        }
+        if !b.lines.is_empty() {
+            sheet.dxf.leaders.insert(
+                b.id.clone(),
+                crate::dxf_output::Leader {
+                    lines: b.lines.clone(),
+                    ink: std::iter::once(leader_from..dims.len() - from).collect(),
+                    ..Default::default()
+                },
+            );
         }
         sheet.dxf.furniture.insert(b.id.clone(), from..dims.len());
         if let Some(ink) = items_bbox(&dims[from..]) {
@@ -12435,6 +12446,7 @@ fn render_annotations_with_cuts(
             lines.clear();
         }
         if let Some([tip, end]) = b.leader {
+            let leader_from = dims.len() - from;
             dims.push(Item::Edge(Curve::Line(tip, end)));
             if b.interior {
                 // GA attachment sites lie inside a proven visible face (ISO 6433).
@@ -12462,6 +12474,28 @@ fn render_annotations_with_cuts(
                 ]]));
             }
             lines.insert(0, [tip, end]);
+            let length = (end[0] - tip[0]).hypot(end[1] - tip[1]).max(1e-12);
+            let size = crate::dims::ARROW.min(length);
+            sheet.dxf.leaders.insert(
+                b.id.clone(),
+                crate::dxf_output::Leader {
+                    lines: vec![[tip, end]],
+                    arrows: if b.interior {
+                        Vec::new()
+                    } else {
+                        vec![[
+                            tip,
+                            [
+                                tip[0] + size * (end[0] - tip[0]) / length,
+                                tip[1] + size * (end[1] - tip[1]) / length,
+                            ],
+                        ]]
+                    },
+                    ink: std::iter::once(leader_from..dims.len() - from).collect(),
+                    dot: b.interior,
+                    text_at: None,
+                },
+            );
         }
         sheet.dxf.furniture.insert(b.id.clone(), from..dims.len());
         if let Some(ink) = items_bbox(&dims[from..]) {
@@ -12731,6 +12765,110 @@ fn render_annotations_with_cuts(
         .iter()
         .filter_map(|g| Some((g.id.clone(), crate::dims::gdt::frame(g)?)))
         .collect();
+    for d in &plan.dimensions {
+        if d.kind == "callout"
+            && let Some(p) = &d.placed
+            && !p.lines.is_empty()
+        {
+            sheet.dxf.leaders.insert(
+                d.id.clone(),
+                crate::dxf_output::Leader {
+                    lines: p.lines.clone(),
+                    arrows: p.arrows.clone(),
+                    ink: std::iter::once(0..p.lines.len() + p.arrows.len()).collect(),
+                    dot: false,
+                    text_at: Some(p.label_at),
+                },
+            );
+        }
+    }
+    for g in &plan.gdt {
+        if g.kind != "datum_feature"
+            && let Some(p) = &g.placed
+            && !p.lines.is_empty()
+        {
+            let arrows = p.lines.len() + p.strokes.len();
+            sheet.dxf.leaders.insert(
+                g.id.clone(),
+                crate::dxf_output::Leader {
+                    lines: p.lines.clone(),
+                    arrows: p.arrows.clone(),
+                    ink: vec![0..p.lines.len(), arrows..arrows + p.arrows.len()],
+                    dot: false,
+                    text_at: Some([p.label_box[0], p.label_box[1]]),
+                },
+            );
+        }
+    }
+    for table in plan
+        .tables
+        .iter()
+        .chain(plan.radius_table.iter().map(|t| &t.table))
+    {
+        sheet.dxf.tables.insert(
+            table.id.clone(),
+            crate::dxf_output::NativeTable::planned(table),
+        );
+    }
+    for table in plan.hole_table.iter().chain(&plan.hole_tables) {
+        sheet.dxf.tables.insert(
+            table.id.clone(),
+            table
+                .blocks
+                .iter()
+                .flat_map(crate::dxf_output::NativeTable::planned)
+                .map(|mut native| {
+                    native.title_row = table.view.is_some();
+                    native
+                })
+                .collect(),
+        );
+    }
+    for (i, block) in [plan.notes_block.as_ref(), plan.radius_notes_block.as_ref()]
+        .into_iter()
+        .enumerate()
+    {
+        if i == 1 && !mixed {
+            continue;
+        }
+        let Some(block) = block else { continue };
+        // Preserve the planner's separately centred line anchors and 5/7 mm row
+        // pitch. A TABLE cell's MTEXT line breaks use font leading (3.49 mm at
+        // this cap height); collapsing a wrapped note would move its baselines.
+        // Ruled notes also have an explicit rule at each existing row boundary.
+        let mut rows = vec![vec![block.title.clone()]];
+        let mut cells_at = vec![vec![Some(block.title_at)]];
+        for n in plan.notes.iter().filter(|n| {
+            n.placed.is_some() && (!mixed || (i == 1) == n.id.starts_with("n:f:blend:"))
+        }) {
+            let p = n.placed.as_ref().unwrap();
+            for (row, at) in n.rows.iter().zip(&p.rows_at) {
+                rows.push(vec![row.clone()]);
+                cells_at.push(vec![Some(*at)]);
+            }
+        }
+        sheet.dxf.tables.insert(
+            if i == 0 {
+                "general_notes"
+            } else {
+                "blend_radius_notes"
+            }
+            .into(),
+            vec![crate::dxf_output::NativeTable {
+                rows,
+                ruled: block.ruled,
+                left_aligned: true,
+                title_row: true,
+                header_row: false,
+                placed: crate::tables::PlacedTable {
+                    cells_at,
+                    blocks: Vec::new(),
+                    columns: vec![block.cells[0], block.cells[2]],
+                    cells: block.cells,
+                },
+            }],
+        );
+    }
     let mut missing_glyphs = crate::output::missing_glyphs(&text);
     missing_glyphs.extend(crate::output::missing_frame_glyphs(&plan.gdt));
     Ok(Drawing {
