@@ -439,6 +439,55 @@ fn rays(lines: &[[P; 2]]) -> Result<(P, [P; 2]), &'static str> {
     Ok((vertex, [u, v]))
 }
 
+/// An out-of-sector suffix is legal only when it continues from a sector ray
+/// on the same circle directly to text just outside that circle. An unexplained
+/// overrun, disconnected chord or detour remains a geometry mismatch.
+fn labelled_arc_extension(
+    vertex: P,
+    rays: [P; 2],
+    arc: &[[P; 2]],
+    label: Option<[f64; 4]>,
+) -> bool {
+    let (Some(first), Some(last), Some(b)) = (arc.first(), arc.last(), label) else {
+        return false;
+    };
+    let start = sub(first[0], vertex);
+    let radius = len(start);
+    let centre = sub([(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0], vertex);
+    let end = sub(last[1], vertex);
+    let gap = [0, 1].map(|k| (b[k] - last[1][k]).max(last[1][k] - b[k + 2]).max(0.0));
+    if radius <= WITNESS
+        || len(centre) <= radius
+        || cross(centre, end).abs() > WITNESS * radius
+        || dot(centre, end) <= 0.0
+        || gap[0].hypot(gap[1]) > 1.01
+        || !rays
+            .iter()
+            .any(|&ray| cross(ray, start).abs() <= WITNESS && dot(ray, start) > 0.0)
+        || !arc
+            .windows(2)
+            .all(|p| len(sub(p[0][1], p[1][0])) <= WITNESS)
+    {
+        return false;
+    }
+    let mut turn = 0.0;
+    let mut sense = 0.0_f64;
+    for &[a, b] in arc {
+        let (a, b) = (sub(a, vertex), sub(b, vertex));
+        let step = cross(a, b).atan2(dot(a, b));
+        if (len(a) - radius).abs() > WITNESS
+            || (len(b) - radius).abs() > WITNESS
+            || step.abs() <= 1e-12
+            || (sense != 0.0 && sense != step.signum())
+        {
+            return false;
+        }
+        sense = step.signum();
+        turn += step.abs();
+    }
+    turn < std::f64::consts::PI
+}
+
 fn angular(drawing: &Drawing, d: &Drawn, label: &str, view: Option<&str>) -> Vec<LintIssue> {
     let mut out = Vec::new();
     let mismatch = |message: String| {
@@ -499,10 +548,25 @@ fn angular(drawing: &Drawing, d: &Drawn, label: &str, view: Option<&str>) -> Vec
         let offset = cross(u, r).atan2(dot(u, r)) * signed.signum();
         (len(r), offset.rem_euclid(std::f64::consts::TAU))
     };
+    let chords = &d.lines[2..];
+    let continuation = chords.iter().position(|c| {
+        polar([(c[0][0] + c[1][0]) / 2.0, (c[0][1] + c[1][1]) / 2.0]).1 > angle + 1e-6
+    });
+    let sector = match continuation {
+        Some(i)
+            if labelled_arc_extension(vertex, [u, v], &chords[i..], d.label)
+                && i > 0
+                && (len(sub(chords[i][0], vertex)) - len(sub(chords[0][0], vertex))).abs()
+                    <= WITNESS =>
+        {
+            &chords[..i]
+        }
+        _ => chords,
+    };
     let mut radii = Vec::new();
     let mut halves = [false; 2];
     let mut escaped = false;
-    for c in &d.lines[2..] {
+    for c in sector {
         let (r0, r1) = (len(sub(c[0], vertex)), len(sub(c[1], vertex)));
         if (r0 - r1).abs() > WITNESS {
             escaped = true;
