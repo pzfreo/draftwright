@@ -548,7 +548,7 @@ fn translations(
 }
 
 pub(crate) fn apply(analysis: &Analysis, plan: &mut Plan) {
-    if crate::incremental::active() {
+    if crate::incremental::active() || crate::engine_pins::loading() {
         return;
     }
     let replay = plan.replay_gutters.take();
@@ -675,6 +675,11 @@ pub(crate) fn transport(
     for g in &mut plan.gdt {
         if let Some(p) = &mut g.placed {
             let d = delta(&g.view);
+            if d != [0., 0.]
+                && let Some((_, steps, _)) = &mut p.pose
+            {
+                steps.push(d);
+            }
             move_point(&mut p.tip, d);
             move_box(&mut p.label_box, d);
             for q in p

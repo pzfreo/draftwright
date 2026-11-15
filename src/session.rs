@@ -617,6 +617,7 @@ impl Planner {
 struct History {
     spec: Spec,
     source: Option<(std::sync::Arc<Part>, Box<Analysis>)>,
+    plan: Option<Box<Plan>>,
 }
 
 struct Evaluation {
@@ -899,6 +900,22 @@ impl Session {
         bytes: &[u8],
         commit: bool,
     ) -> Result<Delta, Error> {
+        let (new_part, new_analysis, evaluated, delta) =
+            self.prepare_step_incremental(name, bytes)?;
+        if commit {
+            self.push_undo(self.snapshot(true));
+            self.redo.clear();
+            self.part = new_part;
+            self.analysis = new_analysis;
+            self.install(evaluated);
+        }
+        Ok(delta)
+    }
+    fn prepare_step_incremental(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<(std::sync::Arc<Part>, Analysis, Evaluation, Delta), Error> {
         let (part, analysis) =
             model::analyse_native_bytes_part(name, bytes, self.analysis.binding.part_index)?;
         let plan =
@@ -912,14 +929,16 @@ impl Session {
         let new_analysis = std::mem::replace(&mut self.analysis, old_analysis);
         let evaluated = evaluated?;
         let delta = difference(&self.state, &evaluated.state, &new_analysis, 1);
-        if commit {
-            self.push_undo(self.snapshot(true));
-            self.redo.clear();
-            self.part = new_part;
-            self.analysis = new_analysis;
-            self.install(evaluated);
-        }
-        Ok(delta)
+        Ok((new_part, new_analysis, evaluated, delta))
+    }
+    /// Editor preview of a source update, with one parse/analysis and no full Analysis JSON.
+    pub fn preview_step_incremental(&mut self, name: &str, bytes: &[u8]) -> Result<Value, Error> {
+        let (part, analysis, evaluated, delta) = self.prepare_step_incremental(name, bytes)?;
+        Ok(
+            serde_json::json!({"plan":evaluated.state.plan,"spec":evaluated.state.plan.spec,"problems":evaluated.state.problems,
+            "svg":evaluated.drawing.svg(),"moved":delta.moved,"notices":delta.notices,"pmi":Self::pmi_report_for(&analysis,&evaluated.state),
+            "provenance":{"source_sha256":analysis.binding.source_sha256,"face_entities":(0..part.faces.len()).map(|i|part.face_source(i).map(|s|s.entity)).collect::<Vec<_>>()}}),
+        )
     }
     /// One operation removes only engine-written layout pins, preserving user intent.
     pub fn relayout(&mut self, commit: bool) -> Result<Delta, Error> {
@@ -936,6 +955,8 @@ impl Session {
         History {
             spec: self.spec().clone(),
             source: source.then(|| (self.part.clone(), Box::new(self.analysis.clone()))),
+            plan: (source || self.incremental || self.spec().engine_pins.is_some())
+                .then(|| Box::new(self.plan().clone())),
         }
     }
     /// Replace the Spec with *spec* (read in its current form, [`model::migrate`]), as one
@@ -1414,7 +1435,11 @@ impl Session {
                 std::mem::replace(&mut self.analysis, (**analysis).clone()),
             )
         });
-        let evaluated = match self.evaluate(&entry.spec) {
+        let evaluated = match if let Some(plan) = entry.plan {
+            self.evaluate_plan(*plan, self.planner.clone(), true)
+        } else {
+            self.evaluate(&entry.spec)
+        } {
             Ok(value) => value,
             Err(error) => {
                 if let Some((part, analysis)) = old_source {
@@ -2574,7 +2599,11 @@ fn difference(old: &State, new: &State, analysis: &Analysis, plans: usize) -> De
             .collect::<Vec<_>>()
     };
     Delta {
-        moved: movements(old, new, &before, &after, &old_records, &new_records),
+        moved: if new.plan.spec.engine_pins.is_some() || old.plan.spec.engine_pins.is_some() {
+            movements(old, new, &before, &after, &old_records, &new_records)
+        } else {
+            Vec::new()
+        },
         plans,
         notices: crate::local_layout::notice(&old.plan, &new.plan)
             .into_iter()

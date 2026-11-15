@@ -134,6 +134,9 @@ pub(crate) fn same_content(g: &PlannedGdt, item: &Lowered, units: crate::units::
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GdtPlaced {
+    /// Placement operations only; preserves exact floating-point translations on pin replay.
+    #[serde(skip)]
+    pub pose: Option<([f64; 2], Vec<[f64; 2]>, Option<usize>)>,
     /// Where it attaches: the leader's arrowhead or the triangle's base.
     pub tip: P2,
     /// Its leader's lines: a frame's shaft and shelf, a symbol's line to its frame.
@@ -314,6 +317,9 @@ pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
     // Its translated glyph already carries the count and reserves its paper.
     if p.runs.iter().any(|run| run.text == count) {
         return;
+    }
+    if let Some((_, steps, at)) = &mut p.pose {
+        *at = Some(steps.len());
     }
     let b = p.label_box;
     let pad = 0.6 * TEXT_HEIGHT;
@@ -1800,6 +1806,11 @@ pub(crate) fn plan_anchored(
 }
 
 pub(super) fn translated(mut p: GdtPlaced, delta: P2) -> GdtPlaced {
+    if delta != [0., 0.]
+        && let Some((_, steps, _)) = &mut p.pose
+    {
+        steps.push(delta);
+    }
     use crate::placement_intent::{move_box, move_point};
     move_point(&mut p.tip, delta);
     move_box(&mut p.label_box, delta);
@@ -2589,6 +2600,7 @@ fn plan_search(
         }
         planned.state = State::Shown;
         planned.placed = Some(GdtPlaced {
+            pose: Some((chosen.origin, Vec::new(), None)),
             tip,
             lines: chosen.lines,
             arrows: chosen.arrows,
@@ -2677,6 +2689,7 @@ pub(super) fn datum_at(letter: &str, tip: P2, side: &str, tier: usize) -> GdtPla
         size: t.size,
     };
     GdtPlaced {
+        pose: Some((c.origin, Vec::new(), None)),
         tip,
         lines: c.lines,
         arrows: c.arrows,
@@ -3306,6 +3319,7 @@ pub(crate) fn validate_placements(
             half_section: None,
             broken: None,
             line_work: Vec::new(),
+            line_pose: None,
             line_style: Default::default(),
             from_spec: Vec::new(),
         })
@@ -3665,6 +3679,7 @@ mod tests {
             basis: String::new(),
             state: State::Shown,
             placed: Some(GdtPlaced {
+                pose: None,
                 tip: c.lines[0][0],
                 lines: c.lines.clone(),
                 arrows: c.arrows.clone(),
@@ -4022,4 +4037,123 @@ mod tests {
         assert!(!sites.is_empty());
         assert!(sites.iter().all(|s| s.0[0] > frame.outline()[2]));
     }
+}
+
+pub(crate) fn pin_origin(g: &PlannedGdt) -> [f64; 2] {
+    let p = g.placed.as_ref().expect("placed pin");
+    if let Some((origin, _, _)) = &p.pose {
+        return *origin;
+    }
+    if g.kind == "datum_feature" {
+        [
+            (p.label_box[0] + p.label_box[2]) / 2.,
+            (p.label_box[1] + p.label_box[3]) / 2.,
+        ]
+    } else {
+        [p.label_box[0], p.label_box[1]]
+    }
+}
+pub(crate) fn apply_pin(
+    g: &mut PlannedGdt,
+    pin: &crate::engine_pins::Annotation,
+    item: &Lowered,
+    units: crate::units::Units,
+) {
+    let Some(origin) = pin.place.offset else {
+        return;
+    };
+    let Some(crate::engine_pins::Route::Gdt {
+        bounds: kept_bounds,
+        tip,
+        lines,
+        arrows,
+        fills,
+        transforms,
+        counted_after,
+    }) = &pin.route
+    else {
+        return;
+    };
+    let count = g.placed.as_ref().and_then(|p| {
+        p.runs.iter().find_map(|r| {
+            r.text
+                .strip_suffix('×')
+                .and_then(|s| s.parse::<usize>().ok())
+        })
+    });
+    let laid = match &item.glyph {
+        Glyph::Datum { letter, .. } => datum_frame(letter),
+        Glyph::Label { text } => label(text),
+        Glyph::FlagNote { number, .. } => flag_note(*number),
+        Glyph::Finish { texture, .. } => finish_symbol(texture, units).0,
+        glyph => control_frame(glyph).0,
+    };
+    let shift = |q: P2| [q[0] + origin[0], q[1] + origin[1]];
+    let moved = |t: &GdtText| GdtText {
+        text: t.text.clone(),
+        at: shift(t.at),
+        size: t.size,
+    };
+    let arcs: Vec<_> = laid
+        .arcs
+        .iter()
+        .map(|a| [a[0] + origin[0], a[1] + origin[1], a[2], a[3], a[4]])
+        .collect();
+    let bounds = if g.kind == "datum_feature" {
+        [
+            origin[0] - laid.size[0] / 2.,
+            origin[1] - laid.size[1] / 2.,
+            origin[0] + laid.size[0] / 2.,
+            origin[1] + laid.size[1] / 2.,
+        ]
+    } else {
+        [
+            origin[0],
+            origin[1],
+            origin[0] + laid.size[0],
+            origin[1] + laid.size[1],
+        ]
+    };
+    let mut p = GdtPlaced {
+        pose: Some((origin, Vec::new(), None)),
+        tip: *tip,
+        lines: lines.clone(),
+        arrows: arrows.clone(),
+        fills: fills.clone(),
+        label_box: bounds,
+        strokes: laid
+            .strokes
+            .iter()
+            .map(|[a, b]| [shift(*a), shift(*b)])
+            .collect(),
+        frame_strokes: laid.frame_strokes.unwrap_or(usize::MAX),
+        arcs,
+        letters: laid.letters.iter().map(moved).collect(),
+        runs: laid.runs.iter().map(moved).collect(),
+    };
+    for index in 0..=transforms.len() {
+        if counted_after.is_some_and(|at| at == index)
+            && let Some(n) = count
+        {
+            with_count(&mut p, n);
+        }
+        if let Some(delta) = transforms.get(index) {
+            p = translated(p, *delta);
+        }
+    }
+    // The route is final paper-space placement, independent of the glyph transform stack.
+    p.tip = *tip;
+    p.lines.clone_from(lines);
+    p.arrows.clone_from(arrows);
+    p.fills.clone_from(fills);
+    if let Some(line) = lines.first() {
+        for m in &g.modifiers {
+            p.arcs.push(circle(line[1], RING));
+            if m == "all_over" {
+                p.arcs.push(circle(line[1], 1.7 * RING));
+            }
+        }
+    }
+    p.label_box = *kept_bounds;
+    g.placed = Some(p);
 }

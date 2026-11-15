@@ -77,6 +77,7 @@ pub mod stateless;
 
 pub mod broken;
 mod decision_overrides;
+mod engine_pins;
 mod incremental;
 pub mod local_layout;
 mod nominal;

@@ -117,6 +117,7 @@ pub(crate) use leaders::{
 };
 pub(crate) use placement::collisions_cached as label_collisions;
 pub(crate) use placement::nearest_shared_witnesses;
+pub(crate) use placement::pin_bounds;
 mod gussets;
 pub(crate) mod levels;
 mod notches;

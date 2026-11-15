@@ -56,7 +56,12 @@ pub const ANALYSIS_SCHEMAS: [&str; 7] = [
 pub const SPEC_SCHEMA: &str = "draftwright.spec/3";
 /// Version 3 anchors feature and ladder IDs on faces. Versions 1 and 2 are read through
 /// [`migrate`] until [`crate::stable_ids::LAST_LEGACY_SPEC_READER`].
-pub const SPEC_SCHEMAS: [&str; 3] = ["draftwright.spec/1", "draftwright.spec/2", SPEC_SCHEMA];
+pub const SPEC_SCHEMAS: [&str; 4] = [
+    "draftwright.spec/1",
+    "draftwright.spec/2",
+    SPEC_SCHEMA,
+    crate::engine_pins::SCHEMA,
+];
 pub const PLAN_SCHEMA: &str = "draftwright.plan/1";
 
 /// Which file, and which reading of it, a document was made from.
@@ -381,7 +386,7 @@ pub struct Riser {
 }
 
 /// What the author decided. Anything absent takes its default.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
     /// Printed length units; geometry remains millimetres.
@@ -463,6 +468,172 @@ pub struct Spec {
     /// Authored external spur gear requirements, never inferred from geometry.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub gears: Vec<crate::gears::GearSpec>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, default)]
+struct SpecFields {
+    /// Printed length units; geometry remains millimetres.
+    #[serde(skip_serializing_if = "crate::units::Units::is_mm")]
+    pub units: crate::units::Units,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process: Option<crate::process::Process>,
+    pub schema: String,
+    /// Part identity from `draftwright parts`: a persistent key or its numeric index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<PartChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binding: Option<Binding>,
+    /// Exact retained placements written by incremental planning. Remove to re-layout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_pins: Option<Box<crate::incremental::EnginePins>>,
+    #[serde(deserialize_with = "sheet_document")]
+    pub sheet: SheetSpec,
+    #[serde(skip_serializing_if = "crate::characteristics::Settings::is_default")]
+    pub balloons: crate::characteristics::Settings,
+    /// Authored isometric scale relative to the sheet scale; never automatically refitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iso_scale_factor: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sheets: Option<crate::sheets::SheetsSpec>,
+    /// Per standard view (`front`, `plan`, `side`, `iso`).
+    #[serde(skip_serializing_if = "crate::sections::Views::is_empty")]
+    pub views: crate::sections::Views,
+    /// Where the dimensions come from: `auto` (the defaults, less what `dimensions` omits) or
+    /// `authored` (exactly the dimensions listed, a complete set: ADR4-5).
+    #[serde(skip_serializing_if = "DimensionSource::is_auto")]
+    pub dimension_source: DimensionSource,
+    /// Whether semantic PMI is exclusive, preferred (default), or withheld.
+    #[serde(skip_serializing_if = "PmiMode::is_first")]
+    pub pmi: PmiMode,
+    /// Location origins by part axis: min, max, or a planar face/feature reference.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub origin: BTreeMap<String, String>,
+    /// Authored location networks, by stable author name. Empty preserves automatic planning.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub dimension_schemes: BTreeMap<String, crate::dimension_scheme::Scheme>,
+    /// Plan-time hole presentation; rescue tables also obey `never`.
+    #[serde(skip_serializing_if = "crate::hole_table::Setting::is_auto")]
+    pub hole_table: crate::hole_table::Setting,
+    /// Per dimension, by its ID (`d:<feature>/<parameter>`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub dimensions: BTreeMap<String, DimensionSpec>,
+    /// A band on all overall extents; an extent's own tolerance or fit takes precedence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envelope_tolerance: Option<String>,
+    /// Decimal places (0–15) by measurement ID, including compound callout roles.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "crate::dims::precision::read"
+    )]
+    pub precision: BTreeMap<String, u8>,
+    /// Placement and omission of semantic PMI frames, datums, labels and part notes, by stable ID.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub annotations: BTreeMap<String, crate::placement_intent::AnnotationSpec>,
+    /// Per feature, by its ID (`f:<kind>:f<face>`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub features: BTreeMap<String, FeatureSpec>,
+    /// Features authored from stable face fingerprints; sizes are read from Analysis evidence.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub feature_declarations: Vec<crate::recognition_corrections::Declaration>,
+    /// Datums and feature control frames on faces, by the side of the part's box the face is
+    /// on (`bottom`, `top`, `left`, `right`, `front`, `back`) or its index (`face:<n>`)
+    /// ([`crate::spec_gdt`]).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub faces: BTreeMap<String, crate::spec_gdt::FaceSpec>,
+    /// General notes, in the order they are numbered ([`crate::notes`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<NoteSpec>,
+    /// Corner-block tables (revision blocks, BOMs, schedules), placed in order
+    /// ([`crate::tables`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tables: Vec<TableSpec>,
+    /// Authored external spur gear requirements, never inferred from geometry.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub gears: Vec<crate::gears::GearSpec>,
+}
+impl Default for SpecFields {
+    fn default() -> Self {
+        let s = Spec::default();
+        Self {
+            units: s.units,
+            process: s.process,
+            schema: s.schema,
+            part: s.part,
+            binding: s.binding,
+            engine_pins: s.engine_pins,
+            sheet: s.sheet,
+            balloons: s.balloons,
+            iso_scale_factor: s.iso_scale_factor,
+            sheets: s.sheets,
+            views: s.views,
+            dimension_source: s.dimension_source,
+            pmi: s.pmi,
+            origin: s.origin,
+            dimension_schemes: s.dimension_schemes,
+            hole_table: s.hole_table,
+            dimensions: s.dimensions,
+            envelope_tolerance: s.envelope_tolerance,
+            precision: s.precision,
+            annotations: s.annotations,
+            features: s.features,
+            feature_declarations: s.feature_declarations,
+            faces: s.faces,
+            notes: s.notes,
+            tables: s.tables,
+            gears: s.gears,
+        }
+    }
+}
+impl<'de> Deserialize<'de> for Spec {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if let Some(schema) = value.get("schema").and_then(serde_json::Value::as_str)
+            && !SPEC_SCHEMAS.contains(&schema)
+        {
+            return Err(serde::de::Error::custom(format!(
+                "This Spec is {schema}, which this draftwright does not read; use a reader supporting that Spec version. Supported: {}.",
+                SPEC_SCHEMAS.join(", ")
+            )));
+        }
+        if value.get("engine_pins").is_some_and(|v| !v.is_null())
+            && value.get("schema").and_then(serde_json::Value::as_str)
+                != Some(crate::engine_pins::SCHEMA)
+        {
+            return Err(serde::de::Error::custom(
+                "Engine-written placement pins require draftwright.spec/4; open this document with a spec/4 reader.",
+            ));
+        }
+        let s: SpecFields = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            units: s.units,
+            process: s.process,
+            schema: s.schema,
+            part: s.part,
+            binding: s.binding,
+            engine_pins: s.engine_pins,
+            sheet: s.sheet,
+            balloons: s.balloons,
+            iso_scale_factor: s.iso_scale_factor,
+            sheets: s.sheets,
+            views: s.views,
+            dimension_source: s.dimension_source,
+            pmi: s.pmi,
+            origin: s.origin,
+            dimension_schemes: s.dimension_schemes,
+            hole_table: s.hole_table,
+            dimensions: s.dimensions,
+            envelope_tolerance: s.envelope_tolerance,
+            precision: s.precision,
+            annotations: s.annotations,
+            features: s.features,
+            feature_declarations: s.feature_declarations,
+            faces: s.faces,
+            notes: s.notes,
+            tables: s.tables,
+            gears: s.gears,
+        })
+    }
 }
 
 pub use crate::dims::recesses::DepthPresentation;
@@ -1077,6 +1248,8 @@ pub struct PlannedSheet {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlannedView {
+    #[serde(skip)]
+    pub line_pose: Option<([f64; 2], Vec<[f64; 2]>)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::detail::Detail>,
     #[serde(
@@ -4715,19 +4888,28 @@ pub fn plan_incremental_source(
         choices: Vec::new(),
         also: Vec::new(),
     };
-    let geometry = |part: &Part| {
-        haecceity::brep_write::write_step(
+    static GEOMETRY: crate::planning::BoundedMemo<Vec<u8>> = crate::planning::BoundedMemo::new(8);
+    let key = |binding: &Binding| -> [u8; 32] {
+        Sha256::digest(serde_json::to_vec(binding).expect("binding serializes")).into()
+    };
+    let geometry = |part: &Part, binding: &Binding| {
+        let key = key(binding);
+        if let Some(bytes) = GEOMETRY.get(&key) {
+            return Ok(bytes);
+        }
+        let (bytes, _) = haecceity::brep_write::write_step(
             part,
             &haecceity::brep_write::WriteOptions::new("incremental"),
         )
-        .map(|w| w.0)
         .map_err(|e| {
             refuse(format!(
                 "Cannot verify identical B-rep: {e}; open the updated STEP for a full plan."
             ))
-        })
+        })?;
+        GEOMETRY.insert(key, bytes.clone());
+        Ok(bytes)
     };
-    if geometry(before_part)? != geometry(part)? {
+    if geometry(before_part, &before.binding)? != geometry(part, &analysis.binding)? {
         return Err(refuse("Updated STEP geometry differs; open the updated STEP for a full plan instead of incremental apply.".into()));
     }
     let result = crate::planning::with_retained(analysis, || {
@@ -4741,7 +4923,7 @@ pub fn plan_incremental_source(
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     if !crate::incremental::active() && spec.engine_pins.is_some() {
-        return crate::incremental::replay(analysis, spec);
+        return crate::engine_pins::plan(analysis, spec, true);
     }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
@@ -5942,7 +6124,7 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     if !crate::incremental::active() && spec.engine_pins.is_some() {
-        return crate::incremental::replay(analysis, spec);
+        return crate::engine_pins::plan(analysis, spec, false);
     }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
@@ -7486,6 +7668,7 @@ fn plan_with_presentation(
                 half_section: None,
                 broken: None,
                 line_work: Vec::new(),
+                line_pose: None,
                 line_style: Default::default(), from_spec: Vec::new(),
             }
         })
@@ -7527,6 +7710,7 @@ fn plan_with_presentation(
             ) },
             state: ItemState::Shown,
             line_work: Vec::new(),
+                line_pose: None,
             line_style: Default::default(), from_spec: if named_request.is_some() { vec!["views/sections/0".into()] } else if spec.views.contains_key(SECTION) { vec![format!("views/{SECTION}")] } else { Vec::new() },
             half_section: None,
                 broken: None,
@@ -7578,6 +7762,7 @@ fn plan_with_presentation(
                 basis: crate::detail::basis(analysis, spec, &name, &detail),
                 state: ItemState::Shown,
                 line_work: Vec::new(),
+                line_pose: None,
                 cut: None,
                 half_section: None,
                 broken: None,
@@ -7723,7 +7908,10 @@ fn plan_with_presentation(
             title_block::cells_in(sheet.title_block, &sheet.title, &sheet.size, spec.units);
         sheet.projection_symbol = Some(title_block::projection(sheet.title_block, first_angle));
     }
-    if canonical.is_some() || spec.views.values().any(|v| v.place.is_some()) {
+    if canonical.is_some()
+        || crate::engine_pins::loading()
+        || spec.views.values().any(|v| v.place.is_some())
+    {
         crate::placement_intent::views(
             spec,
             &mut views,
@@ -8841,7 +9029,7 @@ fn plan_with_presentation(
             &footprint_cache,
         );
     }
-    crate::incremental::retain(&mut plan);
+    crate::incremental::retain(&mut plan, analysis);
     crate::placement_intent::finish(&mut plan, analysis);
     plan.problems
         .extend(line_work_problems(&plan.sheet, &plan.views));
@@ -10112,8 +10300,10 @@ pub fn edit(spec: &Spec, ops: &serde_json::Value) -> Result<Spec, Invalid> {
                 .remove("keep_layout");
         }
     }
-    let spec: Spec = serde_json::from_value(doc)
+    let mut edited: Spec = serde_json::from_value(doc)
         .map_err(|e| invalid(format!("The edited spec is not valid: {e}."), &[]))?;
+    crate::engine_pins::edit(spec, &mut edited, ops);
+    let spec = edited;
     crate::sheets::validate(&spec)?;
     if spec.sheet.keep_layout == Some(true) {
         crate::local_layout::forced(&spec)?;

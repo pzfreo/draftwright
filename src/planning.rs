@@ -361,6 +361,10 @@ fn held(name: &str, key: Vec<u8>) -> Vec<u8> {
 /// ([`crate::layout::gutter`]) change placements, so they key every planning memo: default
 /// keys are unchanged and the others are kept apart.
 fn spaced(mut key: Vec<u8>) -> Vec<u8> {
+    if let Some(pins) = crate::engine_pins::digest() {
+        key.extend_from_slice(b"\xffengine-pins");
+        key.extend_from_slice(&pins);
+    }
     if crate::incremental::active() {
         key.extend_from_slice(b"\xffincremental");
     }
@@ -384,11 +388,19 @@ fn spaced(mut key: Vec<u8>) -> Vec<u8> {
 /// and stay shared.
 pub(crate) fn spaced_digest(key: &[u8; 32]) -> [u8; 32] {
     let gutter = crate::layout::gutter();
-    if !crate::dims::compact() && gutter == crate::layout::FRAME_GUTTER && !is_lane_ladder() {
+    if !crate::dims::compact()
+        && gutter == crate::layout::FRAME_GUTTER
+        && !is_lane_ladder()
+        && crate::engine_pins::digest().is_none()
+    {
         return *key;
     }
     let mut hasher = Sha256::new();
     hasher.update(key);
+    if let Some(pins) = crate::engine_pins::digest() {
+        hasher.update(b"engine-pins");
+        hasher.update(pins);
+    }
     if crate::dims::compact() {
         hasher.update(b"compact-spacing");
     }

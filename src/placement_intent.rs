@@ -341,6 +341,10 @@ pub(crate) fn views(
     obstacles: &[[f64; 4]],
     problems: &mut Vec<Problem>,
 ) {
+    if crate::engine_pins::loading() {
+        crate::engine_pins::views(views);
+        return;
+    }
     if crate::incremental::active() {
         if let Some(base) = canonical {
             for v in views.iter_mut() {

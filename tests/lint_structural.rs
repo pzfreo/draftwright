@@ -533,6 +533,7 @@ fn a_datum_shaft_meets_its_frame_but_does_not_cross_its_letter() {
         basis: "unit test attachment".into(),
         state: draftwright::items::State::Shown,
         placed: Some(GdtPlaced {
+            pose: None,
             tip: [40.0, 53.0],
             lines: vec![[[42.0, 53.0], [50.0, 53.0]]],
             arrows: Vec::new(),

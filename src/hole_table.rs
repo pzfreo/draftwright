@@ -2665,13 +2665,14 @@ fn select_with(
                 ) && callouts.iter().any(|d| p.subjects.contains(&d.id))
             })
             .count();
-        let wanted = match &canonical {
-            Some(base) if plan.spec.hole_table == Setting::Auto => base
-                .hole_tables
-                .iter()
-                .any(|t| t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:"))),
-            _ => n >= 6 && (crowded > 0 || locations.len() > 8 || conflicts > 0),
-        };
+        let wanted = crate::engine_pins::wants_table(&view.id)
+            || match &canonical {
+                Some(base) if plan.spec.hole_table == Setting::Auto => base
+                    .hole_tables
+                    .iter()
+                    .any(|t| t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:"))),
+                _ => n >= 6 && (crowded > 0 || locations.len() > 8 || conflicts > 0),
+            };
         if plan.spec.hole_table != Setting::Always && !wanted {
             continue;
         }

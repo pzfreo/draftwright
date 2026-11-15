@@ -108,6 +108,7 @@ fn plan_revision(
     let mut layout_after = spec.clone();
     for layout in [&mut layout_before, &mut layout_after] {
         layout.engine_pins = None;
+        layout.schema = model::SPEC_SCHEMA.into();
         layout.dimensions.clear();
         layout.annotations.clear();
         for f in layout.faces.values_mut() {
@@ -297,7 +298,10 @@ fn plan_revision(
     after.sheet.scale.clone_from(&before.sheet.scale);
     after.sheet.default = before.sheet.default;
     after.sheet.basis.clone_from(&before.sheet.basis);
-    retain_findings(before, &mut after);
+    recheck(analysis, &mut after);
+    if !crate::engine_pins::loading() {
+        retain_findings(before, &mut after);
+    }
     let new: Vec<_> = after
         .gdt
         .iter()
@@ -375,7 +379,7 @@ fn plan_revision(
     let mut ids = BTreeSet::new();
     after.problems.retain(|p| ids.insert(p.id.clone()));
     after.status = crate::completeness::status(&after.problems);
-    persist(&mut after);
+    crate::engine_pins::persist(analysis, &mut after, Some(before));
     Ok(after)
 }
 
@@ -546,7 +550,8 @@ pub(crate) fn obstacles() -> Vec<crate::dims::PlannedDimension> {
     out
 }
 
-pub(crate) fn retain(plan: &mut Plan) {
+pub(crate) fn retain(plan: &mut Plan, analysis: &Analysis) {
+    crate::engine_pins::apply_loading(plan, analysis);
     if !active() {
         return;
     }
@@ -728,63 +733,13 @@ fn retain_findings(before: &Plan, after: &mut Plan) {
     }
 }
 
-/// Engine-owned exact pin reference. Authored `place` pins remain in their usual
-/// fields; removing this single field is the editor's Re-layout operation.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnginePins {
-    pub written_by: EngineWriter,
-    pub source_sha256: String,
-    /// The drawing intent at the time these pins were written, without engine pins.
-    pub intent: Box<serde_json::value::RawValue>,
-    /// Published sheet, view frames, retained recipes and ink. No B-rep or nested Plan.
-    pub layout: Box<serde_json::value::RawValue>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub rebase: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    retired_gdt: Vec<Box<serde_json::value::RawValue>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    retired_dimensions: Vec<Box<serde_json::value::RawValue>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    retired_findings: Vec<Box<serde_json::value::RawValue>>,
-}
-impl PartialEq for EnginePins {
-    fn eq(&self, other: &Self) -> bool {
-        serde_json::to_value(self).expect("pins serialize")
-            == serde_json::to_value(other).expect("pins serialize")
-    }
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EngineWriter {
-    Engine,
-}
+pub use crate::engine_pins::EnginePins;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct RetiredFindings {
     layout: String,
     problems: Vec<Problem>,
 }
 
-const LAYOUT_FIELDS: &[&str] = &[
-    "sheet",
-    "views",
-    "dimensions",
-    "omitted",
-    "gdt",
-    "captions",
-    "notes",
-    "notes_block",
-    "radius_notes_block",
-    "radius_table",
-    "tables",
-    "hole_table",
-    "hole_tables",
-    "balloons",
-    "requirements",
-    "characteristics",
-    "inspection_balloons",
-    "problems",
-];
 fn layout_signature(plan: &Plan) -> String {
     let dimensions: BTreeMap<_, _> = plan
         .dimensions
@@ -810,102 +765,6 @@ fn layout_signature(plan: &Plan) -> String {
     .map(|b| format!("{b:02x}"))
     .collect()
 }
-fn persist(plan: &mut Plan) {
-    let mut intent = plan.spec.clone();
-    intent.engine_pins = None;
-    let value = serde_json::to_value(&*plan).expect("plan serializes");
-    plan.spec.engine_pins = Some(Box::new(EnginePins {
-        written_by: EngineWriter::Engine,
-        source_sha256: plan.binding.source_sha256.clone(),
-        intent: serde_json::value::to_raw_value(&intent).expect("Spec serializes"),
-        layout: serde_json::value::to_raw_value(
-            &LAYOUT_FIELDS
-                .iter()
-                .filter_map(|k| value.get(*k).map(|v| ((*k).to_string(), v.clone())))
-                .collect::<BTreeMap<_, _>>(),
-        )
-        .expect("pins serialize"),
-        rebase: Vec::new(),
-        retired_gdt: plan
-            .incremental_gdt
-            .iter()
-            .map(|v| serde_json::value::to_raw_value(v).expect("ink serializes"))
-            .collect(),
-        retired_dimensions: plan
-            .incremental_dimensions
-            .iter()
-            .map(|v| serde_json::value::to_raw_value(v).expect("recipe serializes"))
-            .collect(),
-        retired_findings: plan
-            .incremental_findings
-            .iter()
-            .map(|v| serde_json::value::to_raw_value(v).expect("findings serialize"))
-            .collect(),
-    }));
-}
-
-pub(crate) fn replay(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    let pins = spec
-        .engine_pins
-        .as_ref()
-        .expect("replay requires engine pins");
-    let invalid = |message: String| Invalid {
-        message,
-        path: Some("engine_pins".into()),
-        choices: Vec::new(),
-        also: Vec::new(),
-    };
-    if pins.source_sha256 != analysis.binding.source_sha256 {
-        return Err(invalid("Engine pins belong to another STEP revision; update the source incrementally in its Session, or remove engine_pins for a full re-layout.".into()));
-    }
-    let layout: BTreeMap<String, serde_json::Value> = serde_json::from_str(pins.layout.get())
-        .map_err(|e| invalid(format!("Invalid engine layout: {e}")))?;
-    if layout.keys().any(|k| !LAYOUT_FIELDS.contains(&k.as_str())) {
-        return Err(invalid("Unknown engine pin collection.".into()));
-    }
-    let mut reference = serde_json::json!({"schema": model::PLAN_SCHEMA, "binding":analysis.binding,
-        "spec": serde_json::from_str::<serde_json::Value>(pins.intent.get()).map_err(|e| invalid(e.to_string()))?, "dimensions":[], "problems":[]});
-    for (key, value) in &layout {
-        reference[key] = value.clone();
-    }
-    let mut reference: Plan = serde_json::from_value(reference)
-        .map_err(|e| invalid(format!("Invalid engine pins: {e}")))?;
-    reference.incremental_gdt = pins
-        .retired_gdt
-        .iter()
-        .map(|v| serde_json::from_str(v.get()))
-        .collect::<Result<_, _>>()
-        .map_err(|e| invalid(e.to_string()))?;
-    reference.incremental_dimensions = pins
-        .retired_dimensions
-        .iter()
-        .map(|v| serde_json::from_str(v.get()))
-        .collect::<Result<_, _>>()
-        .map_err(|e| invalid(e.to_string()))?;
-    reference.incremental_findings = pins
-        .retired_findings
-        .iter()
-        .map(|v| serde_json::from_str(v.get()))
-        .collect::<Result<_, _>>()
-        .map_err(|e| invalid(e.to_string()))?;
-    let unchanged = serde_json::to_value({
-        let mut s = spec.clone();
-        s.engine_pins = None;
-        s
-    })
-    .expect("Spec serializes")
-        == serde_json::from_str::<serde_json::Value>(pins.intent.get())
-            .map_err(|e| invalid(e.to_string()))?
-        && pins.rebase.is_empty();
-    let mut result = plan(analysis, &reference, spec)?;
-    if unchanged {
-        result.problems = reference.problems;
-        result.status = crate::completeness::status(&result.problems);
-        persist(&mut result);
-    }
-    Ok(result)
-}
-
 pub(crate) fn basis_offers(
     analysis: &Analysis,
     id: &str,
@@ -924,8 +783,60 @@ pub(crate) fn basis_offers(
             message:format!("The existing dimension basis was kept. Dimension from datum {} is available for preview.",datum.label),
             subjects:vec![id.into()],
             fixes:vec![crate::fixes::Fix::new(format!("Dimension from datum {}",datum.label),vec![
-                crate::items::Op::set("engine_pins/rebase",serde_json::json!([id]))
+                crate::items::Op::add("engine_pins/rebase",serde_json::json!(id))
             ])], ..Default::default()
         })
     }).collect()
+}
+
+/// Re-evaluate the normal placement predicates after replay has installed final ink.
+/// Findings about a provisional route must never survive a retained-layout solve.
+pub(crate) fn recheck(a: &Analysis, plan: &mut Plan) {
+    plan.problems.retain(|p| {
+        !matches!(
+            p.code.as_str(),
+            "annotation_off_sheet"
+                | "annotation_outside_area"
+                | "annotation_over_title_block"
+                | "annotation_over_view"
+                | "annotation_line_over_view"
+                | "annotation_overlap"
+                | "annotation_ink_overlap"
+                | "annotation_leader_crossing"
+                | "leader_through_feature"
+                | "extension_through_feature"
+                | "dimension_line_shared"
+                | "dimension_text_stray"
+                | "dimension_line_crossing"
+        )
+    });
+    let mut ink = plan.dimensions.clone();
+    ink.extend(plan.gdt.iter().filter_map(crate::dims::gdt::proxy));
+    let cache = crate::dims::footprints::Cache::default();
+    plan.problems.extend(crate::dims::label_collisions(
+        a,
+        &ink,
+        &plan.sheet,
+        &plan.views,
+        &cache,
+    ));
+    crate::dims::contacts::report(a, plan);
+    let spec = plan.spec.clone();
+    crate::dims::pmi_policy::audit(a, &spec, plan);
+    let measured = plan
+        .views
+        .iter()
+        .any(|v| v.basis.contains("automatic orientation view, fitted once"));
+    plan.problems.retain(|p| {
+        !(measured && p.code == "detail_unplaceable")
+            && !(p.code == "spec_entries_inactive"
+                && p.refs.iter().all(|id| {
+                    !spec.dimensions.contains_key(id)
+                        && !spec.annotations.contains_key(id)
+                        && !spec.features.contains_key(id)
+                }))
+    });
+    let mut ids = BTreeSet::new();
+    plan.problems.retain(|p| ids.insert(p.id.clone()));
+    plan.status = crate::completeness::status(&plan.problems);
 }

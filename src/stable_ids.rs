@@ -474,7 +474,11 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
             out = serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?;
         }
     }
-    out.schema = SPEC_SCHEMA.into();
+    out.schema = if out.engine_pins.is_some() {
+        crate::engine_pins::SCHEMA.into()
+    } else {
+        SPEC_SCHEMA.into()
+    };
     let mut checked = serde_json::to_value(&out).expect("Spec serializes");
     strip_text(&mut checked);
     let unmapped = unmapped(&checked, a);

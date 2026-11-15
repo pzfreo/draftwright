@@ -230,8 +230,10 @@ fn explicit_full_apply_is_required_for_layout_edits() {
     assert_eq!(value(s.state()), before);
     assert_eq!(s.stats(), stats);
     let delta = s.apply(&ops, true).unwrap();
-    assert!(delta.moved.iter().any(|m| m.id.starts_with("v:")));
-    assert!(delta.moved.iter().all(|m| !m.reason.is_empty()));
+    assert!(
+        delta.moved.is_empty(),
+        "ordinary full apply keeps main's Delta contract"
+    );
 }
 
 #[test]
@@ -934,4 +936,275 @@ fn consecutive_crowded_step_adds_retain_unique_findings() {
     );
     let ids: std::collections::BTreeSet<_> = problems.iter().map(|p| &p.id).collect();
     assert_eq!(ids.len(), problems.len());
+}
+
+fn pinned_bracket() -> (Session, Vec<u8>) {
+    let mut session = open("bracket");
+    let bytes = datum_step(&source("bracket"), planar_face(&session));
+    session
+        .replace_step_incremental("bracket", &bytes, true)
+        .unwrap();
+    (session, bytes)
+}
+
+#[test]
+fn full_apply_accepts_content_and_layout_edits_on_engine_pins() {
+    let (mut session, bytes) = pinned_bracket();
+    for op in [
+        Op::set("sheet/title/drawn_by", json!("QA")),
+        Op::set("sheet/title/material", json!("ALUMINIUM")),
+        Op::set("notes", json!([{"id":"n:1","text":"REMOVE BURRS"}])),
+    ] {
+        let before = session.state().clone();
+        let preview = session.apply(std::slice::from_ref(&op), false).unwrap();
+        assert_eq!(value(session.state()), value(&before));
+        let delta = session.apply(&[op], true).unwrap();
+        assert_eq!(value(preview), value(&delta));
+        assert_eq!(value(&before.plan.views), value(&session.plan().views));
+        for dim in &before.plan.dimensions {
+            let next = session
+                .plan()
+                .dimensions
+                .iter()
+                .find(|d| d.id == dim.id)
+                .unwrap();
+            assert_eq!(dim.placed, next.placed, "{}", dim.id);
+        }
+    }
+    assert!(!session.plan().notes.is_empty());
+    for op in [
+        Op::set("sheet/scale", json!("1:1")),
+        Op::set("sheet/size", json!("A3")),
+        Op::set("hole_table", json!("never")),
+        Op::set("views/side/omit", json!(true)),
+    ] {
+        let mut candidate = reopened("bracket", &bytes, &session);
+        let delta = candidate.apply(&[op], true).unwrap();
+        assert!(candidate.spec().engine_pins.is_none());
+        let full = model::plan_recovered(candidate.analysis(), candidate.spec()).unwrap();
+        assert_eq!(value(candidate.plan()), value(full));
+        if value(&candidate.plan().views) != value(&session.plan().views) {
+            assert!(!delta.moved.is_empty());
+        }
+    }
+}
+
+#[test]
+fn stale_engine_pins_open_and_are_dropped_without_stale_ink() {
+    let (session, _) = pinned_bracket();
+    let mut spec = session.spec().clone();
+    let pins = spec.engine_pins.as_mut().unwrap();
+    let sample = pins.annotations.values().next().unwrap().clone();
+    pins.annotations.insert("d:missing/item".into(), sample);
+    let (part, analysis) = model::analyse_native_bytes(
+        "bracket",
+        &datum_step(&source("bracket"), planar_face(&session)),
+    )
+    .unwrap();
+    let reopened = Session::new(part, analysis, spec).unwrap();
+    assert!(reopened.state().problems.iter().any(|p| p.code == "engine_pins_replanned" && p.refs.contains(&"d:missing/item".into())));
+    assert!(
+        !reopened
+            .spec()
+            .engine_pins
+            .as_ref()
+            .unwrap()
+            .annotations
+            .contains_key("d:missing/item")
+    );
+    assert!(!reopened.state().annotations.contains_key("d:missing/item"));
+    let (part, analysis) = model::analyse_native_bytes("scattered", &source("scattered")).unwrap();
+    let changed = Session::new(part, analysis, session.spec().clone()).unwrap();
+    assert!(changed.spec().engine_pins.is_none());
+    assert!(
+        changed
+            .state()
+            .problems
+            .iter()
+            .any(|p| p.code == "engine_pins_replanned")
+    );
+    assert!(changed.plan().gdt.iter().all(|g| g.cells != ["A"]));
+}
+
+#[test]
+fn engine_pins_have_versioned_placement_only_members() {
+    let (session, bytes) = pinned_bracket();
+    let v = value(session.spec());
+    assert_eq!(v["schema"], "draftwright.spec/4");
+    fn check(v: &Value) {
+        match v {
+            Value::Object(fields) => {
+                for (key, child) in fields {
+                    assert!(
+                        ![
+                            "layout",
+                            "intent",
+                            "problems",
+                            "measurements",
+                            "terms",
+                            "faces",
+                            "characteristics",
+                            "retired_findings",
+                            "retired_gdt"
+                        ]
+                        .contains(&key.as_str()),
+                        "{key}"
+                    );
+                    check(child);
+                }
+            }
+            Value::Array(values) => values.iter().for_each(check),
+            _ => (),
+        }
+    }
+    check(&v["engine_pins"]);
+    let (part, analysis) = model::analyse_native_bytes("bracket", &bytes).unwrap();
+    let roundtrip: Spec = serde_json::from_value(v.clone()).unwrap();
+    assert_eq!(
+        value(
+            reopened("bracket", &bytes, &session)
+                .state()
+                .annotations
+                .clone()
+        ),
+        value(
+            Session::new(part, analysis, roundtrip)
+                .unwrap()
+                .state()
+                .annotations
+                .clone()
+        )
+    );
+    let mut unknown = v;
+    unknown["schema"] = json!("draftwright.spec/999");
+    unknown["new_future_field"] = json!({});
+    let error = serde_json::from_value::<Spec>(unknown)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Spec version"), "{error}");
+}
+
+#[test]
+fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let (session, bytes) = pinned_bracket();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("incremental-open");
+    std::fs::create_dir_all(&dir).unwrap();
+    let step = dir.join("bracket.step");
+    let changed = dir.join("changed.step");
+    std::fs::write(&step, &bytes).unwrap();
+    std::fs::write(&changed, source("scattered")).unwrap();
+    let mut cases = Vec::new();
+    for (name, path, val) in [
+        ("title", "sheet/title/drawn_by", json!("QA")),
+        ("scale", "sheet/scale", json!("1:1")),
+        ("table", "hole_table", json!("never")),
+        ("view", "views/side/omit", json!(true)),
+    ] {
+        let edited = model::edit(
+            session.spec(),
+            &json!([{"op":"set","path":path,"value":val}]),
+        )
+        .unwrap();
+        cases.push((name, step.clone(), edited, false));
+    }
+    let mut missing = session.spec().clone();
+    let pins = missing.engine_pins.as_mut().unwrap();
+    let pin = pins.annotations.values().next().unwrap().clone();
+    pins.annotations.insert("d:missing/item".into(), pin);
+    cases.push(("missing", step.clone(), missing, true));
+    cases.push(("changed", changed, session.spec().clone(), true));
+    let mut messages = vec![
+        json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"incremental-test","version":"1"}}}),
+        json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+    ];
+    for (index, (name, step, spec, stale)) in cases.iter().enumerate() {
+        let file = dir.join(format!("{name}.spec.json"));
+        std::fs::write(&file, serde_json::to_vec(spec).unwrap()).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .args([
+                "plan",
+                step.to_str().unwrap(),
+                "--spec",
+                file.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let plan: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            plan["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["code"] == "engine_pins_replanned"),
+            *stale,
+            "{name}"
+        );
+        messages.push(json!({"jsonrpc":"2.0","id":index+1,"method":"tools/call","params":{"name":"plan","arguments":{"step":step,"spec":spec,"analysis":model::analyse_native(step).unwrap().1}}}));
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_draftwright-mcp"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::BufReader::new(stdout), &mut bytes).unwrap();
+        bytes
+    });
+    let mut stdin = child.stdin.take().unwrap();
+    for message in messages {
+        writeln!(stdin, "{message}").unwrap();
+    }
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    let text = String::from_utf8(reader.join().unwrap()).unwrap();
+    let replies: Vec<Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(replies.len(), cases.len() + 1);
+    for ((name, _, _, stale), reply) in cases.iter().zip(&replies[1..]) {
+        assert_eq!(reply["result"]["isError"], false, "{name}: {reply}");
+        let plan: Value =
+            serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            plan["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["code"] == "engine_pins_replanned"),
+            *stale,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn multiple_rebase_selections_are_merged() {
+    let (session, _) = pinned_bracket();
+    let ids: Vec<_> = session
+        .plan()
+        .dimensions
+        .iter()
+        .take(2)
+        .map(|d| d.id.clone())
+        .collect();
+    let edited = model::edit(
+        session.spec(),
+        &json!([
+            {"op":"add","path":"engine_pins/rebase","value":ids[0]},
+            {"op":"add","path":"engine_pins/rebase","value":ids[1]}
+        ]),
+    )
+    .unwrap();
+    assert_eq!(edited.engine_pins.as_ref().unwrap().rebase, ids);
 }

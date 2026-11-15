@@ -262,6 +262,11 @@ pub(crate) fn retain(analysis: &Analysis, spec: &Spec, current: &Plan) -> Option
         }
         let shift = delta(&before, &trial.views, &old.view)?;
         let mut p = old.placed.clone()?;
+        if shift != [0., 0.]
+            && let Some((_, steps, _)) = &mut p.pose
+        {
+            steps.push(shift);
+        }
         move_point(&mut p.tip, shift);
         move_box(&mut p.label_box, shift);
         for q in p

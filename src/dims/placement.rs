@@ -6963,3 +6963,12 @@ mod tests {
         }
     }
 }
+
+/// Bounds regenerated from current content when a layout pin needs no rounding correction.
+pub(crate) fn pin_bounds(terms: &[String], at: P2, rotation: f64, linear: bool) -> [f64; 4] {
+    let mut ink = label_ink(terms, font());
+    if linear {
+        (ink.min, ink.max) = linear_label_bounds(terms);
+    }
+    label_box(&ink, at, rotation)
+}

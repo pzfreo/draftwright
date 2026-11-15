@@ -61,6 +61,9 @@ impl Session {
             delta.annotations.keys().map(|id| (id, true)).collect();
         let changed: Vec<_> = delta.changed.iter().map(|i| serde_json::json!({"item":{"id":i.item.id},"placement":i.placement.as_ref().map(|_|true)})).collect();
         let mut packet = serde_json::json!({"delta":{"moved":delta.moved,"plans":delta.plans,"plan":delta.plan,"removed":delta.removed,"changed":changed,"annotations":annotations,"problems_added":delta.problems_added,"problems_resolved":delta.problems_resolved,"notices":delta.notices,"problem_order":delta.problem_order},"fragments":self.0.svg_fragments(Some(&delta)),"pmi":self.0.pmi_report()});
+        if delta.moved.is_empty() && self.0.spec().engine_pins.is_none() {
+            packet["delta"].as_object_mut().unwrap().remove("moved");
+        }
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         let plan = serde_json::to_value(self.0.plan()).unwrap();
         for (name, patch) in packet["delta"]["plan"]["collections"]
@@ -112,10 +115,7 @@ impl Session {
         self.preview_delta(delta, None, true)
     }
     pub fn preview_step_incremental(&mut self, name: &str, bytes: &[u8]) -> Result<String, Error> {
-        let delta = self.0.replace_step_incremental(name, bytes, false)?;
-        let source =
-            model::analyse_native_bytes_part(name, bytes, self.0.analysis().binding.part_index)?;
-        self.preview_delta(delta, Some(source), true)
+        Ok(self.0.preview_step_incremental(name, bytes)?.to_string())
     }
     pub fn plans(&self) -> usize {
         self.0.stats().plans
@@ -281,7 +281,7 @@ impl Session {
         if incremental {
             snapshot["pmi"] = CoreSession::pmi_report_for(analysis, &state);
             snapshot["provenance"] = serde_json::json!({"source_sha256":analysis.binding.source_sha256,"face_entities":(0..part.faces.len()).map(|i|part.face_source(i).map(|s|s.entity)).collect::<Vec<_>>()});
-            snapshot["analysis"] = serde_json::to_value(analysis).unwrap();
+            snapshot.as_object_mut().unwrap().remove("analysis");
             snapshot["moved"] = serde_json::to_value(&delta.moved).unwrap();
         }
         snapshot["notices"] = serde_json::to_value(&delta.notices).unwrap();
@@ -616,6 +616,23 @@ mod tests {
     use super::*;
     use serde_json::{Value, json};
 
+    // Captured from origin/main for this fixture: ordinary no-pin wire bytes are public API.
+    #[test]
+    fn ordinary_full_apply_wire_matches_main() {
+        let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
+        let ops = r#"[{"op":"set","path":"hole_table","value":"never"}]"#;
+        let mut delta = Session::open("plate.step", bytes).unwrap();
+        assert_eq!(
+            delta.apply_json(ops, true).unwrap(),
+            r#"{"plans":1,"changed":[],"added":[],"removed":[],"problems_added":[],"problems_resolved":[],"plan":{"fields":{"spec":{"binding":{"face_count":10,"loader":"haecceity via draftwright 0.6.0-alpha.2","part":"plate","source_sha256":"e980c12943dcfe9dbf7e7c47e2a6a5741cf6b9a371ba35e7436ebfe9d858e361"},"hole_table":"never","schema":"draftwright.spec/3","sheet":{}}},"collections":{}},"geometry":{"views":[]},"annotations":{},"geometry_order":null,"problem_order":null}"#
+        );
+        let mut fragments = Session::open("plate.step", bytes).unwrap();
+        assert_eq!(
+            fragments.apply_fragments_json(ops).unwrap(),
+            r#"{"delta":{"annotations":{},"changed":[],"notices":[],"plan":{"collections":{},"fields":{"spec":{"binding":{"face_count":10,"loader":"haecceity via draftwright 0.6.0-alpha.2","part":"plate","source_sha256":"e980c12943dcfe9dbf7e7c47e2a6a5741cf6b9a371ba35e7436ebfe9d858e361"},"hole_table":"never","schema":"draftwright.spec/3","sheet":{}}}},"plans":1,"problem_order":null,"problems_added":[],"problems_resolved":[],"removed":[]},"fragments":{},"pmi":{"lowered":[],"unresolved":[]}}"#
+        );
+    }
+
     #[test]
     fn incremental_preview_and_commit_share_the_core_delta() {
         let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
@@ -683,10 +700,7 @@ mod tests {
         .unwrap();
         assert_eq!(preview["plan"], serde_json::to_value(s.0.plan()).unwrap());
         assert_eq!(packet["delta"]["moved"], json!([]));
-        assert_eq!(
-            preview["analysis"]["binding"]["source_sha256"],
-            s.source_sha256()
-        );
+        assert_eq!(preview["provenance"]["source_sha256"], s.source_sha256());
         assert_ne!(
             s.source_sha256(),
             serde_json::from_str::<serde_json::Value>(&before).unwrap()["analysis"]["binding"]["source_sha256"]

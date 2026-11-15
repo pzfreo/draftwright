@@ -2624,7 +2624,8 @@ labels are the same too (NIST STC-09's two identical `0.03 ±0.01 INCH` records,
 be told from (ADR R1 invariant 5). Problems about PMI records still name the record's source
 (`p:pmi_not_lowered:<source>`), as the record is not an item.
 
-**Spec versions and identity migration.** This build writes `draftwright.spec/3` and
+**Spec versions and identity migration.** This build writes `draftwright.spec/3` for ordinary
+drawings, and `draftwright.spec/4` when engine-written layout pins are present, and
 `draftwright.analysis/8`. Automatic features and hole patterns use
 `f:<kind>:f<lowest face>`; `_0`, `_1`, … are added only within a kind sharing that face,
 ordered by the full face list. Their optional `legacy_id` is the exact previous rank ID.
@@ -2780,7 +2781,9 @@ result through the recovered planner. `commit: false` returns the same delta as 
 from that state, while changing neither state, history nor cache counters. Refused edits also
 leave the last good state intact. A batch is one undo step; `undo()` and `redo()` return deltas.
 A successful new commit discards the redo branch; a preview or refusal preserves it.
-History stores Specs, not whole Plans, and holds at most 32 edits (undo plus redo).
+History holds at most 32 edits (undo plus redo). Ordinary full edits retain Specs;
+incremental edits also retain their Plan in session memory for exact undo, including dormant
+variants and prior findings. These snapshots are never written to the Spec.
 Source edits additionally retain their Analysis and an `Arc` to the immutable imported part.
 Eviction drops the oldest undo entry; a new Session starts with empty undo history.
 
@@ -2805,24 +2808,40 @@ commit adopts the new source identity and PMI; undo/redo includes that source re
 Removing PMI takes off its ink and revives dormant variants at their previous placements.
 The older Spec face/feature requirement path remains supported.
 
-Every incremental result saves `engine_pins` in the Spec, with `written_by: "engine"`.
-It groups exact sheet and view pins, annotation ink, retained dimension recipes/coverage,
-furniture and finding provenance. Its `intent` contains the author Spec without engine pins;
-no B-rep or nested Plan is stored. User `place` pins stay in their usual fields. Saving this
-Spec and reopening with the same STEP, including CLI rendering, uses the same pin replay and
-reproduces the drawing. A source mismatch is refused. The single operation
+Every incremental result saves typed placement-only `engine_pins` in the Spec, with
+`written_by: "engine"` and schema `draftwright.spec/4`. The record contains the source
+revision, paper and scale, view frames, and annotation placements keyed by stable item id:
+`place` (view, side, offset, pinned), leader/witness routes, glyph translation steps, lane
+region and dimension origin choices. Coordinates are relative to the view where reversible
+without rounding. It contains no requirement text, dimension terms, measurements, face
+indices, characteristics, table records, problems, author-Spec copy or derived Plan.
+Requirements and glyphs are regenerated from the current STEP and Spec; placement checks
+run again on the final ink. Table ids request the ordinary schedule planner.
+
+Saving the Spec and reopening with the same STEP, including CLI rendering, replays these
+pins. Unknown item ids are dropped individually with `engine_pins_replanned` (information).
+A changed source revision drops the engine pins and opens through the full planner, with
+the same finding; nothing from the old STEP is drawn. Stable item ids rather than face-list
+positions identify placements. The one operation
 `{"op":"remove","path":"engine_pins"}` is **Re-layout** (`Session::relayout(commit)`):
-it clears only engine-written pins and runs the full planner with all user intent intact.
-A saved pin record includes dormant variants for remove/restore (the original and 31 most
-recent alternatives per item); finding snapshots keep the initial layout and the 31 most
-recent distinct layouts. Pin records use compact JSON internally, avoiding a heap object
-per coordinate in undo history. These are placement provenance,
-not an undo log.
+it clears only engine-written pins and runs the full planner with user pins intact.
+Dormant variants and prior findings needed for exact undo/remove live only in bounded
+Session history. A newly opened Session has no transaction history.
+
+Full `apply` honours engine pins for title, notes, materials and other content edits.
+Deliberate sheet, scale, view, origin, unit or table-policy edits release the affected layout
+and run the full planner; movement is audited for this incremental lineage. The ordinary
+full path without engine pins retains its existing wire format and omits empty `moved`.
+Incremental apply still refuses composition changes instead of silently laying out the page.
+The JSON schema types every pin member. Readers check the schema version before decoding
+extension fields; `/4` marks this extension as incompatible with `/3` readers. Released old
+executables cannot have their error wording changed retroactively; update the reader or
+remove engine pins and use schema `/3` to open a drawing without the kept layout.
 
 Existing dimensions keep their measurement basis when PMI datums change. Affected dimensions
 receive `incremental_basis_kept` (information) with a **Dimension from datum A** fix offer.
 Preview that offer through ordinary `apply(ops, false)` or WASM `preview`, then apply only
-when selected. Its `engine_pins/rebase` operation releases the selected recipe to the normal
+when selected. Its `engine_pins/rebase` operation appends the selected id and releases that basis to the normal
 PMI origin and placement rules while retaining the other pins. No automatic re-base occurs.
 
 `commit: false` returns the same result as committing from that state. No automatic full-plan
@@ -2837,7 +2856,8 @@ WASM `Engine.applyIncremental(opsJson, commit)` returns a delta;
 including `moved`; `previewIncremental(opsJson)` returns the usual plan/Spec/SVG snapshot.
 For PMI STEP updates use `replaceStepIncremental(name, bytes, commit)`,
 `replaceStepIncrementalFragments(name, bytes)` and `previewStepIncremental(name, bytes)`.
-The native WASM adapter has corresponding snake_case methods. Existing `applyFragments` and
+Incremental previews omit the full Analysis payload; STEP previews analyse the bytes once
+and expose lightweight source provenance. The native WASM adapter has corresponding snake_case methods. Existing `applyFragments` and
 `preview` keep the ordinary path. A future agent can reach these library/Session/WASM entries
 with STEP PMI or Spec operations; a future MCP adapter can select them internally. No MCP
 tools are added.

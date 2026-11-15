@@ -2134,6 +2134,11 @@ fn beneath(old: &gdt::GdtPlaced, corner: P2) -> gdt::GdtPlaced {
     let d = [corner[0] - b[0], corner[1] - b[3]];
     let shift = |p: P2| [p[0] + d[0], p[1] + d[1]];
     let mut next = old.clone();
+    if d != [0., 0.]
+        && let Some((_, steps, _)) = &mut next.pose
+    {
+        steps.push(d);
+    }
     next.tip = corner;
     next.lines.clear();
     next.arrows.clear();

@@ -923,6 +923,7 @@ fn auxiliary(
         basis: "auxiliary view moved as a whole after sheet-1 paper recovery".into(),
         state: State::Shown,
         line_work: Vec::new(),
+        line_pose: None,
         line_style: Default::default(),
         from_spec: Vec::new(),
         half_section: None,
@@ -2339,6 +2340,11 @@ fn separate_views_inner(
         };
         for g in plan.gdt.iter_mut().filter(|g| g.view == id) {
             if let Some(p) = &mut g.placed {
+                if delta != [0., 0.]
+                    && let Some((_, steps, _)) = &mut p.pose
+                {
+                    steps.push(delta);
+                }
                 move_point(&mut p.tip, delta);
                 move_box(&mut p.label_box, delta);
                 for q in p
