@@ -38,7 +38,11 @@ fn a_valid_candidate_crossing_two_views_is_rejected_even_when_the_planner_return
     hole.parameters["location"][1] = serde_json::json!(-60.0);
     hole.parameters["location"][2] = serde_json::json!(120.0);
     let first = recorded("1004-view-gate-first.plan.json.gz");
-    let unsafe_try = recorded("1004-view-gate-unsafe.plan.json.gz");
+    let mut unsafe_try = recorded("1004-view-gate-unsafe.plan.json.gz");
+    // Keep this injected proposal fixed while exercising the veto. The new
+    // measured-block recovery may repair a free proposal before it is judged;
+    // this replay must still present the actual two-view conflict to the gate.
+    unsafe_try.spec.sheet.keep_layout = Some(true);
     assert_eq!(first.binding.source_sha256, analysis.binding.source_sha256);
     assert_eq!(
         unsafe_try.binding.source_sha256,

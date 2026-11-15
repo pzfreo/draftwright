@@ -609,7 +609,8 @@ fn unguarded_legacy_edits_report_a_changed_sheet_and_preview_does_not_commit() {
     assert_ne!(layout(s.plan()), before);
     assert_eq!(
         (&*s.plan().sheet.size, &*s.plan().sheet.scale),
-        ("A3", "2:1")
+        // 2026-11-14: the edited spindle stays on smaller paper.
+        ("A4", "1:1")
     );
     assert!(delta.notices.iter().any(|p| p.code == "layout_replanned"));
     let mut replay = session().state().clone();

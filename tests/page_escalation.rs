@@ -481,7 +481,8 @@ fn ftc07_stays_on_preferred_a3_and_keeps_the_planner_search() {
         model::plan_escalated(&analysis, &never).unwrap(),
     )
     .unwrap();
-    assert_eq!(sheet(&chosen), ("A1", "1:1"), "{}", chosen.sheet.basis);
+    // 2026-11-14: both candidates are below band, so retain A2 1:2.
+    assert_eq!(sheet(&chosen), ("A2", "1:2"), "{}", chosen.sheet.basis);
     assert!(chosen.sheet.basis.contains("smallest fit A2 at 1:2"));
     sheet_rule::assert_rule("ftc07", &chosen);
     let a1 = chosen
@@ -624,9 +625,9 @@ fn composed_corridors_clear_a_previously_overlapping_off_part_fixture() {
     let before = over(&first);
     let plan = model::recover(&analysis, &Spec::default(), first).unwrap();
     assert!(over(&plan) <= before);
-    // With the 3 mm frame gutter (2026-10-25) the A4 1:1 try keeps one hard layout finding,
-    // so A3 at 1:1 (valid and complete) is chosen; formerly A4 at 1:1.
-    assert_eq!(sheet(&plan), ("A3", "1:1"), "{}", plan.sheet.basis);
+    // 2026-11-14: A4 1:1 still fails its frame, but below-band preference
+    // now keeps the valid smaller sheet at 1:2 rather than A3 at 1:1.
+    assert_eq!(sheet(&plan), ("A4", "1:2"), "{}", plan.sheet.basis);
     let gate = sheet_rule::tried(&plan.sheet.basis)
         .into_iter()
         .find(|t| t.size == "A4" && t.scale == "1:1")

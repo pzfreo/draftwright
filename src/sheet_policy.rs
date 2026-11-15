@@ -555,6 +555,8 @@ fn finished_preview(
         if let Some(reference) = reference {
             let fixed_contacts = crate::dims::contacts::fixed_stroke_contacts(&preview);
             let reference_fixed = crate::dims::contacts::fixed_stroke_contacts(reference);
+            let note_contacts = crate::dims::contacts::note_line_contacts(&preview);
+            let reference_notes = crate::dims::contacts::note_line_contacts(reference);
             let ids = preview
                 .problems
                 .iter()
@@ -565,6 +567,9 @@ fn finished_preview(
                         "leader_along_centreline"
                             | "leader_through_feature"
                             | "leader_centerline_overlap"
+                            | "annotation_leader_crossing"
+                            | "leader_across_view"
+                            | "label_crowded"
                     ) && !reference
                         .problems
                         .iter()
@@ -574,9 +579,18 @@ fn finished_preview(
                 .flat_map(|p| {
                     p.subjects
                         .iter()
-                        .filter(|s| preview.dimensions.iter().any(|d| &d.id == *s))
+                        .filter(|s| {
+                            preview.dimensions.iter().any(|d| &d.id == *s)
+                                || preview.gdt.iter().any(|g| &g.id == *s)
+                        })
                         .cloned()
                 })
+                .chain(
+                    note_contacts
+                        .iter()
+                        .filter(|p| !reference_notes.contains(p))
+                        .flat_map(|(_, ids)| ids.iter().cloned()),
+                )
                 .collect::<BTreeSet<_>>();
             if !ids.is_empty() {
                 crate::dims::callout_routes::finish_new_contacts(
@@ -592,6 +606,22 @@ fn finished_preview(
             model::finish_selected(analysis, &mut preview);
             crate::dims::contacts::clear_new_section_contacts(&mut preview, reference);
             crate::dims::contacts::report(analysis, &mut preview);
+        }
+        // A settled callout can leave the estimate's band even though its ink
+        // fits the paper (GRM-04's archived recognition). Reuse whole-block
+        // packing after routing, keeping every witness and leader unchanged.
+        if !crate::nominal::comparison()
+            && model::findings(&preview).clean()
+            && preview
+                .problems
+                .iter()
+                .any(|p| p.code == "annotation_outside_area")
+            && let Some(mut packed) = sheet_fit::pack_gdt(analysis, &preview, &preview)
+        {
+            model::finish_selected(analysis, &mut packed);
+            if crate::dims::callout_routes::no_regression(&preview.problems, &packed.problems) {
+                preview = packed;
+            }
         }
         Ok(preview)
     })
@@ -1451,6 +1481,10 @@ fn select_scales_full(
                                         | "views_overlap"
                                         | "view_on_title_block"
                                         | "page_fit_uncertain"
+                                        | "dimension_line_at_note"
+                                        | "annotation_leader_crossing"
+                                        | "leader_across_view"
+                                        | "label_crowded"
                                 )
                             })
                         });
@@ -3924,8 +3958,8 @@ mod tests {
 
     #[test]
     fn all_preferred_scales_are_considered_before_spending_more_paper_for_route_quality() {
-        // GRM-02 has route defects beyond an isolated extension contact. The new
-        // scale policy tries every readable A4 scale before retaining clean A3.
+        // 2026-11-14: the smaller below-band reference makes GRM-02's first
+        // clean A4 2:1 trial usable; no larger paper or smaller scale is needed.
         let a = model::analyse_native(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/grm02.step"),
         )
@@ -3934,21 +3968,43 @@ mod tests {
         let p = model::plan_recovered(&a, &Spec::default()).unwrap();
         let a4 = &p.sheet_candidates[0];
         assert_eq!((a4.size.as_str(), a4.max), ("A4", 1));
-        // The banded pre-filter now proves 5:1 wider than A4 before lowering
-        // its ink. Retain explicit coverage of that refused preferred scale.
-        assert_eq!(a4.scales, ["2:1", "1:1"], "{}", p.sheet.basis);
-        assert!(p.sheet.basis.contains("A4 at 5:1: not planned: aligned front and side views need at least 282 mm across at 5:1; A4 drawable area is 271 × 184 mm"),"{}",p.sheet.basis);
-        assert_eq!(
-            a4.outcome,
-            "refused at 1:1: a callout grows more than 2 paper mm beyond the displaced drawing (0 hard, 0 drops; annotation_leader_crossing, extension_through_feature, leader_ink_run, leader_on_extension, leader_through_feature); cosmetic exception refused: at least two annotations terminate within 1 mm of a feature smaller than 8 paper mm"
-        );
-        for scale in &a4.scales {
-            assert!(p.sheet.basis.contains(&format!("A4 at {scale}")));
-        }
+        assert_eq!(a4.scales, ["2:1"], "{}", p.sheet.basis);
+        // The changed reference's measured bands still rule out 5:1 before planning.
+        assert!(p.sheet.basis.contains("A4 at 5:1: not planned: aligned front and side views need at least 286 mm across at 5:1; A4 drawable area is 271 × 184 mm"),"{}",p.sheet.basis);
+        assert!(a4.outcome.contains("usable at 2:1"), "{}", a4.outcome);
+        assert_eq!(p.sheet_candidates.len(), 1);
+        assert!(model::findings(&p).clean());
         assert_eq!(
             (p.sheet.size.as_str(), p.sheet.scale.as_str()),
-            ("A3", "5:1")
+            ("A4", "2:1")
         );
+        // Keep a refused-small-paper case: both feasible preferred A4 scales
+        // must actually be tried, in order, before clean A3 is allowed.
+        let a = model::analyse_native(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/pmi/step/assembly_plate_pin.step.gz"),
+        )
+        .unwrap()
+        .1;
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(p.sheet_candidates[0].size, "A4");
+        assert_eq!(
+            p.sheet_candidates[0].scales,
+            ["1:1", "1:2"],
+            "{}",
+            p.sheet.basis
+        );
+        assert!(!p.sheet_candidates[0].outcome.contains("usable"));
+        assert_eq!(p.sheet_candidates[1].size, "A3");
+        for scale in ["1:1", "1:2"] {
+            let trial = p
+                .sheet
+                .basis
+                .rfind(&format!("A4 at {scale} (Normal)"))
+                .unwrap();
+            let larger = p.sheet.basis.rfind("A3 at 1:1 (Normal)").unwrap();
+            assert!(trial < larger, "{}", p.sheet.basis);
+        }
         // The gear blank's A4 trial is usable at its first scale (#163).
         let a = model::analyse_native(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/gear_blank.step"),
@@ -4014,9 +4070,9 @@ mod tests {
         for (file, size, scale) in [
             // #222: its plan view, which no dimension needs, is left out, and 2:1 fits.
             ("mfcadpp/10020.step", "A4", "2:1"),
-            // Its paired-ramp step's angle, recognised since quiddity main after 0.2.0-alpha.2,
-            // conflicts with an annotation on A4 at 1:1; A3 at 2:1 is clean.
-            ("mfcadpp/10033.step", "A3", "2:1"),
+            // 2026-11-14: below-band paper preference and measured packing
+            // keep this paired-ramp step clean on A4 at 1:1.
+            ("mfcadpp/10033.step", "A4", "1:1"),
             ("mfcadpp/10163.step", "A4", "1:1"),
             // Usable on preferred A3, as on main: nothing clipped and nothing lost.
             ("cadgenbench_inputs/cgb245.step", "A3", "1:5"),
@@ -4870,5 +4926,138 @@ mod tests {
                 .any(|(code, subjects)| code == "annotation_off_sheet"
                     && subjects == std::slice::from_ref(&p.views[0].id))
         );
+    }
+}
+
+#[cfg(test)]
+mod compact_sheet_regressions {
+    use crate::model::{self, Plan, Spec};
+    use std::path::Path;
+
+    fn selected(file: &str, size: &str, scale: &str) -> Plan {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(file);
+        let a = model::analyse_native(&path).unwrap().1;
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            (size, scale),
+            "{}",
+            p.sheet.basis
+        );
+        assert!(
+            model::findings(&p).clean(),
+            "{:?}",
+            model::hard_layout_codes(&p)
+        );
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert_eq!(model::undrawn_gdt(&p), 0);
+        p
+    }
+
+    #[test]
+    fn ctc01_measured_lanes_fit_a3_at_one_to_five() {
+        selected("pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz", "A3", "1:5");
+    }
+
+    #[test]
+    fn ctc03_profile_frames_clear_each_others_leaders_on_a3() {
+        let p = selected("sheet-policy/nist_ctc_03_asme1_ap242.stp.gz", "A3", "1:5");
+        assert!(
+            !p.problems
+                .iter()
+                .any(|q| q.code == "annotation_ink_overlap")
+        );
+    }
+
+    #[test]
+    fn ftc07_stays_on_a2_at_one_to_two_below_the_fill_band() {
+        selected("pmi/step/nist_ftc_07_asme1_ap242-e2.stp.gz", "A2", "1:2");
+    }
+
+    #[test]
+    fn stc07_stays_on_a2_at_one_to_two_below_the_fill_band() {
+        selected(
+            "sheet-policy/nist_stc_07_asme1_ap242-e3.stp.gz",
+            "A2",
+            "1:2",
+        );
+    }
+
+    #[test]
+    fn shf08_hole_leaves_the_near_side_on_a4_at_two_to_one() {
+        let p = selected("sheet-policy/shf08.step.gz", "A4", "2:1");
+        let id = "d:f:hole:f28/bore.diameter";
+        assert!(!p.problems.iter().any(|q| matches!(
+            q.code.as_str(),
+            "leader_across_view" | "leader_through_feature"
+        ) && q.subjects.iter().any(|s| s == id)));
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        let shaft = d.placed.as_ref().unwrap().lines[0];
+        assert!((shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) < 20.0);
+    }
+
+    fn corpus_analysis(file: &str) -> Option<model::Analysis> {
+        let root = std::env::var_os("DRAFTWRIGHT_CORPUS")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| Path::new(&h).join("repos/quiddity/tests/corpus"))
+            });
+        let Some(root) = root.filter(|p| p.is_dir()) else {
+            assert!(
+                std::env::var_os("DRAFTWRIGHT_CORPUS_REQUIRED").is_none_or(|v| v != "1"),
+                "required corpus missing"
+            );
+            return None;
+        };
+        Some(model::analyse_native(&root.join(file)).unwrap().1)
+    }
+
+    #[test]
+    fn a4_measured_packing_keeps_10033_leaders_off_extensions() {
+        let Some(a) = corpus_analysis("mfcadpp/10033.step") else {
+            return;
+        };
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(p.sheet.size, "A4");
+        assert!(model::findings(&p).clean());
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert!(crate::dims::leader_on_extension(&p.dimensions).is_empty());
+        assert!(
+            !p.problems
+                .iter()
+                .any(|q| q.code == "annotation_leader_crossing")
+        );
+    }
+
+    #[test]
+    fn a4_measured_packing_keeps_10163_holes_on_practical_paper() {
+        let Some(a) = corpus_analysis("mfcadpp/10163.step") else {
+            return;
+        };
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(p.sheet.size, "A4");
+        assert!(p.sheet.scale_factor >= 1.0);
+        assert!(model::findings(&p).clean());
+        assert!(model::finished_sheets_fit(&a, &p));
+    }
+
+    #[test]
+    fn ftc06_auxiliary_section_does_not_rule_out_compact_half_scale() {
+        let Some(a) = corpus_analysis("nist/nist_ftc_06_asme1_rd.stp") else {
+            return;
+        };
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A2", "1:2")
+        );
+        assert!(
+            p.sheets.is_empty(),
+            "compact FTC-06 must remain on one sheet"
+        );
+        assert!(model::findings(&p).clean());
+        assert!(model::finished_sheets_fit(&a, &p));
     }
 }

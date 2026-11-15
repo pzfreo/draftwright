@@ -633,6 +633,12 @@ mod tests {
                 .iter()
                 .map(|i| i.code.clone())
                 .collect();
+            assert!(
+                !current
+                    .iter()
+                    .any(|code| code == "radius_leader_not_radial"),
+                "both unit systems must clear the f100 fillet fallback: {units:?}: {current:?}"
+            );
             current.sort();
             codes.push(current);
         }
