@@ -812,7 +812,7 @@ pub(crate) fn apply_loading(plan: &mut Plan, analysis: &Analysis) {
         }
     });
 }
-fn finding(plan: &mut Plan, code: &str, severity: &str, refs: Vec<String>, message: &str) {
+fn pin_finding(plan: &mut Plan, code: &str, severity: &str, refs: Vec<String>, message: &str) {
     plan.problems.push(Problem {
         id: format!("p:{code}"),
         code: code.into(),
@@ -877,7 +877,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
             .is_some_and(|s| s != &pins.sheet.size)
     {
         let mut result = run(&base)?;
-        finding(
+        pin_finding(
             &mut result,
             "engine_pins_replanned",
             "warning",
@@ -961,7 +961,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
     result.spec = spec.clone();
     persist(a, &mut result, Some(&reference));
     if !dropped.is_empty() {
-        finding(
+        pin_finding(
             &mut result,
             "engine_pins_partly_retained",
             "warning",
