@@ -773,20 +773,32 @@ impl Geometry {
             directed: false,
             angle: Some(AngleSelection::Equal),
         };
-        candidate.model.dimensions.retain(|d| d.kind != kind);
-        candidate.model.dimensions.push(Dimension {
-            kind,
-            nominal: None,
-            tolerance: DimTolerance::None,
-            qualifier: None,
-            modifiers: vec![],
-            principle: None,
-        });
+        // Re-measure an existing angle without discarding its tolerance or
+        // moving its identity in the dimension inventory when obtaining a handle.
+        let index = if let Some(i) = candidate
+            .model
+            .dimensions
+            .iter()
+            .position(|d| d.kind == kind)
+        {
+            candidate.model.dimensions[i].nominal = None;
+            i
+        } else {
+            candidate.model.dimensions.push(Dimension {
+                kind,
+                nominal: None,
+                tolerance: DimTolerance::None,
+                qualifier: None,
+                modifiers: vec![],
+                principle: None,
+            });
+            candidate.model.dimensions.len() - 1
+        };
         let report =
             draftwright::pmi::from_model(&self.part, &self.bound(&candidate)?).map_err(raised)?;
         let geometry = report
             .records
-            .get(candidate.model.dimensions.len() - 1)
+            .get(index)
             .and_then(|r| r.geometry.as_ref())
             .ok_or_else(|| raised("angle requires two distinct planar faces"))?;
         let angle = geometry
@@ -810,8 +822,8 @@ impl Geometry {
         candidate
             .model
             .dimensions
-            .last_mut()
-            .expect("new angle")
+            .get_mut(index)
+            .expect("angle dimension")
             .nominal = Some(Value {
             quantity: Quantity::Angle(Angle {
                 value: Decimal::parse(&degrees.to_string()).map_err(raised)?,

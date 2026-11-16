@@ -102,6 +102,8 @@ class ReviewRound4(unittest.TestCase):
                     self.assertIn(f"{degrees - 0.5:g}°", text)
                     self.assertIn(f"{degrees + 0.5:g}°", text)
                 before = part._pmi.snapshot()
+                self.assertEqual(part.angle(bottom, bevel).nominal, degrees)
+                self.assertTrue(part._pmi.same(before))  # obtaining a handle preserves its tolerance
                 for kwargs in ({}, {"plus_minus": 0}, {"plus_minus": -1}, {"plus_minus": math.inf},
                                {"limits": (degrees + 1, degrees - 1)}, {"limits": (0, degrees - 1)},
                                {"plus_minus": 0.5, "limits": (degrees - 1, degrees + 1)}):
