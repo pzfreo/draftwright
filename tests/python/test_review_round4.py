@@ -130,25 +130,30 @@ class ReviewRound4(unittest.TestCase):
         self.assertIsInstance(drawing.problems, list)  # refused edits are atomic
 
     def test_findings_snapshot_is_the_model_actually_rendered(self):
-        part, bottom, bevel = self.wedge()
-        part.angle(bottom, bevel)
-        geometry = part._geometry()
+        for kind, token in (("pmi", "LATE NOTE"), ("layout", "LATE AUTHOR")):
+            with self.subTest(kind=kind):
+                part, bottom, bevel = self.wedge()
+                part.angle(bottom, bevel)
+                geometry = part._geometry()
+                drawing = part.drawing()
 
-        class RenderThenEdit:
-            def render(self, *args):
-                result = geometry.render(*args)
-                part.note("LATE NOTE")
-                return result
+                class RenderThenEdit:
+                    def render(self, *args):
+                        result = geometry.render(*args)
+                        if kind == "pmi":
+                            part.note(token)
+                        else:
+                            drawing.title(drawn_by=token)
+                        return result
 
-        drawing = part.drawing()
-        with patch.object(part, "_geometry", return_value=RenderThenEdit()):
-            svg, _ = self.render(drawing, "before-edit")
-        self.assertNotIn("LATE NOTE", svg)
-        with self.assertRaisesRegex(draftwright.DraftwrightError, "render again"):
-            _ = drawing.problems
-        svg, _ = self.render(drawing, "after-edit")
-        self.assertIn("LATE NOTE", svg)
-        self.assertIsInstance(drawing.problems, list)
+                with patch.object(part, "_geometry", return_value=RenderThenEdit()):
+                    svg, _ = self.render(drawing, "before-edit")
+                self.assertNotIn(token, svg)
+                with self.assertRaisesRegex(draftwright.DraftwrightError, "render again"):
+                    _ = drawing.problems
+                svg, _ = self.render(drawing, "after-edit")
+                self.assertIn(token, svg)
+                self.assertIsInstance(drawing.problems, list)
 
 
 if __name__ == "__main__":

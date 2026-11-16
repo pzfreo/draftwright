@@ -788,18 +788,19 @@ class Drawing:
         if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
         self._problems = None
-        layout = _native.layout_spec(json.dumps(self._spec), json.dumps({} if spec is None else spec))
+        base_spec, scale = self.spec(), self._scale
+        layout = _native.layout_spec(json.dumps(base_spec), json.dumps({} if spec is None else spec))
         part = self._part
         out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(_safe(part.name))
-        if self._scale is not None:
-            if not self._scale > 0:
+        if scale is not None:
+            if not scale > 0:
                 raise ValueError("scale must be positive")
             layout = json.loads(layout)
-            layout.setdefault("sheet", {})["scale"] = f"{self._scale:g}:1" if self._scale >= 1 else f"1:{1 / self._scale:g}"
+            layout.setdefault("sheet", {})["scale"] = f"{scale:g}:1" if scale >= 1 else f"1:{1 / scale:g}"
             layout = json.dumps(layout)
         pmi = part._pmi.snapshot()
         result = json.loads(part._geometry().render(pmi, layout, str(out), list(formats)))
         self._problems = result["problems"]
         self._rendered_pmi = pmi
-        self._rendered_layout = (self.spec(), self._scale)
+        self._rendered_layout = (base_spec, scale)
         return tuple(result["written"])
