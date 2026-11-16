@@ -21,8 +21,8 @@ not a claim about later versions. Older installed versions raise `DraftwrightErr
 on first shape use, naming the required and found versions. STEP-only use needs
 no build123d installation.
 
-The 0.10.0 test environment pins `ocp_gordon==0.1.17`; newer releases of that
-transitive dependency require `OCP.collections`, absent from 0.10's OCCT 7.8.
+With build123d 0.10, pin `ocp-gordon<0.3` (the test environment uses 0.1.17):
+ocp-gordon 0.3.1 imports `OCP.collections`, absent from 0.10's OCCT 7.8.
 
 **The return value is `(svg_path, dxf_path)`, both strings, as in 0.4.** The DXF is
 editable in CAD: native text, live dimensions, blocks and title-block attributes. For PDF
@@ -278,7 +278,7 @@ p.note("Visible surfaces: clean satin finish, no lacquer.")
 p.note("DEBURR").default_finish(3.2)  # Ra in µm, unless otherwise specified
 p.hole(tap_drill).thread("M6", depth=12)  # minimum FULL-THREAD depth in mm
 p.shaft(knob).knurl(0.8)  # straight; tooth count derived from diameter and pitch
-p.angle(bottom_face, bevel_face)  # measured angle; existing authored PMI angle ink
+p.angle(bottom_face, bevel_face).tolerance(plus_minus=0.5)  # degrees
 ```
 
 `thread(size, depth=None)` uses the whole hole when depth is omitted. A numeric
@@ -294,6 +294,8 @@ length and internal minimum full-thread depth use the existing feature-owned
 lie in a principal view. It measures using the engine's PMI angular geometry;
 parallel/coincident faces and angles oblique to every principal view are refused.
 The existing imported-PMI angle renderer draws the result.
+The returned handle accepts `.tolerance(plus_minus=0.5)` or
+`.tolerance(limits=(24.5, 25.5))`, in degrees, using native angular dimension bounds.
 
 `export_step(path)` writes **plain geometry**, product metadata and referenced face
 names. It does not write PMI or sidecars. Its return value is `{"step": Path,
@@ -347,7 +349,10 @@ layout edits.
 selects any distinct subset and returns a tuple of **all** written paths, in format
 order. SVG, PNG and DXF have one file per sheet (`name.sheet2.svg`, etc.); PDF is
 one document containing every sheet. PNG uses the engine's default resolution.
-`drawing.problems` contains the most recent successful render's findings. Every dictionary
+`drawing.problems` contains the current successful render's findings. It raises
+`DraftwrightError` before `render()` or after Part PMI/layout edits, until rendered again;
+Drawing plans during render, so reading findings never silently starts a render.
+Every dictionary
 includes the engine-owned `tier`: `fix_before_printing`, `tidy`, or `information`.
 See the [code-to-tier table](finding-impact.md), including its explicit severity-dependent rules.
 
@@ -413,7 +418,9 @@ a Python convenience list combining the report’s findings and each row’s pro
 and GA details; they do not repeat row problems in their findings. Row `problems`
 and `error` retain individual failures. Caller-owned material and process are
 marked `"pmi"` in row `sources`, independently of drawing Spec intent. Each part-sheet problem also appears in `pack.findings`, with `part` naming
-its part and the original `severity`; rows retain their problems. Supplied Parts
+its part and the original `severity`; rows retain their problems. A row
+with an `error` also produces a finding with its `part` name and `severity="error"`.
+Supplied Parts
 are stated as made and do not produce `pack_make_guess`. Findings never block
 completed output. `horizontal_axis` accepts `"x"`, `"y"`, `"z"` or `None`; it is
 the source assembly axis read across the GA, identical to `ga.horizontal_axis`.

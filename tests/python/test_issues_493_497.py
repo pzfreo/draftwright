@@ -75,7 +75,7 @@ class PythonIssues(unittest.TestCase):
         faces = list(shape.faces())
         bottom = min(faces, key=lambda f: f.center().Z)
         bevel = max((f for f in faces if abs(f.normal_at().Z) > 0.5), key=lambda f: f.center().Z)
-        self.assertIs(p.angle(bottom, bevel), p)
+        self.assertEqual(p.angle(bottom, bevel).nominal, 25)
         record = next(r for r in self.records(p) if r["kind"] == "angular")
         self.assertAlmostEqual(record["value"], 25, places=5)
         self.assertEqual(len(record["face_groups"]), 2)

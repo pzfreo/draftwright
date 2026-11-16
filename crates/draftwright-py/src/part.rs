@@ -80,6 +80,60 @@ impl Pmi {
         }
     }
 
+    fn snapshot(&self) -> Self {
+        self.clone()
+    }
+
+    fn same(&self, other: &Self) -> bool {
+        self.faces == other.faces && self.model == other.model
+    }
+
+    fn angular_tolerance(
+        &mut self,
+        first: Vec<usize>,
+        second: Vec<usize>,
+        lower: &str,
+        upper: &str,
+        limits: bool,
+    ) -> PyResult<()> {
+        self.edit(|this| {
+            let angle_value = |s: &str| -> PyResult<Value> {
+                let value = Decimal::parse(s).map_err(raised)?;
+                if !value.to_f64().is_finite() {
+                    return Err(raised("angular tolerance bounds must be finite"));
+                }
+                Ok(Value {
+                    quantity: Quantity::Angle(Angle {
+                        value,
+                        unit: AngleUnit::Degree,
+                    }),
+                    decimal_places: None,
+                })
+            };
+            let bounds = Bounds::new(angle_value(upper)?, angle_value(lower)?).map_err(raised)?;
+            let kind = DimensionKind::Location {
+                from: this.feature(first)?,
+                to: this.feature(second)?,
+                kind: LocationKind::Other("angle".into()),
+                path: None,
+                directed: false,
+                angle: Some(AngleSelection::Equal),
+            };
+            let dimension = this
+                .model
+                .dimensions
+                .iter_mut()
+                .find(|d| d.kind == kind)
+                .ok_or_else(|| raised("state the angle before tolerancing it"))?;
+            dimension.tolerance = if limits {
+                DimTolerance::Limits(bounds)
+            } else {
+                DimTolerance::Deviations(bounds)
+            };
+            Ok(())
+        })
+    }
+
     fn material(&mut self, text: String) {
         self.model.material = Some(Material {
             id: text,
@@ -705,7 +759,7 @@ impl Geometry {
         serde_json::to_string(&draftwright::pmi::from_model(&self.part, &model).map_err(raised)?)
             .map_err(raised)
     }
-    fn angle(&self, pmi: &mut Pmi, first: Vec<usize>, second: Vec<usize>) -> PyResult<()> {
+    fn angle(&self, pmi: &mut Pmi, first: Vec<usize>, second: Vec<usize>) -> PyResult<f64> {
         // Measure with the renderer's own plane/ray selection, in a tentative model.
         // Rejected references leave both features and dimensions untouched.
         let mut candidate = pmi.clone();
@@ -745,6 +799,9 @@ impl Geometry {
         let degrees = angle
             .degrees()
             .ok_or_else(|| raised("angle reference rays must not be parallel"))?;
+        // Measurement round-off is not authored display precision. Use the
+        // engine's nominal cleanup before storing the measured degree value.
+        let degrees = (degrees * 1e6).round() / 1e6;
         candidate
             .model
             .dimensions
@@ -758,7 +815,7 @@ impl Geometry {
             decimal_places: None,
         });
         *pmi = candidate;
-        Ok(())
+        Ok(degrees)
     }
     fn render(
         &self,
@@ -857,6 +914,80 @@ fn face_mapping(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn python_angular_tolerances_round_trip_as_ap242_degree_bounds() {
+        let bytes = draftwright::model::read_step_file(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz"),
+        )
+        .unwrap();
+        let (part, analysis) = draftwright::model::analyse_native_bytes("angle", &bytes).unwrap();
+        let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+        let doc = haecceity::p21::Document::parse(bytes.clone()).unwrap();
+        let imported = read(&doc, &defs).unwrap();
+        let report = draftwright::pmi::report(&doc, &defs, &part, &imported).unwrap();
+        let angle = report
+            .records
+            .iter()
+            .find(|r| r.kind == "angular" && r.blockers.is_empty())
+            .unwrap();
+        let (first, second) = (angle.face_groups[0].clone(), angle.face_groups[1].clone());
+        let mut p = Pmi::new(part.faces.len());
+        let geometry = Geometry {
+            mapping: (0..part.faces.len()).collect(),
+            product_mapping: (0..part.faces.len()).collect(),
+            product: std::sync::Arc::new(haecceity::read_step(&bytes).unwrap()),
+            part,
+            analysis,
+        };
+        let nominal = geometry
+            .angle(&mut p, first.clone(), second.clone())
+            .unwrap();
+        for limits in [false, true] {
+            let (lower, upper) = if limits {
+                (nominal - 0.5, nominal + 0.5)
+            } else {
+                (-0.5, 0.5)
+            };
+            p.angular_tolerance(
+                first.clone(),
+                second.clone(),
+                &lower.to_string(),
+                &upper.to_string(),
+                limits,
+            )
+            .unwrap();
+            let (edit, _) = write(
+                &doc,
+                &defs,
+                &[(PartId(0), p.model.clone())],
+                Mode::Replace,
+                write::PresentationPolicy::RemovePresentation,
+            )
+            .unwrap();
+            let bytes = doc.apply(&edit).unwrap().bytes;
+            let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+            let written = haecceity::p21::Document::parse(bytes).unwrap();
+            let read = read(&written, &defs).unwrap();
+            let d = &read.parts[0].dimensions[0];
+            let bounds = match (&d.tolerance, limits) {
+                (DimTolerance::Limits(bounds), true)
+                | (DimTolerance::Deviations(bounds), false) => bounds,
+                _ => panic!("angular tolerance changed kind"),
+            };
+            for (value, expected) in [(bounds.lower(), lower), (bounds.upper(), upper)] {
+                let Quantity::Angle(angle) = &value.quantity else {
+                    panic!("angular bound is not an angle")
+                };
+                assert_eq!(angle.unit, AngleUnit::Degree);
+                assert_eq!(angle.value.to_f64(), expected);
+            }
+            let report = draftwright::pmi::report(&written, &defs, &geometry.part, &read).unwrap();
+            let angular = report.records.iter().find(|r| r.kind == "angular").unwrap();
+            assert!(angular.blockers.is_empty(), "{:?}", angular.blockers);
+        }
+    }
 
     #[test]
     fn caller_pmi_replays_engine_pins_across_byte_revisions_and_content_edits() {

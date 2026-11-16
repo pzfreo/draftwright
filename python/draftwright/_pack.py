@@ -18,7 +18,8 @@ class Pack:
     horizontal_axis is x, y or z (the source axis across the GA); None chooses
     the longest axis, as ga.horizontal_axis in the pack Spec does.
     After render, findings includes pack findings and every part sheet problem
-    with its part name and original severity. Rows retain their problems too.
+    with its part name and original severity, plus row errors with severity error.
+    Rows retain their problems too.
     Findings never prevent output.
     """
 
@@ -143,7 +144,14 @@ class Pack:
 
         def clone(node):
             if not node.children:
-                result = copy.deepcopy(node)
+                # Copy geometry in its product frame. Copying a placed B-rep
+                # rounds tiny local vertices when the translation is baked in
+                # and removed, breaking exact binding to the caller's Part.
+                from OCP.TopLoc import TopLoc_Location
+                local = copy.copy(node)
+                local.wrapped = node.wrapped.Located(TopLoc_Location())
+                result = copy.deepcopy(local)
+                result.wrapped.Location(node.wrapped.Location())
                 # Repeated placed instances must still share a definition in
                 # XCAF. Share the private copy, never the caller's TShape.
                 for original, copied in copied_shapes:
@@ -216,6 +224,12 @@ class Pack:
         self.findings = list(self.report["findings"])
         for row in self.rows:
             name = row.get("name") or row["key"]
+            if row.get("error"):
+                error = row["error"]
+                self.findings.append({"code": error["code"], "severity": "error",
+                                      "part": name, "products": row["products"],
+                                      "message": (error["message"] if error["message"].startswith(f"{name}:")
+                                                  else f"{name}: {error['message']}")})
             self.findings.extend({"code": problem["code"], "severity": problem["severity"],
                                   "part": name, "products": row["products"],
                                   "message": f"{name}: {problem['message']}"}

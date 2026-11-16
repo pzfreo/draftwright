@@ -235,7 +235,19 @@ class DistanceRef:
         return self
 
 
-def _bounds(nominal, plus_minus, limits):
+class AngleRef:
+    """A measured angular dimension; tolerance values are in degrees."""
+
+    def __init__(self, part, first, second, nominal):
+        self._part, self.first, self.second, self.nominal = part, first, second, nominal
+
+    def tolerance(self, *, plus_minus=None, limits=None):
+        lower, upper, is_limits = _bounds(self.nominal, plus_minus, limits, unit="degrees")
+        self._part._pmi.angular_tolerance(self.first, self.second, lower, upper, is_limits)
+        return self
+
+
+def _bounds(nominal, plus_minus, limits, *, unit="mm"):
     if (plus_minus is None) == (limits is None):
         raise ValueError("state exactly one of plus_minus or limits=(lower, upper)")
     if plus_minus is not None:
@@ -244,7 +256,7 @@ def _bounds(nominal, plus_minus, limits):
             raise ValueError("plus_minus must be finite, positive and smaller than the nominal size")
         return _number(-n), _number(n), False
     if not isinstance(limits, (tuple, list)) or len(limits) != 2:
-        raise ValueError("limits must be (lower, upper) in mm")
+        raise ValueError(f"limits must be (lower, upper) in {unit}")
     lo, hi = map(float, limits)
     if not (math.isfinite(lo) and math.isfinite(hi) and 0 <= lo < hi and lo <= nominal <= hi):
         raise ValueError("limits must be finite, 0 <= lower < upper, and contain the nominal size")
@@ -414,8 +426,8 @@ class Part:
             groups.append(indices)
         groups.sort()
         geometry = self._geometry()
-        geometry.angle(self._pmi, *groups)
-        return self
+        nominal = geometry.angle(self._pmi, *groups)
+        return AngleRef(self, *groups, nominal)
 
     def _hole(self, obj, label, single):
         groups = self._find(obj, "hole")
@@ -703,7 +715,9 @@ class Drawing:
             title["number"] = part.number
         if sheet is not None:
             self._spec["sheet"]["size"] = sheet
-        self.problems = []
+        self._problems = None
+        self._rendered_pmi = None
+        self._rendered_layout = None
         self._scale = None
         if scale is not None:
             if isinstance(scale, str):
@@ -742,6 +756,16 @@ class Drawing:
     def spec(self):
         return json.loads(json.dumps(self._spec))
 
+    @property
+    def problems(self):
+        """Findings from the last current render; raises before render or after edits."""
+        if (self._problems is None or self._part is None
+                or self._rendered_layout != (self._spec, self._scale)
+                or not self._part._pmi.same(self._rendered_pmi)):
+            raise _native.DraftwrightError(
+                "Drawing.problems requires render() first; render again after Part PMI or layout edits")
+        return self._problems
+
     def update(self, spec_dict):
         """Deep merge a layout patch, validating the Spec schema. Lists replace whole."""
         self._spec = json.loads(_native.layout_spec(json.dumps(self._spec), json.dumps(spec_dict)))
@@ -763,6 +787,7 @@ class Drawing:
         formats = tuple(formats)
         if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
+        self._problems = None
         layout = _native.layout_spec(json.dumps(self._spec), json.dumps({} if spec is None else spec))
         part = self._part
         out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(_safe(part.name))
@@ -773,5 +798,7 @@ class Drawing:
             layout.setdefault("sheet", {})["scale"] = f"{self._scale:g}:1" if self._scale >= 1 else f"1:{1 / self._scale:g}"
             layout = json.dumps(layout)
         result = json.loads(part._geometry().render(part._pmi, layout, str(out), list(formats)))
-        self.problems = result["problems"]
+        self._problems = result["problems"]
+        self._rendered_pmi = part._pmi.snapshot()
+        self._rendered_layout = (self.spec(), self._scale)
         return tuple(result["written"])

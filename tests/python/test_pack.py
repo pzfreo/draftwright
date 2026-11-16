@@ -291,6 +291,11 @@ class PackAPI(unittest.TestCase):
         failed = next(r for r in pack.rows if r["key"] == "one")
         self.assertIn("reference geometry differs", failed["error"]["message"])
         self.assertFalse(failed["sheets"])
+        self.assertTrue(any(f.get("part") == "one" and f["severity"] == "error"
+                            and f["code"] == failed["error"]["code"]
+                            and failed["error"]["message"] in f["message"]
+                            for f in pack.findings))
+        self.assertEqual(pack.report, json.loads((self.directory / "failed.json").read_text()))
         self.assertTrue(next(r for r in pack.rows if r["key"] == "two")["sheets"])
         geometry = draftwright.Pack(assembly)
         geometry.part("two").title(revision="D")
