@@ -436,14 +436,31 @@ mod tests {
 
     #[test]
     fn reference_ink_cache_is_partitioned_by_units_and_paper() {
-        let mm = Spec::default();
+        let (_, a) = model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/parts/mounting_plate.step"),
+        )
+        .unwrap();
+        let mm = Spec {
+            units: Units::Mm,
+            ..Spec::default()
+        };
         let inch: Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
         let arch: Spec =
             serde_json::from_value(json!({"units":"in","sheet":{"paper":"arch"}})).unwrap();
         let iso: Spec = serde_json::from_value(json!({"sheet":{"paper":"iso"}})).unwrap();
-        assert_ne!(model::established_key(&mm), model::established_key(&inch));
-        assert_ne!(model::established_key(&inch), model::established_key(&arch));
-        assert_eq!(model::established_key(&mm), model::established_key(&iso));
+        assert_ne!(
+            model::established_key(&a, &mm),
+            model::established_key(&a, &inch)
+        );
+        assert_ne!(
+            model::established_key(&a, &inch),
+            model::established_key(&a, &arch)
+        );
+        assert_eq!(
+            model::established_key(&a, &mm),
+            model::established_key(&a, &iso)
+        );
     }
 
     #[test]

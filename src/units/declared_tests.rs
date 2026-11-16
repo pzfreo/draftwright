@@ -309,3 +309,55 @@ fn unreadable_inch_pmi_seed_recovers_to_readable_fitting_paper() {
         "annotation_off_sheet" | "annotation_line_over_view"
     )));
 }
+
+#[test]
+fn automatic_units_resolve_before_reference_keys_and_cached_plans() {
+    let (_, a) = model::analyse_native_bytes("inch.step", &specimen(true, true)).unwrap();
+    let automatic = model::Spec::default();
+    let mm = model::Spec {
+        units: Units::Mm,
+        ..automatic.clone()
+    };
+    let inch = model::Spec {
+        units: Units::In,
+        ..automatic.clone()
+    };
+    let mut ansi = automatic.clone();
+    ansi.sheet.paper = Some(Paper::Ansi);
+    let mut strict = ansi.clone();
+    strict.pmi = model::PmiMode::Strict;
+    // In particular, Auto + explicit ANSI used to serialize the skipped enum and panic.
+    for spec in [&automatic, &ansi, &strict] {
+        let mut resolved = spec.clone();
+        resolved.units = Units::In;
+        assert_eq!(
+            model::established_key(&a, spec),
+            model::established_key(&a, &resolved)
+        );
+        assert_ne!(
+            model::established_key(&a, spec),
+            model::established_key(&a, &mm)
+        );
+        let p = model::established_drawing(&a, spec).unwrap();
+        assert_eq!(p.sheet.units, Units::In);
+    }
+    assert_ne!(
+        model::established_key(&a, &inch),
+        model::established_key(&a, &mm)
+    );
+    let dir = std::env::temp_dir().join(format!("dw-auto-units-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for spec in [&mm, &automatic, &mm, &automatic] {
+        let p = crate::plan_cache::plan_recovered_in(Some(&dir), &a, spec).unwrap();
+        assert_eq!(
+            p.sheet.units,
+            if spec.units.is_auto() {
+                Units::In
+            } else {
+                Units::Mm
+            }
+        );
+        assert_eq!(p.spec.units, spec.units);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

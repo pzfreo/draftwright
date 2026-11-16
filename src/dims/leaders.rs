@@ -850,7 +850,7 @@ fn nominal_reference(
     if !crate::dims::has_new_native_recess_dimensions(analysis) {
         return None;
     }
-    let reference_key = crate::model::established_key(spec);
+    let reference_key = crate::model::established_key(analysis, spec);
     crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
         analysis,
         "established-drawing",
@@ -895,7 +895,7 @@ fn settled_nominal_reference(
     {
         return None;
     }
-    let legacy_key = crate::model::established_key(spec);
+    let legacy_key = crate::model::established_key(analysis, spec);
     let legacy = crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
         analysis,
         "established-drawing",
@@ -1054,7 +1054,7 @@ fn settled_nominal_reference(
             })
         })
     })?;
-    let legacy_key = crate::model::established_key(spec);
+    let legacy_key = crate::model::established_key(analysis, spec);
     let legacy = crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
         analysis,
         "established-drawing",
@@ -3092,7 +3092,7 @@ pub(super) fn seed_established(
         .iter()
         .flat_map(|w| &w.measurements)
         .any(|m| m.feature.starts_with("f:section_recess:"));
-    let key = crate::model::established_key(spec);
+    let key = crate::model::established_key(analysis, spec);
     let nominal = nominal_reference(analysis, spec, items);
     let is_nominal = nominal.is_some();
     let Some(reference) = nominal.or_else(|| {
@@ -3258,7 +3258,7 @@ pub(super) fn refine(
     if analysis.edge_ink.is_none() {
         return BTreeMap::new();
     }
-    let reference_key = crate::model::established_key(spec);
+    let reference_key = crate::model::established_key(analysis, spec);
     // The reference is immutable for this key within the Analysis scope.
     let has_reference =
         crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
@@ -3386,7 +3386,7 @@ fn refine_uncached(
         })
     };
     let centre_run = |p: &Placed| centre_lines(&p.lines);
-    let reference_key = crate::model::established_key(spec);
+    let reference_key = crate::model::established_key(analysis, spec);
     let established_reference = crate::planning::lookup::<
         Result<crate::model::Plan, crate::model::Invalid>,
     >(analysis, "established-drawing", &reference_key)

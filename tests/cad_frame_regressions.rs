@@ -7,6 +7,7 @@ use std::path::Path;
 part_cases!(accepted_cad_frame_layout;
     stc09 => "nist_stc_09_asme1_ap242-e4.stp",
     ftc07 => "nist_ftc_07_asme1_ap242-e2.stp",
+    ftc07_mm => "nist_ftc_07_asme1_ap242-e2.stp:mm",
     ftc10 => "nist_ftc_10_asme1_ap242-e2.stp",
     stc06 => "nist_stc_06_asme1_ap242-e3.stp",
     stc10 => "nist_stc_10_asme1_ap242-e2.stp",
@@ -27,6 +28,7 @@ fn accepted_cad_frame_layout(file: &str) {
         // one more of its own front view's inner wall lines than the shortest route
         // (leader_across_view 0 -> 1). Three bounded attempts (placement, view re-spacing,
         // ownership) found no clean route, and the drawing reads cleanly (#478).
+        "nist_ftc_07_asme1_ap242-e2.stp:mm" => ("A2", "1:2", [10, 2, 3, 1, 8, 0], [0, 4, 2]),
         // 2026-11-15: declared inches select ANSI C at 1:2. Normal datum
         // bends and a final pattern-column retry clear the witness band without
         // tilting scoped rings. The final retry also clears three crossings and
@@ -46,6 +48,8 @@ fn accepted_cad_frame_layout(file: &str) {
         "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
         _ => unreachable!(),
     };
+    let metric = file.ends_with(":mm");
+    let file = file.strip_suffix(":mm").unwrap_or(file);
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pmi");
     let path = if file == "specify-main-angle-bracket.step" {
         fixture.join(format!("{file}.gz"))
@@ -53,7 +57,18 @@ fn accepted_cad_frame_layout(file: &str) {
         fixture.join("step").join(format!("{file}.gz"))
     };
     let (_, a) = cache::native(&path);
-    let p = cache::default_plan(&a, true);
+    let p = if metric {
+        draftwright::model::plan_recovered(
+            &a,
+            &draftwright::model::Spec {
+                units: draftwright::units::Units::Mm,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    } else {
+        cache::default_plan(&a, true)
+    };
     // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
     assert_eq!(
         (p.sheet.size.as_str(), p.sheet.scale.as_str()),

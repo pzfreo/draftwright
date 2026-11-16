@@ -3061,13 +3061,14 @@ pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
     row <= w - 2.0 * layout::margin() && column <= h - 2.0 * layout::margin()
 }
 
-pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
+pub(crate) fn established_key(analysis: &Analysis, spec: &Spec) -> Vec<u8> {
+    let spec = crate::units::effective(analysis, spec);
     let mut key = if spec.pmi == PmiMode::First && spec.origin.is_empty() {
         serde_json::to_vec(&(
             spec.hole_table,
             &spec.sheet.projection,
             spec.sheet.references,
-            crate::dims::idle_spec(spec),
+            crate::dims::idle_spec(&spec),
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("presentation inputs serialize")
@@ -3078,7 +3079,7 @@ pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
             spec.sheet.references,
             spec.pmi,
             &spec.origin,
-            crate::dims::idle_spec(spec),
+            crate::dims::idle_spec(&spec),
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("presentation inputs serialize")
@@ -3095,7 +3096,9 @@ pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
 /// The established automatic presentation, shared by scale and hole-table
 /// decisions. This comparison never replaces the full native final inventory.
 pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    let key = established_key(spec);
+    let spec = crate::units::effective(analysis, spec);
+    let spec = spec.as_ref();
+    let key = established_key(analysis, spec);
     // A historical route template: the established normal-spacing drawing, whatever the
     // candidate's dimension spacing and whichever attempt at its sheet and scale asks.
     let reference = crate::planning::slot_ladder(|| {

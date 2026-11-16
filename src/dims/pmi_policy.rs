@@ -58,6 +58,8 @@ pub(super) fn wants(
     Vec<Problem>,
     BTreeMap<String, pmi_dimensions::Note>,
 ) {
+    let effective = crate::units::effective(a, s);
+    let s = effective.as_ref();
     let presentations: Vec<_> = s
         .dimensions
         .iter()
