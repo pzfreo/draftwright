@@ -1207,7 +1207,10 @@ mod memo_tests {
             let _proof =
                 GeometryRead(READING.with(|p| p.replace(Some((key, Some("verified".into()))))));
             assert!(memo_bypass());
-            assert!(!loading(), "a reader proof must not enable placement overrides");
+            assert!(
+                !loading(),
+                "a reader proof must not enable placement overrides"
+            );
             assert_eq!(memo.get(&key), None);
             memo.insert(key, 20);
             {
