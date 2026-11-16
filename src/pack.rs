@@ -869,7 +869,9 @@ pub fn build_bytes_with_pmi(
             row.bom.process = None;
             row.sources.remove("process");
         }
-        if supply_override.is_some() || (stated_supply.is_some() && !suggested_supply) {
+        if row.products.iter().any(|key| pmi.contains_key(key))
+            || (stated_supply.is_some() && !suggested_supply)
+        {
             row.buy_reasons.clear();
         } else if suggested_supply && supply_override.is_none() {
             let code = if row.supply == Supply::Buy {
