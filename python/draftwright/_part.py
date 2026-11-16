@@ -797,8 +797,9 @@ class Drawing:
             layout = json.loads(layout)
             layout.setdefault("sheet", {})["scale"] = f"{self._scale:g}:1" if self._scale >= 1 else f"1:{1 / self._scale:g}"
             layout = json.dumps(layout)
-        result = json.loads(part._geometry().render(part._pmi, layout, str(out), list(formats)))
+        pmi = part._pmi.snapshot()
+        result = json.loads(part._geometry().render(pmi, layout, str(out), list(formats)))
         self._problems = result["problems"]
-        self._rendered_pmi = part._pmi.snapshot()
+        self._rendered_pmi = pmi
         self._rendered_layout = (self.spec(), self._scale)
         return tuple(result["written"])
