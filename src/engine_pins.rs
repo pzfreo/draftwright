@@ -437,7 +437,15 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
             );
         }
     }
-    for id in plan.omitted.iter().map(|d| d.id.clone()) {
+    // No ink is also a retained placement choice. Without it a crowded reload
+    // can silently revive a dimension that the committed drawing could not place.
+    for id in plan
+        .dimensions
+        .iter()
+        .filter(|d| d.placed.is_none())
+        .map(|d| d.id.clone())
+        .chain(plan.omitted.iter().map(|d| d.id.clone()))
+    {
         annotations.entry(id).or_insert(Annotation {
             place: Place {
                 pinned: true,
@@ -626,6 +634,11 @@ fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String>
         .then(|| crate::dims::pin_geometry::Recipes::new(analysis, &plan.spec, &plan.views));
     for d in &mut plan.dimensions {
         if let Some(pin) = pins.annotations.get(&d.id) {
+            if pin.omit {
+                d.placed = None;
+                remaining.remove(&d.id);
+                continue;
+            }
             if pin.route.is_none() && !pin.omit || matches!(pin.route, Some(Route::Native { .. })) {
                 let (initial, variant) =
                     if let Some(Route::Native { initial, variant }) = &pin.route {
@@ -1014,7 +1027,10 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
             }
         }
     }
-    if after.engine_pins.is_none() {
+    let key = layout_key(after);
+    if let Some(pins) = &mut after.engine_pins {
+        pins.layout_sha256 = Some(key);
+    } else {
         after.schema = model::SPEC_SCHEMA.into();
     }
 }

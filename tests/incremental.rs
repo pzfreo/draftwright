@@ -1360,6 +1360,25 @@ fn crowded_ctc_retained_datums_reload_as_their_published_ink() {
         .unwrap();
     fixed(&before.plan, session.plan());
     assert!(delta.moved.is_empty());
+    for d in session
+        .plan()
+        .dimensions
+        .iter()
+        .filter(|d| d.placed.is_none())
+    {
+        assert!(
+            session
+                .spec()
+                .engine_pins
+                .as_ref()
+                .unwrap()
+                .annotations
+                .get(&d.id)
+                .is_some_and(|p| p.omit),
+            "{} must retain its absence of ink",
+            d.id
+        );
+    }
     let restored = reopened("ctc", &revised, &session);
     fixed(session.plan(), restored.plan());
     assert_eq!(
