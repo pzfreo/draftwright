@@ -2843,6 +2843,12 @@ text, rows and measurements are always regenerated. A changed text footprint rel
 just that annotation for normal placement. Raw saved-Spec composition edits also release
 pins, detected by a digest of layout intent without storing a copy of the author Spec.
 
+Engine pins compare sheet/view/unit composition separately from per-item placement
+intent (`authored_places`). Editing a saved Spec's dimension or annotation `place`
+releases only that item's engine pin, just as a Session edit does; other routes
+and dimension bases stay retained. A source revision that cannot be verified as
+the same geometry opens with a warning and a full plan, even if it only changed bytes.
+
 Saving the Spec and reopening with the same STEP, including CLI rendering, replays these
 pins. Unknown item ids are dropped individually with `engine_pins_partly_retained` (warning).
 A changed STEP with the same verified B-rep keeps surviving stable-id pins and places new

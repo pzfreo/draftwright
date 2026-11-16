@@ -2671,6 +2671,11 @@
           ],
           "description": "Identity of the imported B-rep for verifying a PMI-only source revision."
         },
+        "authored_places": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/place"},
+          "description": "Authored item placements at capture, used to release only changed item pins on a file edit."
+        },
         "layout_sha256": {
           "anyOf": [
             {

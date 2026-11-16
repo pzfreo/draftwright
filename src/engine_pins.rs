@@ -20,6 +20,9 @@ pub struct EnginePins {
     pub geometry_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout_sha256: Option<String>,
+    /// Authored per-item placement intent, separate from the retained engine placement.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub authored_places: BTreeMap<String, Place>,
     pub sheet: Sheet,
     pub views: BTreeMap<String, View>,
     pub annotations: BTreeMap<String, Annotation>,
@@ -556,6 +559,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
         source_sha256: plan.binding.source_sha256.clone(),
         geometry_sha256,
         layout_sha256: Some(layout_key(&plan.spec)),
+        authored_places: authored_places(&plan.spec),
         sheet: Sheet {
             size: plan.sheet.size.clone(),
             scale: plan.sheet.scale.clone(),
@@ -904,7 +908,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
             "engine_pins_replanned",
             "warning",
             vec!["engine_pins".into()],
-            "The STEP geometry or requested layout changed. The previous layout cannot be retained: stale engine pins were dropped and the drawing was fully re-planned. Review the new placements before printing.",
+            "The requested layout changed, or this STEP revision could not be verified as the same geometry. The previous layout cannot be retained: stale engine pins were dropped and the drawing was fully re-planned. Review the new placements before printing.",
         );
         return Ok(result);
     }
@@ -915,9 +919,16 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
     forced.sheets = None;
     let mut filtered = (**pins).clone();
     filtered.source_sha256.clone_from(&a.binding.source_sha256);
+    let authored = authored_places(&base);
+    let changed: BTreeSet<_> = filtered
+        .annotations
+        .keys()
+        .filter(|id| pins.authored_places.get(*id) != authored.get(*id))
+        .cloned()
+        .collect();
     filtered
         .annotations
-        .retain(|id, _| !pins.rebase.contains(id));
+        .retain(|id, _| !pins.rebase.contains(id) && !changed.contains(id));
     let scheduled = pins
         .annotations
         .keys()
@@ -927,8 +938,8 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
     // drawings, including ordinary title edits, need only the direct solve.
     let unplaced = filtered
         .annotations
-        .values()
-        .any(|p| p.omit && p.place.view.is_some());
+        .iter()
+        .any(|(id, p)| id.starts_with("d:") && p.omit && p.place.view.is_some());
     let mut reference = with_pins(filtered.clone(), || {
         if scheduled {
             model::plan_escalated(a, &forced)
@@ -955,7 +966,9 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
         .chain(reference.gdt.iter().map(|g| &g.id))
         .chain(reference.notes.iter().map(|n| &n.id))
         .chain(reference.tables.iter().map(|t| &t.id))
-        .filter(|id| !pins.annotations.contains_key(*id) || dropped.contains(id))
+        .filter(|id| {
+            !pins.annotations.contains_key(*id) || dropped.contains(id) || changed.contains(*id)
+        })
         .cloned()
         .collect();
     // A title/material edit already has its final pinned solve. Only newly placed
@@ -1208,19 +1221,21 @@ pub(crate) fn prepare_read(
     GeometryRead(READING.with(|p| p.replace(proof)))
 }
 
+fn authored_places(spec: &Spec) -> BTreeMap<String, Place> {
+    spec.dimensions
+        .iter()
+        .filter_map(|(id, d)| d.place.clone().map(|p| (id.clone(), p)))
+        .chain(
+            spec.annotations
+                .iter()
+                .filter_map(|(id, a)| a.place.clone().map(|p| (id.clone(), p))),
+        )
+        .collect()
+}
+
 fn layout_key(spec: &Spec) -> String {
     // Hash only authored composition intent. Text and requirements are fresh content,
     // not a reason to discard every retained annotation's placement.
-    let dimensions: BTreeMap<_, _> = spec
-        .dimensions
-        .iter()
-        .filter_map(|(id, d)| d.place.as_ref().map(|p| (id, p)))
-        .collect();
-    let annotations: BTreeMap<_, _> = spec
-        .annotations
-        .iter()
-        .filter_map(|(id, a)| a.place.as_ref().map(|p| (id, p)))
-        .collect();
     let layout = serde_json::json!({
         "sheet": {"size":spec.sheet.size,"scale":spec.sheet.scale,
             "paper":spec.sheet.paper,"keep_layout":spec.sheet.keep_layout,
@@ -1228,7 +1243,7 @@ fn layout_key(spec: &Spec) -> String {
         "views":spec.views,"sheets":spec.sheets,"units":spec.units,
         "part":spec.part,"origin":spec.origin,"iso_scale_factor":spec.iso_scale_factor,
         "dimension_source":spec.dimension_source,"dimension_schemes":spec.dimension_schemes,
-        "hole_table":spec.hole_table,"dimensions":dimensions,"annotations":annotations
+        "hole_table":spec.hole_table
     });
     sha2::Sha256::digest(serde_json::to_vec(&layout).expect("layout intent serializes"))
         .iter()

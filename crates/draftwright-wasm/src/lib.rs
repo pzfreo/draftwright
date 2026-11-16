@@ -642,7 +642,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_full_apply_wire_matches_main() {
+    fn ordinary_full_apply_wire_matches_fresh_session() {
         let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
         let ops = r#"[{"op":"set","path":"hole_table","value":"never"}]"#;
         let operations: Vec<Op> = serde_json::from_str(ops).unwrap();

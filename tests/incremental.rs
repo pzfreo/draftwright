@@ -1162,6 +1162,22 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
         .unwrap();
         cases.push((name, step.clone(), edited, false));
     }
+    let changed_place_id = session
+        .plan()
+        .dimensions
+        .iter()
+        .find(|d| d.placed.is_some())
+        .unwrap()
+        .id
+        .clone();
+    let mut raw_place = session.spec().clone();
+    raw_place
+        .dimensions
+        .entry(changed_place_id.clone())
+        .or_default()
+        .place =
+        Some(serde_json::from_value(json!({"offset":[1000.,1000.],"pinned":true})).unwrap());
+    cases.push(("raw_place", step.clone(), raw_place, false));
     // CLI files are edited directly, without model::edit to release engine pins.
     let mut raw_layout = session.spec().clone();
     raw_layout.sheet.scale = Some("1:1".into());
@@ -1196,6 +1212,18 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
             String::from_utf8_lossy(&output.stderr)
         );
         let plan: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if *name == "raw_place" {
+            let actual: model::Plan = serde_json::from_value(plan.clone()).unwrap();
+            let mut peers = session.plan().clone();
+            peers.dimensions.retain(|d| d.id != changed_place_id);
+            fixed(&peers, &actual);
+            assert!(
+                !actual
+                    .problems
+                    .iter()
+                    .any(|p| p.code == "engine_pins_replanned")
+            );
+        }
         if *name == "revision" {
             assert_eq!(plan["views"], value(&session.plan().views));
             assert!(!plan["spec"]["engine_pins"].is_null());
@@ -1207,7 +1235,7 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
                 .unwrap()
                 .iter()
                 .any(|p| p["code"]
-                    == if *name == "missing" {
+                    == if matches!(*name, "missing" | "raw_place") {
                         "engine_pins_partly_retained"
                     } else {
                         "engine_pins_replanned"
@@ -1244,6 +1272,18 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
         assert_eq!(reply["result"]["isError"], false, "{name}: {reply}");
         let plan: Value =
             serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        if *name == "raw_place" {
+            let actual: model::Plan = serde_json::from_value(plan.clone()).unwrap();
+            let mut peers = session.plan().clone();
+            peers.dimensions.retain(|d| d.id != changed_place_id);
+            fixed(&peers, &actual);
+            assert!(
+                !actual
+                    .problems
+                    .iter()
+                    .any(|p| p.code == "engine_pins_replanned")
+            );
+        }
         if *name == "revision" {
             assert_eq!(plan["views"], value(&session.plan().views));
             assert!(!plan["spec"]["engine_pins"].is_null());
@@ -1254,7 +1294,7 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
                 .unwrap()
                 .iter()
                 .any(|p| p["code"]
-                    == if *name == "missing" {
+                    == if matches!(*name, "missing" | "raw_place") {
                         "engine_pins_partly_retained"
                     } else {
                         "engine_pins_replanned"
@@ -1785,4 +1825,73 @@ fn whole_dimension_map_edits_release_only_the_changed_items_pin() {
             .iter()
             .any(|p| p.code == "incremental_placement_constrained" && p.subjects.contains(&id))
     );
+}
+
+#[test]
+fn hand_edited_place_keeps_peer_pins_in_api_session_and_cli() {
+    use std::process::Command;
+    let (mut s, bytes) = pinned_bracket();
+    let before = s.plan().clone();
+    let id = before
+        .dimensions
+        .iter()
+        .find(|d| d.placed.is_some())
+        .unwrap()
+        .id
+        .clone();
+    let mut edited = s.spec().clone();
+    edited.dimensions.entry(id.clone()).or_default().place =
+        Some(serde_json::from_value(json!({"offset":[1000.,1000.],"pinned":true})).unwrap());
+    // Bypass model::edit, as an agent editing a file or an openSpec caller does.
+    let api = model::plan_recovered(s.analysis(), &edited).unwrap();
+    let (part, analysis) = model::analyse_native_bytes("bracket", &bytes).unwrap();
+    let opened = Session::new(part, analysis, edited.clone()).unwrap();
+    s.set_spec(&edited).unwrap();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("hand-edited-place");
+    std::fs::create_dir_all(&dir).unwrap();
+    let step = dir.join("bracket.step");
+    let file = dir.join("edited.spec.json");
+    std::fs::write(&step, &bytes).unwrap();
+    std::fs::write(&file, serde_json::to_vec(&edited).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .args([
+            "plan",
+            step.to_str().unwrap(),
+            "--spec",
+            file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cli: model::Plan = serde_json::from_slice(&output.stdout).unwrap();
+    let original = before.dimensions.iter().find(|d| d.id == id).unwrap();
+    let mut peers = before.clone();
+    peers.dimensions.retain(|d| d.id != id);
+    for plan in [&api, opened.plan(), s.plan(), &cli] {
+        fixed(&peers, plan);
+        let changed = plan.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert_ne!(original.placed, changed.placed);
+        assert_eq!(
+            changed.placed,
+            s.plan()
+                .dimensions
+                .iter()
+                .find(|d| d.id == id)
+                .unwrap()
+                .placed
+        );
+        assert!(plan.spec.engine_pins.is_some());
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "engine_pins_replanned")
+        );
+    }
+    let reloaded = reopened("bracket", &bytes, &s);
+    fixed(s.plan(), reloaded.plan());
 }
