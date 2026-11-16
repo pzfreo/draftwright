@@ -105,8 +105,10 @@ jobs:
           key: warm
       - run: python3 tools/check_test_binaries.py
       - run: python3 -m unittest discover -s tools -p 'test_check_test_binaries.py'
+      # target/ is restored from the Rust cache, so a venv saved there by an older runner
+      # image can come back with a broken pip; rebuild it from this runner's Python each time.
       - run: |
-          python3 -m venv target/ci-python
+          python3 -m venv --clear target/ci-python
           target/ci-python/bin/python -m pip install 'PyYAML==6.0.3'
       - run: target/ci-python/bin/python -m unittest discover -s tools -p 'test_ci_tiers.py'
       - run: python3 -m unittest discover -s tools -p 'test_release_ci.py'
