@@ -2833,7 +2833,8 @@ The older Spec face/feature requirement path remains supported.
 Engine-written `engine_pins.sheet.units` records effective `mm` or `in` while an
 omitted authored `Spec.units` stays omitted. Declared-inch incremental PMI, native
 recipe replay and final checks use those effective units; geometry and placement
-coordinates stay in millimetres. Older pin records without units mean millimetres.
+coordinates stay in millimetres. Older pin records without units mean millimetres;
+the reader restores that formerly omitted authored preference to keep their layout identity.
 
 Every incremental result saves typed placement-only `engine_pins` in the Spec, with
 `written_by: "engine"` and schema `draftwright.spec/4`. The record contains the source

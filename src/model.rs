@@ -612,9 +612,20 @@ impl<'de> Deserialize<'de> for Spec {
                 "Engine-written placement pins require draftwright.spec/4; open this document with a spec/4 reader.",
             ));
         }
+        // Before declared-unit defaults, /4 writers omitted the authored mm
+        // preference and had no effective units in their sheet pins. Preserve
+        // that intent (and its layout digest) when opening those saved drawings.
+        let legacy_mm = value
+            .get("engine_pins")
+            .and_then(|p| p.get("sheet"))
+            .is_some_and(|sheet| sheet.get("units").is_none());
         let s: SpecFields = SpecFields::deserialize(value).map_err(serde::de::Error::custom)?;
         Ok(Self {
-            units: s.units,
+            units: if legacy_mm && s.units.is_auto() {
+                crate::units::Units::Mm
+            } else {
+                s.units
+            },
             process: s.process,
             schema: if s.schema == crate::engine_pins::SCHEMA && s.engine_pins.is_none() {
                 SPEC_SCHEMA.into()
