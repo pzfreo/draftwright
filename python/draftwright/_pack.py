@@ -216,7 +216,8 @@ class Pack:
         self.findings = list(self.report["findings"])
         for row in self.rows:
             name = row.get("name") or row["key"]
-            self.findings.extend({**problem, "part": name, "products": row["products"],
+            self.findings.extend({"code": problem["code"], "severity": problem["severity"],
+                                  "part": name, "products": row["products"],
                                   "message": f"{name}: {problem['message']}"}
                                  for problem in row["problems"])
         return tuple(result["written"])

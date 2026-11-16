@@ -60,8 +60,10 @@ class PackReportBoundary(unittest.TestCase):
             for row in native['rows']:
                 for problem in row['problems']:
                     self.assertTrue(any(f.get('part') == row['name'] and
-                                        f['id'] == problem['id'] and
-                                        f['severity'] == problem['severity']
+                                        f['code'] == problem['code'] and
+                                        f['severity'] == problem['severity'] and
+                                        problem['message'] in f['message'] and
+                                        set(f) == {'part', 'products', 'code', 'severity', 'message'}
                                         for f in pack.findings))
 
 
