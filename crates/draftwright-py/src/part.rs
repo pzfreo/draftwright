@@ -801,7 +801,12 @@ impl Geometry {
             .ok_or_else(|| raised("angle reference rays must not be parallel"))?;
         // Measurement round-off is not authored display precision. Use the
         // engine's nominal cleanup before storing the measured degree value.
-        let degrees = (degrees * 1e6).round() / 1e6;
+        let cleaned = (degrees * 1e6).round() / 1e6;
+        let degrees = if cleaned > 0.0 && cleaned < 180.0 {
+            cleaned
+        } else {
+            degrees
+        };
         candidate
             .model
             .dimensions
