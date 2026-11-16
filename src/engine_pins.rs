@@ -137,6 +137,8 @@ pub struct Basis {
 thread_local! {
     static LOADING:RefCell<Option<EnginePins>> = const { RefCell::new(None) };
     static DIGEST: Cell<Option<[u8;32]>> = const { Cell::new(None) };
+    #[cfg(test)]
+    static SOLVES: Cell<usize> = const { Cell::new(0) };
 }
 pub(crate) fn digest() -> Option<[u8; 32]> {
     DIGEST.get()
@@ -824,12 +826,23 @@ fn pin_finding(plan: &mut Plan, code: &str, severity: &str, refs: Vec<String>, m
     plan.status = crate::completeness::status(&plan.problems);
 }
 pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Invalid> {
-    let key = serde_json::to_vec(&(spec, recovered)).expect("pinned plan inputs serialize");
+    let key = serde_json::to_vec(&(
+        spec,
+        recovered,
+        crate::planning::policy_key(a),
+        crate::planning::is_fixed_pair(),
+        crate::planning::is_lane_trial(),
+        crate::planning::nominals_deferred(),
+        crate::decision_overrides::reference_only(),
+    ))
+    .expect("pinned plan inputs serialize");
     crate::planning::memo(a, "engine-pins-plan", key, || {
         plan_uncached(a, spec, recovered)
     })
 }
 fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Invalid> {
+    #[cfg(test)]
+    SOLVES.set(SOLVES.get() + 1);
     let pins = spec.engine_pins.as_ref().expect("engine pins present");
     let mut base = spec.clone();
     base.engine_pins = None;
@@ -1286,5 +1299,30 @@ mod memo_tests {
             serde_json::to_value(second).unwrap()
         );
         assert_eq!(serde_json::to_value(s.state()).unwrap(), before);
+    }
+    #[test]
+    fn pinned_plan_memo_separates_ordinary_planner_policies() {
+        let bytes = include_bytes!("../tests/fixtures/parts/plate.step");
+        let (part, a) = model::analyse_native_bytes("plate", bytes).unwrap();
+        let mut spec = Spec::default();
+        spec.sheet
+            .title
+            .insert("tolerance".into(), "UNSPECIFIED".into());
+        let mut s = crate::session::Session::new(part, a, spec).unwrap();
+        s.apply_incremental(&[], true).unwrap();
+        crate::planning::with_retained(s.analysis(), || {
+            model::plan_recovered(s.analysis(), s.spec()).unwrap();
+            let ordinary = SOLVES.get();
+            crate::planning::fixed_pair(|| model::plan_recovered(s.analysis(), s.spec())).unwrap();
+            assert!(
+                SOLVES.get() > ordinary,
+                "fixed-pair policy must have its own result"
+            );
+            let fixed = SOLVES.get();
+            crate::planning::fixed_pair(|| model::plan_recovered(s.analysis(), s.spec())).unwrap();
+            assert_eq!(SOLVES.get(), fixed, "identical trial must reuse its result");
+            model::plan_recovered(s.analysis(), s.spec()).unwrap();
+            assert_eq!(SOLVES.get(), fixed, "trial must preserve the ordinary memo");
+        });
     }
 }
