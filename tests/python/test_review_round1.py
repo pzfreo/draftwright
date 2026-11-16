@@ -87,6 +87,13 @@ class HoleDepth(unittest.TestCase):
         records = json.loads(part._geometry().inspect(part._pmi))['records']
         record = next(r for r in records if r['kind'] == 'internal_thread')
         self.assertIn(['minimum full thread', 20.0], record['fields'])
+        drawing = part.drawing()
+        paths = drawing.render(self.directory / 'split', formats=('pdf',))
+        from pypdf import PdfReader
+        text = ' '.join(page.extract_text() for page in PdfReader(paths[0]).pages)
+        self.assertIn('M6-6H ↧ 20', text)
+        self.assertNotIn('M6-6H THRU', text)
+        self.assertFalse([p for p in drawing.problems if p['code'] in ('pmi_not_lowered', 'pmi_not_rendered')])
         with self.assertRaisesRegex(ValueError, "exceeds the hole's depth"):
             hole.thread('M6', depth=31)
 
