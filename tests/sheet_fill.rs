@@ -410,7 +410,12 @@ fn ctc03_valid_complete_sheet_beats_invalid_seed_despite_material_crossings() {
                 )
         })
     });
-    let mut spec = Spec::default();
+    // The invalid seed and its exact A2 1:5 recovery were captured in mm.
+    let mut spec = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    first.spec.units = spec.units;
     spec.sheet.size = Some("A2".into());
     first.spec.sheet.size = spec.sheet.size.clone();
     let p = model::recover(&a, &spec, first).unwrap();
@@ -875,14 +880,20 @@ fn ftc06_holds_one_to_two_on_a_second_attempt_and_a_kept_layout_holds_it_too() {
     let a = model::analyse_native(&dir.join("nist/nist_ftc_06_asme1_rd.stp"))
         .unwrap()
         .1;
+    // Hold the historical metric A2 1:2 ladder and kept-layout recipe.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     let kept: Spec = serde_json::from_value(json!({
+        "units": "mm",
         "sheet": {
             "size": "A2", "scale": "1:2", "dimension_spacing": "compact", "keep_layout": true
         },
         "sheets": { "max": 1 }
     }))
     .unwrap();
-    for spec in [Spec::default(), kept] {
+    for spec in [metric, kept] {
         let p = model::plan_recovered(&a, &spec).unwrap();
         assert_eq!(
             (p.sheet.size.as_str(), p.sheet.scale.as_str()),

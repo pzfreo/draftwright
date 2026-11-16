@@ -1,14 +1,14 @@
 {
   "format": "draftwright.label-lanes/1",
-  "reason": "accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed",
+  "reason": "2026-11-16: physically proven interior slot-size witnesses retain ANSI E at 1:1 and all requirements. Correct centreline end references and witness direction, preserve the exterior-side preference, and retry displaced leaders within every original code/kind budget. Compared with main's A1 at 1:2, the default witnesses fall from 67.070/67.070 to 10.650/5.890 paper mm; the separate split-slot metric and inch assertions both retain the strict 60 mm and 14 mm limits.",
   "stc09": {
     "part": "nist_stc_09_asme1_ap242-e4",
     "dimension": "d:f:slot:f102/slot_length.length",
-    "sheet": "A1",
-    "scale": "1:2",
+    "sheet": "ANSI E",
+    "scale": "1:1",
     "witness_lengths_um": [
-      67070,
-      67070
+      10650,
+      5890
     ]
   }
 }

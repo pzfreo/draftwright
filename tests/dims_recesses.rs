@@ -257,12 +257,17 @@ fn m10127_hex_pocket_states_its_size_across_flats_and_depth() {
 
 #[test]
 fn ftc06_channels_state_their_widths_in_the_view_along_them() {
+    // Preserve the exact captured metric labels and their placement recipe.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     let Some(corpus) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
     let a = analysed(&corpus, "ftc06");
-    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let plan = model::plan(&a, &metric).unwrap();
     // A base and walls (quiddity's plates along two axes): each open channel's width, as
     // draftwright's seven dim_channel_* measurements, explicitly counted per projection.
     assert_eq!(

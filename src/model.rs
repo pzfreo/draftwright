@@ -116,6 +116,10 @@ fn single_part_keys(keys: &BTreeMap<String, usize>) -> bool {
 pub struct Analysis {
     pub schema: String,
     pub binding: Binding,
+    /// Length unit of this product's own shape-representation contexts. Missing,
+    /// invalid or conflicting declarations are absent; geometry remains millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_length_unit: Option<haecceity::pmi::LengthUnit>,
     /// STEP product name for the single part or selected assembly member. Older analyses
     /// omit it and use the binding's file stem for the default drawing title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -390,7 +394,7 @@ pub struct Riser {
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
     /// Printed length units; geometry remains millimetres.
-    #[serde(skip_serializing_if = "crate::units::Units::is_mm")]
+    #[serde(skip_serializing_if = "crate::units::Units::is_auto")]
     pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
@@ -786,7 +790,7 @@ pub struct FeatureSpec {
 impl Default for Spec {
     fn default() -> Self {
         Spec {
-            units: Default::default(),
+            units: crate::units::Units::Auto,
             process: None,
             schema: SPEC_SCHEMA.into(),
             part: None,
@@ -1182,7 +1186,7 @@ impl Plan {
         Some((view, [at[0] + label[0], at[1] + label[1]]))
     }
 
-    fn record_dimension_labels(&mut self) {
+    pub(crate) fn record_dimension_labels(&mut self) {
         self.dimension_labels = self
             .dimensions
             .iter()
@@ -2024,6 +2028,7 @@ pub(crate) fn analyse_pack_assembly(
     let b = part.bounds();
     let mut analysis = Analysis {
         schema: ANALYSIS_SCHEMA.into(),
+        declared_length_unit: part.declared_length_unit(),
         binding: Binding {
             source_sha256: Sha256::digest(bytes)
                 .iter()
@@ -2110,6 +2115,7 @@ fn analyse_read_part(
     let (level_supports, risers) = crate::dims::levels::evidence(&part);
     let mut analysis = Analysis {
         schema: ANALYSIS_SCHEMA.into(),
+        declared_length_unit: part.declared_length_unit(),
         binding: Binding {
             source_sha256: Sha256::digest(bytes)
                 .iter()
@@ -2413,6 +2419,15 @@ pub fn recognise_document(
         .any(|f| f.kind == "modelled_thread")
     {
         BTreeSet::new()
+    } else if analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch)
+        && !crate::nominal::authored_pmi(analysis)
+    {
+        // Generated decimal-inch labels and ANSI scales change the final corridors.
+        // Source PMI retains its existing source-directed inspection policy.
+        // Retain the same visible/hidden curves the renderer will draw, so the
+        // final physical clearance proof need not guess from all projected edges.
+        // PREPARED shares these kernel projections with rendering.
+        ["front", "plan", "side"].into_iter().collect()
     } else {
         crate::dims::nominal_inspection_views(analysis)
     };
@@ -2999,6 +3014,12 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
 pub fn recover(analysis: &Analysis, spec: &Spec, mut first: Plan) -> Result<Plan, Invalid> {
+    if spec.units.is_auto() {
+        let effective = crate::units::effective(analysis, spec);
+        first.spec.units = effective.units;
+        let plan = recover(analysis, &effective, first)?;
+        return Ok(crate::units::record_default(analysis, plan));
+    }
     crate::hole_table::labels::restore(&mut first);
     crate::decision_overrides::boundary(analysis, spec, || recover_inner(analysis, spec, first))
 }
@@ -3236,13 +3257,14 @@ pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
     row <= w - 2.0 * layout::margin() && column <= h - 2.0 * layout::margin()
 }
 
-pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
+pub(crate) fn established_key(analysis: &Analysis, spec: &Spec) -> Vec<u8> {
+    let spec = crate::units::effective(analysis, spec);
     let mut key = if spec.pmi == PmiMode::First && spec.origin.is_empty() {
         serde_json::to_vec(&(
             spec.hole_table,
             &spec.sheet.projection,
             spec.sheet.references,
-            crate::dims::idle_spec(spec),
+            crate::dims::idle_spec(&spec),
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("presentation inputs serialize")
@@ -3253,7 +3275,7 @@ pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
             spec.sheet.references,
             spec.pmi,
             &spec.origin,
-            crate::dims::idle_spec(spec),
+            crate::dims::idle_spec(&spec),
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("presentation inputs serialize")
@@ -3270,7 +3292,9 @@ pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
 /// The established automatic presentation, shared by scale and hole-table
 /// decisions. This comparison never replaces the full native final inventory.
 pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    let key = established_key(spec);
+    let spec = crate::units::effective(analysis, spec);
+    let spec = spec.as_ref();
+    let key = established_key(analysis, spec);
     // A historical route template: the established normal-spacing drawing, whatever the
     // candidate's dimension spacing and whichever attempt at its sheet and scale asks.
     let reference = crate::planning::slot_ladder(|| {
@@ -4194,6 +4218,9 @@ fn recover_candidates(
     let mut diagnostic_assessments = Vec::new();
     let mut candidates = Vec::new();
     let mut fitting_incomplete: Option<(usize, usize, usize, Plan)> = None;
+    // An unreadable estimate is not a layout worth preserving. Keep a readable,
+    // physically fitting alternative even when source PMI prevents a clean sheet.
+    let mut readable_incomplete: Option<((usize, usize, usize, usize), Plan)> = None;
     let mut smallest = None;
     let mut smallest_iso: Option<f64> = None;
     let mut recipes = BTreeMap::new();
@@ -4584,6 +4611,24 @@ fn recover_candidates(
                         fitting_incomplete = Some((f.hard, f.dropped, i, p.clone()));
                     }
                 }
+                if spec.units == crate::units::Units::In
+                    && first.sheet.scale_factor + 1e-9 < min_legible_scale
+                    && actual_fit
+                    && over_views(&p) == 0
+                    && carried(&first).is_subset(&carried(&p))
+                    && undrawn_gdt(&p) <= undrawn_gdt(&first)
+                    && f.hard < findings(&first).hard
+                    && f.dropped <= findings(&first).dropped
+                    && unreadable_steps == 0
+                {
+                    let rank = (f.dropped, ink_findings(&p), f.hard, i);
+                    if readable_incomplete
+                        .as_ref()
+                        .is_none_or(|(old, _)| rank < *old)
+                    {
+                        readable_incomplete = Some((rank, p.clone()));
+                    }
+                }
                 // Valid and complete: no hard finding, nothing dropped or undrawn, and no more
                 // annotations over another view than the seed (the port's own gate).
                 if !complete_candidate(f, over)
@@ -4685,6 +4730,18 @@ fn recover_candidates(
                 tried.join("; ")
             );
             return Ok(fitting);
+        }
+        if let Some((_, mut readable)) = readable_incomplete {
+            readable.spec = spec.clone();
+            readable.sheet.default = true;
+            readable.sheet.basis += "; unreadable initial estimate replaced by a readable fitting drawing retaining all seed measurements; source/layout findings remain";
+            readable.problems.push(Problem {
+                id: "p:layout_recovery_exhausted:sheet".into(), code: "layout_recovery_exhausted".into(), severity: "info".into(),
+                message: format!("No clean complete standard pair was found. {} at {} retains every initial measurement at a readable scale with fewer layout conflicts; the remaining findings are reported.", readable.sheet.size, readable.sheet.scale),
+                subjects: vec!["sheet".into()], ..Default::default()
+            });
+            readable.status = crate::completeness::status(&readable.problems);
+            return Ok(readable);
         }
         // No valid complete pair: keep the initial drawing and its findings, on its own paper.
         // Only a seed below the absolute floor (1:10, the smallest scale the automatic choice
@@ -4834,7 +4891,11 @@ fn recover_candidates(
 
 // Shared canonical inputs for pin placement and the editor's label anchor metadata.
 pub(crate) fn pin_base(spec: &Spec) -> Spec {
-    let mut base = Spec::default();
+    let mut base = Spec {
+        units: spec.units,
+        ..Spec::default()
+    };
+    base.sheet.paper = spec.sheet.paper;
     base.sheet.size = spec.sheet.size.clone();
     base.sheet.scale = spec.sheet.scale.clone();
     base.sheet.preferred_max_size = spec.sheet.preferred_max_size.clone();
@@ -4922,6 +4983,9 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
     if !crate::incremental::active() && spec.engine_pins.is_some() {
         return crate::engine_pins::plan(analysis, spec, true);
     }
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan_recovered);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -4944,6 +5008,7 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
         retain_unapplied_edits(analysis, plan, plan_recovered)
     });
     result.map(|mut plan| {
+        retain_edited_ink(analysis, spec, &mut plan, true);
         migration.report(&mut plan);
         plan
     })
@@ -5150,8 +5215,11 @@ fn plan_recovered_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid
 
 /// The final dependent ink and findings, shared by candidate acceptance and publication.
 pub(crate) fn finish_selected(analysis: &Analysis, plan: &mut Plan) {
+    let spec = plan.resolved_spec().into_owned();
+    retain_finished_schedule(analysis, &spec, plan);
     crate::half_section::apply(analysis, plan);
     crate::sheets::furnish(plan);
+    crate::dims::callout_routes::finish_inch_contacts(analysis, plan);
     crate::fixes::retain_local_layout(plan);
     crate::dims::contacts::report(analysis, plan);
     crate::characteristics::apply(analysis, plan);
@@ -5238,6 +5306,7 @@ pub(crate) fn finish_presentation(
             crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
         }
         retry_radial_corridor(effective.as_ref(), spec, &mut plan);
+        crate::dims::callout_routes::finish_inch_contacts(effective.as_ref(), &mut plan);
         crate::dims::gdt::cited_undrawn(&mut plan);
         crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
         if !crate::decision_overrides::reference_only()
@@ -5253,6 +5322,9 @@ pub(crate) fn finish_presentation(
 
 /// The established planner, also used unchanged for explicit controls and forced candidates.
 pub(crate) fn plan_automatic(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan_automatic);
+    }
     // R5's max-only shortcut asks for the same single-sheet plan before allocation.
     // Reuse that complete result when the paper policy has just requested it already.
     let key = serde_json::to_vec(&(
@@ -5350,6 +5422,7 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
                 crate::planning::defer_nominals(|| crate::sheets::allocate(analysis, spec))?;
             finish_nominal_plan(analysis, spec, &mut plan);
             retain_dropped_location(analysis, spec, &mut plan);
+            retain_finished_schedule(analysis, spec, &mut plan);
             crate::iso_caption::refresh(analysis, &mut plan);
             Ok(plan)
         } else {
@@ -5414,6 +5487,91 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
         crate::fixes::attach(analysis, &mut plan);
     }
     Ok(plan)
+}
+
+// Nominal consolidation can add conflicts after the historical schedule
+// decision. Judge the finished inch ladder too, at its existing paper and scale.
+fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    // A kept-layout edit must replay the whole automatic presentation, not
+    // stop when its first ordinary schedule has returned. The late remedy may
+    // have added the other carrying views after nominal consolidation.
+    let kept_edit = spec.sheet.keep_layout == Some(true)
+        && (!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec));
+    if spec.units != crate::units::Units::In
+        || spec.hole_table != crate::hole_table::Setting::Auto
+        || ((!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec)) && !kept_edit)
+        || crate::nominal::comparison()
+        || !plan.gdt.is_empty()
+        || (!plan.hole_tables.is_empty() && !kept_edit)
+        || crate::hole_table::select(analysis, plan).tables.is_empty()
+    {
+        return;
+    }
+    let mut pairs = vec![(plan.sheet.size.clone(), plan.sheet.scale_factor)];
+    // The ANSI B landscape is shallower than A3. If the measured schedule
+    // cannot fit, permit the existing one-sheet enlargement rule: one larger
+    // standard sheet, with the next larger standard scale, never extra paper
+    // merely to spread out the same geometry.
+    if spec.sheet.size.is_none() && spec.sheet.scale.is_none() {
+        let pages = spec.pages();
+        if let Some(i) = pages.iter().position(|p| p.0 == plan.sheet.size)
+            && let Some(next) = pages.get(i + 1)
+            && spec.sheet.preferred_max_size.as_ref().is_none_or(|limit| {
+                pages
+                    .iter()
+                    .position(|p| p.0 == limit)
+                    .is_some_and(|cap| i < cap)
+            })
+            && let Some(scale) = spec
+                .scales()
+                .iter()
+                .copied()
+                .filter(|s| *s > plan.sheet.scale_factor)
+                .min_by(f64::total_cmp)
+        {
+            pairs.push((next.0.into(), scale));
+        }
+    }
+    for (size, scale) in pairs {
+        let mut at = spec.clone();
+        at.sheet.size = Some(size);
+        at.sheet.scale = Some(scale_name(scale));
+        // Rebuild the schedule at the candidate's own scale. A selection
+        // carries view-scale reservations and cannot be transported from the
+        // old pair. The internal presentation trial never authors a Spec edit.
+        at.hole_table = crate::hole_table::Setting::Always;
+        let Ok(mut candidate) =
+            crate::planning::isolated(analysis, || plan_recovered(analysis, &at))
+        else {
+            continue;
+        };
+        if candidate.hole_tables.is_empty() {
+            continue;
+        }
+        if finished_sheets_fit(analysis, &candidate)
+            && findings(&candidate).hard <= findings(plan).hard
+            && findings(&candidate).dropped <= findings(plan).dropped
+            && ink_findings(&candidate) <= ink_findings(plan)
+            && feature_crossings(&candidate) <= feature_crossings(plan)
+            && (ink_findings(&candidate) < ink_findings(plan)
+                || feature_crossings(&candidate) < feature_crossings(plan)
+                || findings(&candidate).hard < findings(plan).hard
+                || findings(&candidate).dropped < findings(plan).dropped)
+        {
+            candidate.spec = spec.clone();
+            candidate.sheet.default = plan.sheet.default;
+            for table in &mut candidate.hole_tables {
+                table.default = true;
+                table.basis += "; automatic presentation remedy for the finished inch ladder";
+                for block in &mut table.blocks {
+                    block.default = true;
+                }
+            }
+            candidate.sheet.basis += "; the finished inch ladder triggers a hole schedule; one larger sheet is allowed only with standard-scale enlargement and fewer measured conflicts";
+            *plan = candidate;
+            break;
+        }
+    }
 }
 
 /// A selected ladder can lose a location when its long witness meets a longer
@@ -5834,6 +5992,9 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan_escalated);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -6125,6 +6286,9 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     if !crate::incremental::active() && spec.engine_pins.is_some() {
         return crate::engine_pins::plan(analysis, spec, false);
     }
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -6145,9 +6309,186 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
         retain_unapplied_edits(analysis, plan, self::plan)
     });
     result.map(|mut plan| {
+        retain_edited_ink(analysis, spec, &mut plan, false);
         migration.report(&mut plan);
         plan
     })
+}
+
+fn finished_edit_reference(analysis: &Analysis, spec: &Spec, recovered: bool) -> Option<Plan> {
+    // Every one-item edit of this immutable drawing shares the same finished
+    // reference. Include the active planning policies, as radius references do,
+    // so comparison scopes and live drawings never reuse each other's ink.
+    static REFERENCES: crate::planning::BoundedMemo<Option<Plan>> =
+        crate::planning::BoundedMemo::new(128);
+    let key = serde_json::to_vec(&(
+        analysis,
+        spec,
+        recovered,
+        crate::planning::policy_key(analysis),
+        crate::planning::is_fixed_pair(),
+        crate::planning::nominals_deferred(),
+        crate::dims::idle_given(),
+        historical_layout(),
+    ))
+    .expect("finished edit reference inputs serialize");
+    let key = crate::planning::spaced_digest(&Sha256::digest(key).into());
+    REFERENCES.get(&key).unwrap_or_else(|| {
+        let before = crate::planning::isolated(analysis, || {
+            if recovered {
+                plan_recovered(analysis, spec)
+            } else {
+                self::plan(analysis, spec)
+            }
+        })
+        .ok();
+        REFERENCES.insert(key, before.clone());
+        before
+    })
+}
+
+// An approval, omission or tolerance must not select a different joint routing solution
+// for unrelated dimensions. Preserve the finished canonical ink, rather than
+// reusing an earlier, pre-nominal placement inventory.
+fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan, recovered: bool) {
+    let approval_place = |d: &DimensionSpec| {
+        d.place.as_ref().is_none_or(|p| {
+            *p == crate::placement_intent::Place {
+                pinned: true,
+                ..Default::default()
+            }
+        })
+    };
+    if spec.units != crate::units::Units::In
+        || spec.dimensions.is_empty()
+        || !spec.dimensions.values().all(|d| {
+            approval_place(d)
+                && *d
+                    == DimensionSpec {
+                        omit: d.omit,
+                        tolerance: d.tolerance.clone(),
+                        place: d.place.clone(),
+                        ..Default::default()
+                    }
+        })
+    {
+        return;
+    }
+    let mut base = spec.clone();
+    base.dimension_source = DimensionSource::Auto;
+    base.dimensions.clear();
+    let Some(before) = finished_edit_reference(analysis, &base, recovered) else {
+        return;
+    };
+    if before.sheet.size != plan.sheet.size
+        || before.sheet.scale != plan.sheet.scale
+        || plan.views.iter().any(|v| {
+            before.views.iter().find(|b| b.id == v.id).is_none_or(|b| {
+                b.at != v.at || b.scale != v.scale || b.direction != v.direction || b.up != v.up
+            })
+        })
+    {
+        return;
+    }
+    let old_checks = crate::dims::recheck(analysis, plan);
+    let mut changed = false;
+    for d in &mut plan.dimensions {
+        if spec.dimensions.get(&d.id).is_some_and(|edit| {
+            *edit
+                != DimensionSpec {
+                    place: edit.place.clone(),
+                    ..Default::default()
+                }
+        }) {
+            continue;
+        }
+        if let Some(old) = before.dimensions.iter().find(|b| {
+            b.id == d.id
+                && b.view == d.view
+                && b.measurements == d.measurements
+                && b.terms == d.terms
+        }) {
+            if d.placed != old.placed {
+                d.placed.clone_from(&old.placed);
+                d.region = old.region;
+                changed = true;
+            }
+        } else if d
+            .measurements
+            .first()
+            .is_some_and(|m| m.parameter == "channel_width.length")
+        {
+            // A counted width's surviving member inherits the carrier's finished
+            // lane while retaining its own wall-to-wall witness stations.
+            let owner = before
+                .omitted
+                .iter()
+                .find(|o| o.id == d.id)
+                .and_then(|o| match &o.state {
+                    ItemState::Covered { by } => before
+                        .dimensions
+                        .iter()
+                        .find(|b| &b.id == by && b.view == d.view),
+                    _ => None,
+                });
+            if let (Some(old), Some(p)) = (owner.and_then(|b| b.placed.as_ref()), d.placed.as_mut())
+                && old.rotation == p.rotation
+                && old.lines.len() >= 3
+            {
+                let normal = usize::from(p.rotation == 0.0);
+                let next = crate::dims::in_lane(p, old.lines[2][0][normal]);
+                if next != *p {
+                    *p = next;
+                    changed = true;
+                }
+            }
+        }
+    }
+    // The schedule and callouts are one proven arrangement. A bare replay
+    // may install tags before restoring these routes; rebuilding the same tags
+    // greedily need not find the existing complete solution. Carry the proven
+    // tags when their entire dimension/frame and table geometry is unchanged.
+    let same_ink = plan.dimensions.len() == before.dimensions.len()
+        && plan.dimensions.iter().all(|d| {
+            before.dimensions.iter().any(|old| {
+                d.id == old.id
+                    && d.view == old.view
+                    && d.terms == old.terms
+                    && d.placed == old.placed
+            })
+        })
+        && plan.gdt == before.gdt;
+    let same_tables = same_ink && {
+        let mut tables = before.hole_tables.clone();
+        // Basis records the pre-schedule crossing count. It is provenance, not
+        // table geometry, and can differ before the same final ink is restored.
+        for (old, new) in tables.iter_mut().zip(&plan.hole_tables) {
+            old.basis.clone_from(&new.basis);
+            for (old, new) in old.blocks.iter_mut().zip(&new.blocks) {
+                old.basis.clone_from(&new.basis);
+            }
+        }
+        tables == plan.hole_tables
+    };
+    if same_tables {
+        changed |= plan.balloons != before.balloons;
+        plan.balloons.clone_from(&before.balloons);
+    } else {
+        changed |= crate::hole_table::refresh_marks(analysis, plan);
+    }
+    if changed {
+        let checks = crate::dims::recheck(analysis, plan);
+        let codes: BTreeSet<_> = old_checks
+            .iter()
+            .chain(&checks)
+            .map(|p| p.code.as_str())
+            .collect();
+        plan.problems.retain(|p| !codes.contains(p.code.as_str()));
+        plan.problems.extend(checks);
+        crate::dims::contacts::report(analysis, plan);
+        plan.record_callout_offsets();
+        plan.status = crate::completeness::status(&plan.problems);
+    }
 }
 
 fn plan_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
@@ -6160,6 +6501,7 @@ fn plan_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
         &mut plan,
     );
     crate::sheets::furnish(&mut plan);
+    crate::dims::callout_routes::finish_inch_contacts(&prepared, &mut plan);
     crate::fixes::retain_local_layout(&mut plan);
     crate::dims::contacts::report(&prepared, &mut plan);
     note_final_conflicts(&mut plan);
@@ -6199,7 +6541,7 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             })?;
             finish_nominal_plan(analysis, spec, &mut plan);
             let natural =
-                natural_spec(spec).and_then(|full| crate::model::plan(analysis, &full).ok());
+                natural_spec(spec).and_then(|full| finished_edit_reference(analysis, &full, false));
             crate::dims::callout_routes::prefer_interior(
                 analysis,
                 spec,
@@ -12983,7 +13325,7 @@ fn render_annotations_with_cuts(
         .cloned()
         .collect();
     crate::label_text::capture(plan, &mut sheet);
-    sheet.units = plan.spec.units;
+    sheet.units = plan.sheet.units;
     if !plan.spec.precision.is_empty() {
         for d in &plan.dimensions {
             let role = d.id.rsplit_once('/').map_or("", |(_, p)| p);

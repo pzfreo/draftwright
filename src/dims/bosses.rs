@@ -751,7 +751,14 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                                     .iter()
                                     .filter(|p| boss.feature.faces.contains(&p.face))
                                     .any(|p| p.edges.iter().any(|e| bevel_edges.contains(&e)));
-                                if bevelled && !crate::notches::requirements(analysis).is_empty() {
+                                // Inch/ANSI layouts can put a fixed-size arrow flare
+                                // on a witness at the flat centre. The same proven
+                                // quarter-flat stations keep the tip on its own face.
+                                if (cx.spec.units == crate::units::Units::In
+                                    && !crate::nominal::authored_pmi(analysis))
+                                    || (bevelled
+                                        && !crate::notches::requirements(analysis).is_empty())
+                                {
                                     let normals = boss.feature.parameters["flat_directions"]
                                         .as_array()
                                         // Invariant: The polygonal boss reader validates flat_directions as an array.

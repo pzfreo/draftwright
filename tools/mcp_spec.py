@@ -216,8 +216,9 @@ def document():
               'moulded',
               'cast',
               None]}
-    props['units'] = {**enum('mm', 'in'), 'description': 'Printed lengths: mm (default) or decimal inches; model and paper geometry remain millimetres.'}
+    props['units'] = {**enum('mm', 'in'), 'description': 'Printed lengths: mm or decimal inches. When omitted, a declared-inch part defaults to inches (and ANSI paper absent paper preferences); otherwise mm. Explicit units always win. Model and paper geometry remain millimetres.'}
     props['engine_pins'] = nullable(ref('engine_pins'))
+
     definitions['spec_read'] = obj(deepcopy(props))
     definitions.update(engine_pin_definitions())
     return {'$schema': 'https://json-schema.org/draft/2020-12/schema',

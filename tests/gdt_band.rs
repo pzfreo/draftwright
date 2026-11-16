@@ -182,7 +182,12 @@ fn check_frames_on_sheet(stem: &str, plan: &Plan) {
 #[test]
 fn stc_09_datum_symbols_are_inside_their_bands_and_frames_past_them_had_no_clear_strip() {
     let a = analysed("nist_stc_09_asme1_ap242-e4");
-    let plan = cache::default_plan(&a, true);
+    // This captured band reservation is specifically the historical ISO A1 1:2.
+    let spec = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let plan = model::plan_recovered(&a, &spec).unwrap();
     // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
     assert_eq!(
         (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
@@ -267,13 +272,18 @@ fn the_reservation_stacks_overlapping_items_in_tiers_beyond_the_dimensions() {
 #[test]
 fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() {
     let a = analysed("nist_stc_09_asme1_ap242-e4");
-    let first = model::plan_escalated(&a, &Spec::default()).unwrap();
+    // Pin the original ISO/metric recovery-floor scenario and exact trace.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let first = model::plan_escalated(&a, &metric).unwrap();
     assert_eq!(
         (first.sheet.size.as_str(), first.sheet.scale.as_str()),
         // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
         ("A1", "1:2")
     );
-    let p = cache::default_plan(&a, true);
+    let p = model::plan_recovered(&a, &metric).unwrap();
     // The value-less `2X R` and `4X R` common labels are refused (#214).
     assert_eq!(p.gdt.len(), 26, "complete frame/datum inventory");
     let notices: Vec<_> = p
@@ -294,7 +304,7 @@ fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() 
         (first.sheet.size.as_str(), first.sheet.scale.as_str())
     );
     // Recovery retains the first geometry; the final allocator may add slack-only gutters.
-    let mut unspaced = Spec::default();
+    let mut unspaced = metric.clone();
     unspaced.sheet.view_gutter = Some(0.0);
     let unspaced = model::plan_recovered(&a, &unspaced).unwrap();
     assert_eq!(

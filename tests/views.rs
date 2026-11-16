@@ -65,14 +65,17 @@ fn view_planning_matches_draftwright_or_is_known() {
 
     let mut differ: BTreeSet<(String, String)> = BTreeSet::new();
     let mut agree = 0;
+    // Compare the captured metric ISO paper/scale/view ledger on its original units.
     for name in facts::names() {
         let f = facts::load(&name);
         let (_, analysis) = corpus::analyse(&dir, &f.binding.file, &name);
         assert_eq!(analysis.binding.source_sha256, f.binding.sha256, "{name}");
         let plan = model::plan(
             &analysis,
-            &serde_json::from_value(serde_json::json!({"sheet":{"preferred_max_size":"A0"}}))
-                .unwrap(),
+            &serde_json::from_value(
+                serde_json::json!({"units":"mm","sheet":{"preferred_max_size":"A0"}}),
+            )
+            .unwrap(),
         )
         .unwrap();
         let mut check = |fact: String, same: bool| {

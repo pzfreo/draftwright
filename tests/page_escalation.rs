@@ -455,7 +455,12 @@ fn ftc07_stays_on_preferred_a3_and_keeps_the_planner_search() {
         return;
     };
     let step = dir.join("nist/nist_ftc_07_asme1_rd.stp");
-    let plan = api::plan_from(&step, Features::Native, &Spec::default()).unwrap();
+    // This test pins the ISO A3 preference and metric 1:5/1:2 candidate search.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let plan = api::plan_from(&step, Features::Native, &metric).unwrap();
     assert_eq!(sheet(&plan), ("A3", "1:5"));
     assert!(
         !plan
@@ -466,6 +471,7 @@ fn ftc07_stays_on_preferred_a3_and_keeps_the_planner_search() {
     let analysis = api::analyse_from(&step, Features::Native).unwrap();
     // The table-free drawing the sheet is chosen by ([`model::recover`]'s hole-table path).
     let never = Spec {
+        units: draftwright::units::Units::Mm,
         hole_table: draftwright::hole_table::Setting::Never,
         sheets: Some(draftwright::sheets::SheetsSpec {
             max: Some(1),
@@ -501,8 +507,9 @@ fn ftc07_stays_on_preferred_a3_and_keeps_the_planner_search() {
         "{:?}",
         chosen.problems
     );
-    let first =
-        model::plan_escalated(&analysis, &spec(json!({"size":"A3", "scale":"1:5"}))).unwrap();
+    let mut seed = spec(json!({"size":"A3", "scale":"1:5"}));
+    seed.units = draftwright::units::Units::Mm;
+    let first = model::plan_escalated(&analysis, &seed).unwrap();
     let again = model::recover(&analysis, &never, first).unwrap();
     assert_eq!(sheet(&again), sheet(&chosen));
     assert!(again.sheet.basis.contains("additional view conflicts"));

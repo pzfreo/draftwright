@@ -819,8 +819,7 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
             }
             assert_eq!(
                 sheet_only,
-                // Seven of the nine crossings (the five front-view hole locations and two more)
-                // had only local edits that trade as many findings as they clear, now withheld.
+                // Metric repairs retain the original bounded search and scopes.
                 if code == "extension_through_feature" {
                     7
                 } else {

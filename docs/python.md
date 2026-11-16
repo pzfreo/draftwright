@@ -42,7 +42,7 @@ policies apply; accepting an old default does not select the Python 0.4 solver.
 | `title`, `number`, `material`, `drawn_by`, `date`, `revision`, `company`, `tolerance`, `approved_by`, `document_type`, `sheet` | `sheet.title.<keyword>`; `None` leaves the Rust default |
 | `scale` | CLI numeric scale conversion (`0.5` → `1:2`); `None` is automatic |
 | `page` | `sheet.size`: `A4`–`A0`, `ANSI A`–`ANSI E`, `ARCH A`–`ARCH E` (case-insensitive, whitespace trimmed), or automatic (`None`) |
-| `units` | Printed lengths in `"mm"` (default) or decimal inches (`"in"`); model geometry remains mm. Automatic paper defaults to ISO/ANSI respectively. |
+| `units` | Printed lengths in `"mm"` or decimal inches (`"in"`). Omitted/`None` follows the source declaration: inches for a declared-inch part, otherwise mm. Automatic paper defaults to ISO/ANSI respectively; model geometry remains mm. |
 | `projection` | `sheet.projection`: `first`, `third`, or default (`None`) |
 | `zones` | `sheet.zones` |
 | `auto_dims` | `False` selects empty authored dimensions and disables centre lines/marks; `True` uses Rust automatic dimensions |

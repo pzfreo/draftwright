@@ -2370,6 +2370,17 @@ fn plan_search(
                     sides.clone()
                 };
                 for side in choices {
+                    // Scope rings keep the shaft normal to the source strip. Moving a
+                    // frame to a lateral fallback must not turn its vertical shaft
+                    // into a different attachment merely to clear the ring.
+                    if spec.units == crate::units::Units::In
+                        && !authored
+                        && ring_radius(&planned.modifiers) > 0.0
+                        && matches!(item.side, "above" | "below")
+                        && !matches!(side, "above" | "below")
+                    {
+                        continue;
+                    }
                     let positions = if inside && datum {
                         // The uncited fallback lets exact obstacle grading test a narrow
                         // shoulder gap that the conservative first-stroke band rejects.
@@ -3444,7 +3455,7 @@ pub fn placement_options(
 /// Straight, short normal routes precede one-bend routes with a square stub.
 /// The triangle and any reader-proven face extension stay fixed. No automatic
 /// oblique departure is generated, even when every candidate retains a contact.
-pub(super) fn normal_routes(g: &PlannedGdt, bends: bool) -> Vec<Placed> {
+pub(super) fn normal_routes(g: &PlannedGdt, bends: bool, wide: bool) -> Vec<Placed> {
     let Some(p) = &g.placed else {
         return Vec::new();
     };
@@ -3490,7 +3501,14 @@ pub(super) fn normal_routes(g: &PlannedGdt, bends: bool) -> Vec<Placed> {
     }
     let straight = routes.clone();
     for q in straight.iter().take(8) {
-        for offset in [-8., 8., -16., 16.] {
+        let offsets: &[f64] = if wide {
+            &[
+                -8., 8., -16., 16., -24., 24., -32., 32., -48., 48., -64., 64.,
+            ]
+        } else {
+            &[-8., 8., -16., 16.]
+        };
+        for &offset in offsets {
             let delta = [-u[1] * offset, u[0] * offset];
             let mut bent = q.clone();
             let end = [q.lines[0][1][0] + delta[0], q.lines[0][1][1] + delta[1]];
@@ -3967,7 +3985,7 @@ mod tests {
             triangle[2][0] - triangle[0][0],
             triangle[2][1] - triangle[0][1],
         ];
-        let routes = normal_routes(&g, true);
+        let routes = normal_routes(&g, true, true);
         assert!(!routes.is_empty());
         let mut bent = false;
         for route in routes {

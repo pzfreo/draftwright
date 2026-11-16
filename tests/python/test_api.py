@@ -75,6 +75,22 @@ class PythonAPI(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "units must be"):
             draftwright.make_drawing("missing.step", units="cm")
 
+    def test_declared_inches_default_and_explicit_mm(self):
+        source = ROOT / "tests/fixtures/pmi/step/nist_ftc_07_asme1_ap242-e2.stp.gz"
+        svg, dxf = self.assert_files(draftwright.make_drawing(
+            source, pmi="annotate", out=self.directory / "declared",
+        ))
+        self.assertNotIn("units", self.spec(svg))
+        self.assertNotIn("units", self.spec(dxf))
+        self.assertIn("ANSI C", svg.read_text())
+        self.assertIn(".060", svg.read_text())
+        self.assertIn("%%c.875", dxf.read_text())
+        svg, _ = self.assert_files(draftwright.make_drawing(
+            source, units="mm", pmi="annotate", out=self.directory / "metric",
+        ))
+        self.assertEqual(self.spec(svg)["units"], "mm")
+        self.assertIn("22.225", svg.read_text())
+
     def test_default_destination_and_old_positional_arguments(self):
         step = self.directory / "input.step"
         shutil.copyfile(PLATE, step)

@@ -530,7 +530,7 @@ class Part:
         return {"step": path, "faces": names}
 
     # ---- drawing ---------------------------------------------------------
-    def drawing(self, sheet=None, scale=None, units="mm"):
+    def drawing(self, sheet=None, scale=None, units=None):
         return Drawing(self, sheet=sheet, scale=scale, units=units)
 
 
@@ -598,9 +598,11 @@ def write_step(shape, path, names, faces, product, *, number=None, title=None, p
 class Drawing:
     """Layout only: sheet, scale, views, sections. Requirements never go here."""
 
-    def __init__(self, part, sheet=None, scale=None, units="mm"):
+    def __init__(self, part, sheet=None, scale=None, units=None):
         self._part = part
-        self._spec = {"units": units, "sheet": {"title": {}}}
+        self._spec = {"sheet": {"title": {}}}
+        if units is not None:
+            self._spec["units"] = units
         title = self._spec["sheet"]["title"]
         if part is not None and part.title is not None:
             title["title"] = part.title

@@ -2365,6 +2365,7 @@ mod tests {
         )
         .unwrap();
         let spec = serde_json::from_value(serde_json::json!({
+            "units": "mm",
             "sheet": {"size": "A0", "scale": "1:5"},
             "notes": [{"id": "n:1", "text": "Deburr all machined edges."}]
         }))

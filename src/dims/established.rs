@@ -116,7 +116,7 @@ pub(crate) fn retain(analysis: &Analysis, spec: &Spec, current: &Plan) -> Option
         return None;
     }
 
-    let key = crate::model::established_key(spec);
+    let key = crate::model::established_key(analysis, spec);
     let before = crate::planning::lookup::<Result<Plan, crate::model::Invalid>>(
         analysis,
         "established-drawing",

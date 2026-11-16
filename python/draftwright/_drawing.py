@@ -20,7 +20,7 @@ def make_drawing(
     text_orientation="aligned", *, projection_symbol=True, source=None,
     approved_by="", document_type="", sheet="", margin_left=None,
     margin_right=None, margin_top=None, margin_bottom=None, title_block_width=None,
-    units="mm", leader_region="auto", annotation_layout="demand-guided",
+    units=None, leader_region="auto", annotation_layout="demand-guided",
 ):
     """Draw a STEP path (str/PathLike) or build123d Shape using the Rust CLI engine.
 
@@ -70,15 +70,17 @@ def make_drawing(
                 f"make_drawing page value {original_page!r} is not supported in 0.6; "
                 "expected A4..A0, ANSI A..E, ARCH A..E (case-insensitive) or None"
             )
-    if units not in ("mm", "in"):
-        raise TypeError("make_drawing units must be mm or in")
+    if units not in (None, "mm", "in"):
+        raise TypeError("make_drawing units must be mm, in or None")
     fields = {
         name: values[name] for name in (
             "title", "number", "tolerance", "drawn_by", "material", "date", "revision",
             "company", "approved_by", "document_type", "sheet",
         ) if values[name] is not None
     }
-    spec = {"units": units, "sheet": {"title": fields, "zones": zones}}
+    spec = {"sheet": {"title": fields, "zones": zones}}
+    if units is not None:
+        spec["units"] = units
     if not auto_dims:
         spec["dimension_source"] = "authored"
         spec["sheet"].update(centre_lines=False, centre_marks=False)

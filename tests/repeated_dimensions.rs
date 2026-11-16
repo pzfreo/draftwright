@@ -20,6 +20,7 @@ use draftwright::dims::PlannedDimension;
 use draftwright::lint::{self, Mark};
 use draftwright::model::{self, Analysis, DimensionSpec, Plan, Spec};
 use draftwright::output::Claim;
+use draftwright::units::Units;
 
 fn native(dir: &Path, file: &str) -> Analysis {
     model::analyse_native(&dir.join(file))
@@ -33,7 +34,7 @@ fn marks(plan: &Plan) -> Vec<Mark> {
         .iter()
         .map(|d| Mark {
             precision: None,
-            units: Default::default(),
+            units: plan.sheet.units,
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -306,28 +307,40 @@ fn identical_slots_share_one_width_counted() {
         return;
     };
     let a = native(&dir, "nist/nist_ctc_03_asme1_rc.stp");
-    let plan = model::plan(&a, &Spec::default()).unwrap();
-    for parameter in ["slot_width.length", "slot_length.length"] {
-        let d = claiming(&plan, "f:slot:f62", parameter);
-        assert_eq!(d.label, "2× SLOT 19.05 × 107.95");
-        assert!(d.placed.is_some(), "{}", d.id);
-        assert_eq!(claiming(&plan, "f:slot:f66", parameter).id, d.id);
+    for (units, expected) in [
+        (Units::Auto, "2× SLOT .750 × 4.250"),
+        (Units::Mm, "2× SLOT 19.05 × 107.95"),
+    ] {
+        let plan = model::plan(
+            &a,
+            &Spec {
+                units,
+                ..Spec::default()
+            },
+        )
+        .unwrap();
+        for parameter in ["slot_width.length", "slot_length.length"] {
+            let d = claiming(&plan, "f:slot:f62", parameter);
+            assert_eq!(d.label, expected);
+            assert!(d.placed.is_some(), "{}", d.id);
+            assert_eq!(claiming(&plan, "f:slot:f66", parameter).id, d.id);
+        }
+        assert!(
+            plan.dimensions
+                .iter()
+                .flat_map(|d| &d.measurements)
+                .all(|m| m.parameter != "slot_end_radius.radius")
+        );
+        let issues = lint::check(&a, &marks(&plan));
+        assert!(
+            !issues
+                .iter()
+                .any(|i| i.code.starts_with("slot_requirement_")
+                    && !i.id.ends_with("location_slot.length")),
+            "{issues:?}"
+        );
+        assert_each_quantity_once("ctc03", &plan);
     }
-    assert!(
-        plan.dimensions
-            .iter()
-            .flat_map(|d| &d.measurements)
-            .all(|m| m.parameter != "slot_end_radius.radius")
-    );
-    let issues = lint::check(&a, &marks(&plan));
-    assert!(
-        !issues
-            .iter()
-            .any(|i| i.code.starts_with("slot_requirement_")
-                && !i.id.ends_with("location_slot.length")),
-        "{issues:?}"
-    );
-    assert_each_quantity_once("ctc03", &plan);
 }
 
 /// ftc06's four ø44.5 bosses stand 38.1 high from the base, and ftc07's four square bosses 2.5
@@ -341,11 +354,14 @@ fn bosses_sharing_a_height_across_one_span_state_it_once_counted() {
         eprintln!("SKIPPED (corpus part): the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
-    for (file, bosses, label) in [
+    for (file, bosses, inch, inch_without, mm, mm_without) in [
         (
             "nist/nist_ftc_06_asme1_rd.stp",
             ["f:boss:f21", "f:boss:f33", "f:boss:f35", "f:boss:f37"],
+            "4× 1.500",
+            "3× 1.500",
             "4× 38.1",
+            "3× 38.1",
         ),
         (
             "nist/nist_ftc_07_asme1_rd.stp",
@@ -355,38 +371,50 @@ fn bosses_sharing_a_height_across_one_span_state_it_once_counted() {
                 "f:polygonal_boss:f240",
                 "f:polygonal_boss:f241",
             ],
+            "4× .100",
+            "3× .100",
             "4× 2.54",
+            "3× 2.54",
         ),
     ] {
         let a = native(&dir, file);
-        let plan = model::plan(&a, &Spec::default()).unwrap();
-        let d = claiming(&plan, bosses[0], "boss_height.length");
-        assert_eq!(d.label, label, "{file}");
-        for b in &bosses[1..] {
-            assert_eq!(claiming(&plan, b, "boss_height.length").id, d.id, "{file}");
-        }
-        let issues = lint::check(&a, &marks(&plan));
-        assert!(
-            issues.iter().all(|i| i.code != "boss_height_missing"),
-            "{file}: {issues:?}"
-        );
-        assert_each_quantity_once(file, &plan);
+        for (units, label, next_label) in [
+            (Units::Auto, inch, inch_without),
+            (Units::Mm, mm, mm_without),
+        ] {
+            let base = Spec {
+                units,
+                ..Spec::default()
+            };
+            let plan = model::plan(&a, &base).unwrap();
+            let d = claiming(&plan, bosses[0], "boss_height.length");
+            assert_eq!(d.label, label, "{file}");
+            for b in &bosses[1..] {
+                assert_eq!(claiming(&plan, b, "boss_height.length").id, d.id, "{file}");
+            }
+            let issues = lint::check(&a, &marks(&plan));
+            assert!(
+                issues.iter().all(|i| i.code != "boss_height_missing"),
+                "{file}: {issues:?}"
+            );
+            assert_each_quantity_once(file, &plan);
 
-        let mut spec = Spec::default();
-        spec.dimensions.insert(
-            d.id.clone(),
-            DimensionSpec {
-                omit: true,
-                ..Default::default()
-            },
-        );
-        let without = model::plan(&a, &spec).unwrap();
-        let next = claiming(&without, bosses[1], "boss_height.length");
-        assert_eq!(next.label, label.replacen('4', "3", 1), "{file}");
-        assert!(
-            next.measurements.iter().all(|m| m.feature != bosses[0]),
-            "{file}: the omitted boss's height is not claimed"
-        );
+            let mut spec = base;
+            spec.dimensions.insert(
+                d.id.clone(),
+                DimensionSpec {
+                    omit: true,
+                    ..Default::default()
+                },
+            );
+            let without = model::plan(&a, &spec).unwrap();
+            let next = claiming(&without, bosses[1], "boss_height.length");
+            assert_eq!(next.label, next_label, "{file}");
+            assert!(
+                next.measurements.iter().all(|m| m.feature != bosses[0]),
+                "{file}: the omitted boss's height is not claimed"
+            );
+        }
     }
 }
 
@@ -477,22 +505,31 @@ fn an_authored_location_and_rung_with_equal_bands_share_the_authored_survivor() 
 fn a_counted_boss_height_also_states_its_face_level() {
     let Some(dir) = corpus::dir() else { return };
     let a = native(&dir, "nist/nist_ftc_06_asme1_rd.stp");
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let size = claiming(&plan, "f:boss:f21", "boss_height.length");
-    let level = claiming(&plan, "step_level", "step_height.length.f11");
-    assert_eq!(size.id, level.id);
-    assert_eq!(size.label, "4× 38.1");
-    for b in ["f:boss:f33", "f:boss:f35", "f:boss:f37"] {
-        assert_eq!(claiming(&plan, b, "boss_height.length").id, size.id);
+    for (units, expected) in [(Units::Auto, "4× 1.500"), (Units::Mm, "4× 38.1")] {
+        let plan = model::plan_recovered(
+            &a,
+            &Spec {
+                units,
+                ..Spec::default()
+            },
+        )
+        .unwrap();
+        let size = claiming(&plan, "f:boss:f21", "boss_height.length");
+        let level = claiming(&plan, "step_level", "step_height.length.f11");
+        assert_eq!(size.id, level.id);
+        assert_eq!(size.label, expected);
+        for b in ["f:boss:f33", "f:boss:f35", "f:boss:f37"] {
+            assert_eq!(claiming(&plan, b, "boss_height.length").id, size.id);
+        }
+        assert_eq!(
+            size.measurements.len(),
+            5,
+            "the level is a claim, not a fifth boss"
+        );
+        let issues = lint::check(&a, &marks(&plan));
+        assert!(
+            issues.iter().all(|i| i.code != "boss_height_missing"),
+            "{issues:?}"
+        );
     }
-    assert_eq!(
-        size.measurements.len(),
-        5,
-        "the level is a claim, not a fifth boss"
-    );
-    let issues = lint::check(&a, &marks(&plan));
-    assert!(
-        issues.iter().all(|i| i.code != "boss_height_missing"),
-        "{issues:?}"
-    );
 }

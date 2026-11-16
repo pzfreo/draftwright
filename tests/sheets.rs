@@ -708,7 +708,9 @@ fn r5_an_authored_sheet_label_is_reported_on_a_multi_sheet_plan() {
 #[test]
 fn r5_narrow_section_blocks_reserve_caption_and_reference_width() {
     let a = analysed("nist/nist_ftc_06_asme1_rd.stp");
+    // Use the metric scale table for this deliberately tiny 1:500 section.
     let s = spec(json!({
+        "units":"mm",
         "sheet":{"size":"A4","scale":"1:500"},"sheets":{"max":2},
         "dimension_source":"authored",
         "views":{"iso":{"omit":true},"section_aa":{"sheet":2}}

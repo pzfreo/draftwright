@@ -472,7 +472,12 @@ fn ftc08_chamfers_are_called_out_by_size() {
     };
     let path = dir.join("nist/nist_ftc_08_asme1_rc.stp");
     let a = model::analyse_native(&path).unwrap().1;
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    // Preserve the captured metric chamfer and station wording.
+    let spec = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let p = model::plan_recovered(&a, &spec).unwrap();
     let found = chamfers(&p);
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].label, "4× C21.075");
@@ -495,7 +500,7 @@ fn ftc08_chamfers_are_called_out_by_size() {
         );
     }
     assert!(angles(&p).is_empty(), "{:?}", angles(&p));
-    let r = review(&path, json!({}));
+    let r = review(&path, json!({"units":"mm"}));
     assert!(
         !r.lint.iter().any(|i| i.code == "profile_corner_unlocated"),
         "{:?}",

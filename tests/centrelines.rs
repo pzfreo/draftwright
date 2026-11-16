@@ -326,7 +326,12 @@ fn fixed_ink_review_catches_the_captured_section_defects() {
     let cases: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/g6_section_contacts.json")).unwrap();
     for case in cases {
-        let (_, _, mut drawn) = drawing(&dir.join(case["step"].as_str().unwrap()));
+        // Both halves replay captured metric section contacts on their original sheet.
+        let metric = Spec {
+            units: draftwright::units::Units::Mm,
+            ..Spec::default()
+        };
+        let (_, _, mut drawn) = drawing_with(&dir.join(case["step"].as_str().unwrap()), &metric);
         let code = case["code"].as_str().unwrap();
         assert!(
             !draftwright::lint::structural::check(&drawn)
@@ -342,6 +347,7 @@ fn fixed_ink_review_catches_the_captured_section_defects() {
         // The captured ink is replayed on the layout it was captured on: its sheet, and the
         // dimension set before hole schedules (Stage H moved both on these parts).
         let mut captured_on = Spec {
+            units: draftwright::units::Units::Mm,
             hole_table: draftwright::hole_table::Setting::Never,
             ..Spec::default()
         };

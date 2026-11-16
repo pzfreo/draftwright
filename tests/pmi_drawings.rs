@@ -774,7 +774,12 @@ fn one(file: &str, stem: &str, bytes: &[u8]) -> (Vec<Diff>, usize, String) {
     };
     assert_eq!(ids(&py, "items"), ids(&reading, "records"), "{file}");
     let (part, a) = analysed(file, bytes);
-    let plan = cache::default_plan(&a, true);
+    // Captured PMI drawing labels, carriers and known differences are metric.
+    let spec = model::Spec {
+        units: draftwright::units::Units::Mm,
+        ..Default::default()
+    };
+    let plan = model::plan_recovered(&a, &spec).unwrap();
     let drawing = drawn(&part, &a, &plan);
     let inventory = serde_json::from_str::<Value>(
         &std::fs::read_to_string(fixtures().join("pmi_drawings/cad_frame_information.json"))

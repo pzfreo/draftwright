@@ -535,7 +535,7 @@ fn automatic_radius_note_wording_keeps_coverage_and_live_value_checks() {
             .filter(|i| i.code == "blend_requirement_missing")
             .collect::<Vec<_>>()
     );
-    let radius = format!("R{}", dims::fmt(note.measurements[0].value));
+    let radius = format!("R{}", plan.sheet.units.format(note.measurements[0].value));
     let anno = drawing
         .annotations
         .iter()

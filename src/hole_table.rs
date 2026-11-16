@@ -794,7 +794,7 @@ fn rows(
         let k = usize::from(axis == "y");
         match read.get(f).map(|h| h.at[k] - origin[k]) {
             Some(distance) if (found.1.value - distance.abs()).abs() > 1e-6 => Some((
-                plan.spec.units.format(distance),
+                plan.sheet.units.format(distance),
                 Measurement {
                     value: distance,
                     ..found.1
@@ -2325,7 +2325,7 @@ fn coordinate_number(
     distance: f64,
 ) -> String {
     if plan.spec.precision.is_empty() {
-        return schedule_number(distance, plan.spec.units);
+        return schedule_number(distance, plan.sheet.units);
     }
     let policy = plan
         .spec
@@ -2345,8 +2345,8 @@ fn coordinate_number(
             })
         });
     policy.map_or_else(
-        || schedule_number(distance, plan.spec.units),
-        |&p| plan.spec.units.format_places(distance, Some(p)),
+        || schedule_number(distance, plan.sheet.units),
+        |&p| plan.sheet.units.format_places(distance, Some(p)),
     )
 }
 
@@ -2525,7 +2525,7 @@ fn select_with(
         Some(published)
     } else if crate::placement_intent::has_pins(&plan.spec) {
         let mut base = crate::model::Spec {
-            units: plan.spec.units,
+            units: plan.sheet.units,
             ..Default::default()
         };
         base.sheet.paper = plan.spec.sheet.paper;
@@ -2665,14 +2665,17 @@ fn select_with(
                 ) && callouts.iter().any(|d| p.subjects.contains(&d.id))
             })
             .count();
+        let dense = n >= 6 && (crowded > 0 || locations.len() > 8 || conflicts > 0);
         let wanted = crate::engine_pins::wants_table(&view.id)
             || match &canonical {
-                Some(base) if plan.spec.hole_table == Setting::Auto => base
-                    .hole_tables
-                    .iter()
-                    .any(|t| t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:"))),
-                _ => n >= 6 && (crowded > 0 || locations.len() > 8 || conflicts > 0),
+                Some(base) if plan.spec.hole_table == Setting::Auto => {
+                    base.hole_tables.iter().any(|t| {
+                        t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:"))
+                    }) || (plan.sheet.units == crate::units::Units::In && dense)
+                }
+                _ => dense,
             };
+
         if plan.spec.hole_table != Setting::Always && !wanted {
             continue;
         }
@@ -2739,7 +2742,7 @@ fn select_with(
                         && !t.starts_with("EQ SP")
                 })
                 .map(|t| {
-                    if approved_size || !plan.spec.units.is_mm() {
+                    if approved_size || !plan.sheet.units.is_mm() {
                         t.clone()
                     } else {
                         t.parse::<f64>().map_or_else(
@@ -2799,11 +2802,11 @@ fn select_with(
                 // its own row; M6 alone must not erase the original ø5 bore.
                 let mut size = label.clone();
                 if shared_thread && !label.contains(['ø', '⌀', 'Ø']) {
-                    let mut drill = format!("⌀{}", schedule_number(h.diameter, plan.spec.units));
+                    let mut drill = format!("⌀{}", schedule_number(h.diameter, plan.sheet.units));
                     if h.through {
                         drill += " THRU";
                     } else if let Some(depth) = h.depth_from_mouth() {
-                        drill += &format!(" ↧ {}", schedule_number(depth, plan.spec.units));
+                        drill += &format!(" ↧ {}", schedule_number(depth, plan.sheet.units));
                     }
                     size = format!("{drill} {size}");
                 }
@@ -2831,7 +2834,7 @@ fn select_with(
                                             d.terms.first().is_some_and(|t| t.ends_with('×')),
                                         ))
                                         .map(|t| {
-                                            if has_precision(plan, d) || !plan.spec.units.is_mm() {
+                                            if has_precision(plan, d) || !plan.sheet.units.is_mm() {
                                                 t.clone()
                                             } else {
                                                 t.parse::<f64>().map_or_else(
@@ -2863,7 +2866,7 @@ fn select_with(
                     view.direction,
                     surface,
                     h.direction,
-                    plan.spec.units,
+                    plan.sheet.units,
                 ));
                 rows.push(HoleRow {
                     tag_id: None,
@@ -3043,7 +3046,7 @@ fn select_with(
             }, state: crate::items::State::Shown, blocks: Vec::new(),
         });
     }
-    if !plan.spec.units.is_mm() {
+    if !plan.sheet.units.is_mm() {
         // Inch labels can select a coordinate table where the shorter metric labels used a
         // ladder. Keep any physical ladder edge also locating a non-tabulated feature.
         let scheduled: BTreeSet<_> = selection
@@ -3492,7 +3495,47 @@ pub(crate) fn reflow_blocks(
     Some(blocks)
 }
 
+/// Re-evaluate nearby schedule tags against the final nominal callouts. Table
+/// cells, row identities, origins and all dimension ink remain fixed.
+pub(crate) fn refresh_marks(analysis: &Analysis, plan: &mut Plan) -> bool {
+    if plan.hole_tables.is_empty()
+        || !plan.balloons.iter().any(|b| {
+            b.label_box.is_some_and(|bounds| {
+                plan.dimensions
+                    .iter()
+                    .filter_map(|d| d.placed.as_ref())
+                    .any(|p| {
+                        overlap(bounds, p.label_box)
+                            || p.lines.iter().chain(&p.arrows).any(|l| crosses(*l, bounds))
+                    })
+            })
+        })
+    {
+        return false;
+    }
+    let selection = Selection {
+        tables: plan.hole_tables.clone(),
+        ..Default::default()
+    };
+    let mut trial = plan.clone();
+    if install_at_mode(analysis, &mut trial, &selection, true) {
+        let changed = plan.balloons != trial.balloons;
+        plan.balloons = trial.balloons;
+        return changed;
+    }
+    false
+}
+
 fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bool {
+    install_at_mode(analysis, plan, selection, false)
+}
+
+fn install_at_mode(
+    analysis: &Analysis,
+    plan: &mut Plan,
+    selection: &Selection,
+    keep_blocks: bool,
+) -> bool {
     // Removing ladders must not withdraw the room already needed by a semantic frame or datum.
     // If this presentation cannot keep them in their bands, retain the complete original plan.
     if !selection
@@ -3528,24 +3571,26 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             .unwrap();
         let frame = Frame::new(analysis, view);
         let mut t = wanted.clone();
-        // Install the form reserved before view layout. Alternate counts are chosen
-        // during table reflow, not after the annotation bands have been allocated.
-        let n = *counts(
-            selection.columns(&plan.spec, &t.id),
-            2,
-            t.rows.len(),
-            plan.sheet.page,
-        )
-        .start();
-        let Some(blocks) = reflow_blocks(&t, &plan.sheet, &obstacles, Some(n)) else {
-            return false;
-        };
-        obstacles.extend(
-            blocks
-                .iter()
-                .filter_map(|b| b.placed.as_ref().map(|p| p.cells)),
-        );
-        t.blocks.extend(blocks);
+        if !keep_blocks {
+            // Install the form reserved before view layout. Alternate counts are chosen
+            // during table reflow, not after the annotation bands have been allocated.
+            let n = *counts(
+                selection.columns(&plan.spec, &t.id),
+                2,
+                t.rows.len(),
+                plan.sheet.page,
+            )
+            .start();
+            let Some(blocks) = reflow_blocks(&t, &plan.sheet, &obstacles, Some(n)) else {
+                return false;
+            };
+            obstacles.extend(
+                blocks
+                    .iter()
+                    .filter_map(|b| b.placed.as_ref().map(|p| p.cells)),
+            );
+            t.blocks.extend(blocks);
+        }
         let mut labels: Vec<Rect> = plan
             .dimensions
             .iter()
