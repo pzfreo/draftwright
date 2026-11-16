@@ -437,17 +437,18 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
             );
         }
     }
-    // No ink is also a retained placement choice. Without it a crowded reload
-    // can silently revive a dimension that the committed drawing could not place.
-    for id in plan
+    // An unplaced dimension remains a live item, unlike a covered measurement.
+    // Retain its view and absence of ink so a reload cannot revive it silently.
+    for (id, view) in plan
         .dimensions
         .iter()
         .filter(|d| d.placed.is_none())
-        .map(|d| d.id.clone())
-        .chain(plan.omitted.iter().map(|d| d.id.clone()))
+        .map(|d| (d.id.clone(), Some(d.view.clone())))
+        .chain(plan.omitted.iter().map(|d| (d.id.clone(), None)))
     {
         annotations.entry(id).or_insert(Annotation {
             place: Place {
+                view,
                 pinned: true,
                 ..Default::default()
             },
@@ -899,9 +900,18 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
         .annotations
         .keys()
         .any(|id| id.starts_with("hole_schedule_"));
+    // Crowded drawings with live, unplaced dimensions need the recovery's
+    // ownership/route diagnostics before the published-reference solve. Settled
+    // drawings, including ordinary title edits, need only the direct solve.
+    let unplaced = filtered
+        .annotations
+        .values()
+        .any(|p| p.omit && p.place.view.is_some());
     let mut reference = with_pins(filtered.clone(), || {
         if scheduled {
             model::plan_escalated(a, &forced)
+        } else if unplaced {
+            model::plan_recovered(a, &forced)
         } else {
             model::plan(a, &forced)
         }
@@ -928,7 +938,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
         .collect();
     // A title/material edit already has its final pinned solve. Only newly placed
     // ink needs the published-reference solve to reserve retained annotations.
-    let mut result = if new_ink.is_empty() {
+    let mut result = if new_ink.is_empty() && !unplaced {
         reference.clone()
     } else {
         with_pins(filtered.clone(), || {
