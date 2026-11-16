@@ -190,7 +190,7 @@
             "z",
             null
           ],
-          "description": "Source axis to read horizontally; default longest assembly axis. All principal cameras share one proper-rigid frame."
+          "description": "Source axis to read horizontally; default source X horizontal and Z up (model orientation kept). All principal cameras share one proper-rigid frame."
         },
         "sections": {
           "type": [

@@ -166,8 +166,7 @@ for each made part, as one PDF plus a CSV/JSON bill of materials. From a STEP fi
 ```python
 from draftwright import Pack
 
-pack = Pack("gramil-assembly.step", title="Gramil", number="GRM-00",
-            horizontal_axis="x")
+pack = Pack("gramil-assembly.step", title="Gramil", number="GRM-00")
 pdf, csv = pack.render("gramil", formats=("pdf", "csv"))
 ```
 
@@ -175,9 +174,10 @@ pdf, csv = pack.render("gramil", formats=("pdf", "csv"))
 
 That is the first page of the gramil's nine-page pack: balloons and a parts list
 with made and bought parts (the screws and washer are recognised as bought), then
-a drawing for each made part. `horizontal_axis="x"` keeps the model's X axis across
-the sheet, so the gauge is drawn standing up as it was modelled; without it, the
-longest axis runs across the sheet.
+a drawing for each made part. The model's orientation is kept by default: source X
+across the sheet and Z up, so the gauge is drawn standing up as it was modelled.
+`horizontal_axis="x"`, `"y"` or `"z"` explicitly selects the source axis across the
+sheet to turn the assembly.
 
 From build123d, pass a `Compound` whose children are labelled with the `Part`
 names, and the Parts that carry requirements:

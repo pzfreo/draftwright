@@ -74,6 +74,26 @@ class PackAPI(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.directory = Path(directory.name)
 
+    def test_default_keeps_z_long_model_orientation_and_explicit_axes_turn_it(self):
+        shank, insert = bd.Box(8, 5, 40), bd.Box(4, 3, 2)
+        shank.label, insert.label = "shank", "insert"
+        assembly = bd.Compound(children=[shank, insert])
+        identity = [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]]
+        for axis, envelope in (("omitted", [8., 5., 40.]), (None, [8., 5., 40.]),
+                               ("x", [8., 5., 40.]), ("y", [5., 8., 40.]),
+                               ("z", [40., 5., 8.])):
+            with self.subTest(axis=axis):
+                kwargs = {} if axis == "omitted" else {"horizontal_axis": axis}
+                pack = draftwright.Pack(assembly, **kwargs)
+                pack.render(self.directory / str(axis), formats=("json",))
+                ga = pack.report["general_assembly"]
+                self.assertEqual(ga["envelope"], envelope)
+                if axis in ("omitted", None, "x"):
+                    self.assertEqual(ga["frame"], identity)
+                else:
+                    self.assertNotEqual(ga["frame"], identity)
+                self.assertTrue(all("error" not in row for row in pack.rows))
+
     def documented(self):
         namespace = {}
         with cwd(self.directory), contextlib.redirect_stdout(io.StringIO()):

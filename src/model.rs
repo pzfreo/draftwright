@@ -2019,12 +2019,7 @@ pub(crate) fn analyse_pack_assembly(
     horizontal: Option<usize>,
 ) -> Result<(Part, Analysis, haecceity::step::Placement), Unanalysed> {
     let part = haecceity::read_step(bytes).map_err(|e| step_refused(name, e))?;
-    let b = part.bounds();
-    let x = horizontal.unwrap_or_else(|| {
-        (0..3)
-            .max_by(|&i, &j| (b.max[i] - b.min[i]).total_cmp(&(b.max[j] - b.min[j])))
-            .expect("three axes")
-    });
+    let x = horizontal.unwrap_or(0);
     // Use one proper-rigid frame for the entire projection set. Preserve the
     // source depth axis where possible, and keep z up when swapping x and y.
     let mut dx = [0.; 3];
