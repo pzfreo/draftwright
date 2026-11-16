@@ -890,7 +890,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
         if scheduled {
             model::plan_escalated(a, &forced)
         } else {
-            model::plan_recovered(a, &forced)
+            model::plan(a, &forced)
         }
     })?;
     with_pins(filtered.clone(), || views(&mut reference.views));
@@ -931,8 +931,10 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
                 .any(|p| p.severity != "info" && p.subjects.iter().any(|s| s == id))
         })
         .collect();
+    with_pins(filtered.clone(), || {
+        crate::incremental::recheck(a, &mut result)
+    });
     crate::incremental::constrain(&mut result, constrained);
-    crate::incremental::recheck(a, &mut result);
     result.spec = spec.clone();
     persist(a, &mut result, Some(&reference));
     if !dropped.is_empty() {

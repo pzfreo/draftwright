@@ -1623,8 +1623,8 @@ fn crowded_full_content_edit_keeps_pins_and_warns_on_the_item() {
         .id
         .clone();
     let op = Op::set(
-        format!("dimensions/{}/place/offset", draftwright::items::key(&id)),
-        json!([1000., 1000.]),
+        format!("dimensions/{}/place", draftwright::items::key(&id)),
+        json!({"offset":[1000., 1000.], "pinned":true}),
     );
     let preview = s.apply(std::slice::from_ref(&op), false).unwrap();
     let committed = s.apply(&[op], true).unwrap();

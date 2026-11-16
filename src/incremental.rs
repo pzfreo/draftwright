@@ -901,13 +901,18 @@ pub(crate) fn recheck(a: &Analysis, plan: &mut Plan) {
 
 pub(crate) fn constrain(plan: &mut Plan, ids: Vec<String>) {
     for id in ids {
+        let problem_id = format!("p:incremental_placement_constrained:{id}");
+        if plan.problems.iter().any(|p| p.id == problem_id) {
+            continue;
+        }
         plan.problems.push(Problem {
-            id: format!("p:incremental_placement_constrained:{id}"),
+            id: problem_id,
             code: "incremental_placement_constrained".into(), severity: "warning".into(),
             message: "New annotation ink could not be placed cleanly in the retained layout. Existing placements were kept; inspect the placement findings or preview Re-layout explicitly.".into(),
             subjects: vec![id], ..Default::default()
         });
     }
+    plan.status = crate::completeness::status(&plan.problems);
 }
 
 #[cfg(test)]
