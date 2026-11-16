@@ -2827,7 +2827,8 @@ alternative. Offset hints are rounded to 1e-4 mm. Witnesses, arrows and text bou
 regenerated from the current geometry and label, and the writer emits a compact entry only
 when all regenerated ink fields equal the published placement exactly. Exceptional routes
 retain their exact coordinates when no native recipe can reproduce them; rounding those
-coordinates would move existing ink. This precision fallback remains larger than the target. A pin records whether its item was introduced in the
+coordinates would move existing ink. This precision fallback remains larger than the target. An unplaced dimension also keeps a pin (`omit` with its view), preserving its
+absence of ink rather than silently reviving it on reload. A pin records whether its item was introduced in the
 kept layout, so constrained-placement findings can be re-evaluated without saving problems. Coordinates are relative to the view where reversible
 without rounding. It contains no requirement text, dimension terms, measurements, face
 indices, characteristics, table records, problems, author-Spec copy or derived Plan.

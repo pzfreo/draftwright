@@ -1715,3 +1715,41 @@ fn trimmed_source_history_stops_at_a_consistent_revision_boundary() {
     assert_eq!(value(s.state()), last);
     assert!(s.redo().is_err());
 }
+
+#[test]
+fn oversized_content_in_full_apply_warns_without_reshuffling() {
+    let (mut s, _) = pinned_bracket();
+    let before = s.plan().clone();
+    let id = before
+        .dimensions
+        .iter()
+        .find(|d| d.placed.is_some())
+        .unwrap()
+        .id
+        .clone();
+    let op = Op::set(
+        format!("dimensions/{}/text", draftwright::items::key(&id)),
+        json!("W".repeat(400)),
+    );
+    let preview = s.apply(std::slice::from_ref(&op), false).unwrap();
+    let committed = s.apply(&[op], true).unwrap();
+    assert_eq!(value(preview), value(committed));
+    assert!(s.spec().engine_pins.is_some());
+    let mut retained = before.clone();
+    retained.dimensions.retain(|d| d.id != id);
+    fixed(&retained, s.plan());
+    assert!(
+        s.state()
+            .problems
+            .iter()
+            .any(|p| p.code == "incremental_placement_constrained"
+                && p.severity == "warning"
+                && p.subjects.contains(&id))
+    );
+    assert!(
+        !s.state()
+            .problems
+            .iter()
+            .any(|p| p.code == "engine_pins_replanned")
+    );
+}
