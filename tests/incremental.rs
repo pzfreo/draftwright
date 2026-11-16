@@ -1729,7 +1729,7 @@ fn oversized_content_in_full_apply_warns_without_reshuffling() {
         .clone();
     let op = Op::set(
         format!("dimensions/{}/text", draftwright::items::key(&id)),
-        json!("W".repeat(400)),
+        json!({"prefix":"W".repeat(230)}),
     );
     let preview = s.apply(std::slice::from_ref(&op), false).unwrap();
     let committed = s.apply(&[op], true).unwrap();
