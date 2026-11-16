@@ -650,3 +650,154 @@ fn ftc08_isometric_pin_keeps_the_clear_hole_schedule() {
             .any(|q| q.code == "hole_table_unavailable")
     );
 }
+
+// #492 main-tier pin replay: restoring the canonical fillet after installing
+// schedule tags left A6/A7 under its leader. Keep the five actual pin inputs,
+// independently of the random sampler, and check physical paper-space clearance.
+part_cases!(inch_ftc08_replayed_pins_keep_schedule_labels_clear;
+    one_eight => "1-8",
+    two_three => "2-3",
+    two_eight => "2-8",
+    three_three => "3-3",
+    three_eight => "3-8"
+);
+fn inch_ftc08_replayed_pins_keep_schedule_labels_clear(cell: &str) {
+    let Some(dir) = corpus::dir() else { return };
+    let (_, a) = crate::cache::native(&dir.join("nist/nist_ftc_08_asme1_rc.stp"));
+    let base = crate::cache::default_plan(&a, true);
+    let (view, side, align, gap, ids): (&str, &str, &str, f64, &[&str]) = match cell {
+        "1-8" => (
+            "iso",
+            "right",
+            "start",
+            2.3490687499872536,
+            &[
+                "d:f:section_recess:f156/seat_diameter.diameter",
+                "d:f:section_recess:f156/seat_location.location.z",
+                "d:f:slot:f152/location_slot.length",
+                "d:f:slot:f213/location_slot_across.length",
+                "d:f:section_recess:f252_1/channel_width.length",
+                "d:f:slot:f213/slot_width.length",
+                "d:f:slot:f152/location_slot_across.length",
+            ],
+        ),
+        "2-3" => (
+            "plan",
+            "above",
+            "projection",
+            9.640365000000003,
+            &[
+                "d:f:slot:f220/slot_length.length",
+                "d:envelope/profile_location_y.length.f1_2_3",
+            ],
+        ),
+        "2-8" => (
+            "plan",
+            "above",
+            "projection",
+            9.640365000000003,
+            &[
+                "d:f:slot:f220/slot_length.length",
+                "d:envelope/profile_location_y.length.f1_2_3",
+                "d:f:plate:f1/thickness.length",
+                "d:f:section_recess:f252_1/channel_width.length",
+                "d:f:slot:f213/location_slot.length",
+                "d:step_level/step_height.length.f67",
+                "d:f:slot:f152/location_slot_across.length",
+            ],
+        ),
+        "3-3" => (
+            "side",
+            "right",
+            "projection",
+            5.410740000000004,
+            &[
+                "d:envelope/depth.length",
+                "d:f:section_recess:f156/seat_location.location.z",
+            ],
+        ),
+        "3-8" => (
+            "side",
+            "right",
+            "projection",
+            5.410740000000004,
+            &[
+                "d:envelope/depth.length",
+                "d:f:section_recess:f156/seat_location.location.z",
+                "d:step_level/step_height.length.f83",
+                "d:f:slot:f117/slot_length.length",
+                "d:f:section_recess:f156/seat_diameter.diameter",
+                "d:envelope/profile_chamfer.length.f1_e6",
+                "d:f:slot:f152/slot_end_radius.radius",
+            ],
+        ),
+        _ => unreachable!(),
+    };
+    let mut spec: Spec = serde_json::from_value(json!({"views": {view: {"place": {
+        "relative_to": "front", "side": side, "align": align, "gap": gap, "pinned": true
+    }}}}))
+    .unwrap();
+    for id in ids {
+        spec.dimensions.entry((*id).into()).or_default().place =
+            Some(draftwright::placement_intent::Place {
+                pinned: true,
+                ..Default::default()
+            });
+    }
+    let pinned = draftwright::model::plan_recovered(&a, &spec).unwrap();
+    assert_eq!(pinned.sheet.units, draftwright::units::Units::In);
+    assert_eq!(
+        (&pinned.sheet.size, &pinned.sheet.scale),
+        (&base.sheet.size, &base.sheet.scale)
+    );
+    assert_eq!(pinned.balloons.len(), 24);
+    assert_eq!(pinned.hole_tables.len(), base.hole_tables.len());
+    let quantities = |p: &draftwright::model::Plan| {
+        p.hole_tables
+            .iter()
+            .flat_map(|t| &t.rows)
+            .map(|row| row.measurements.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(quantities(&pinned), quantities(&base));
+    // Independent segment/rectangle clipping, using every final dimension's
+    // strokes and heads rather than trusting the planner's diagnostic inventory.
+    let enters = |[a, b]: [[f64; 2]; 2], bounds: [f64; 4]| {
+        let (mut lo, mut hi) = (0_f64, 1_f64);
+        for k in 0..2 {
+            let delta = b[k] - a[k];
+            if delta.abs() < 1e-12 {
+                if a[k] <= bounds[k] || a[k] >= bounds[k + 2] {
+                    return false;
+                }
+            } else {
+                let x = (bounds[k] - a[k]) / delta;
+                let y = (bounds[k + 2] - a[k]) / delta;
+                lo = lo.max(x.min(y));
+                hi = hi.min(x.max(y));
+            }
+        }
+        hi - lo > 1e-9
+    };
+    for plan in [&base, &pinned] {
+        for balloon in &plan.balloons {
+            let Some(b) = balloon.label_box else { continue };
+            for d in &plan.dimensions {
+                let Some(p) = &d.placed else { continue };
+                let q = p.label_box;
+                assert!(
+                    !(b[0] < q[2] && b[2] > q[0] && b[1] < q[3] && b[3] > q[1]),
+                    "{cell}: {} overlaps {}",
+                    balloon.id,
+                    d.id
+                );
+                assert!(
+                    !p.lines.iter().chain(&p.arrows).any(|l| enters(*l, b)),
+                    "{cell}: {} contacts {}",
+                    balloon.id,
+                    d.id
+                );
+            }
+        }
+    }
+}

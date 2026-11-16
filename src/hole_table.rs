@@ -3479,7 +3479,7 @@ pub(crate) fn reflow_blocks(
 
 /// Re-evaluate nearby schedule tags against the final nominal callouts. Table
 /// cells, row identities, origins and all dimension ink remain fixed.
-pub(crate) fn refresh_marks(analysis: &Analysis, plan: &mut Plan) {
+pub(crate) fn refresh_marks(analysis: &Analysis, plan: &mut Plan) -> bool {
     if plan.hole_tables.is_empty()
         || !plan.balloons.iter().any(|b| {
             b.label_box.is_some_and(|bounds| {
@@ -3493,7 +3493,7 @@ pub(crate) fn refresh_marks(analysis: &Analysis, plan: &mut Plan) {
             })
         })
     {
-        return;
+        return false;
     }
     let selection = Selection {
         tables: plan.hole_tables.clone(),
@@ -3501,8 +3501,11 @@ pub(crate) fn refresh_marks(analysis: &Analysis, plan: &mut Plan) {
     };
     let mut trial = plan.clone();
     if install_at_mode(analysis, &mut trial, &selection, true) {
+        let changed = plan.balloons != trial.balloons;
         plan.balloons = trial.balloons;
+        return changed;
     }
+    false
 }
 
 fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bool {
