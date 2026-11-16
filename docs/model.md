@@ -2785,9 +2785,11 @@ History caps only entries carrying a Plan or source at 32 across undo and redo.
 Ordinary Spec-only full edits retain their unlimited history, as before;
 incremental edits also retain their Plan in session memory for exact undo, including dormant
 variants and prior findings. These snapshots are never written to the Spec.
-Source edits additionally retain their Analysis and an `Arc` to the immutable imported part.
-Eviction drops the oldest heavy undo entry, or the furthest heavy redo entry when
-only future states remain; Spec-only entries are preserved. A new Session starts with empty undo history.
+Source edits share immutable Analysis and imported-part revisions through `Arc` handles.
+Eviction sets a contiguous undo/redo boundary at the oldest heavy snapshot: that entry and
+all earlier Spec-only entries become unreachable, so no old Spec can be evaluated against
+a newer source. The same rule drops the furthest redo prefix when only future states remain.
+History containing only ordinary Spec edits remains unlimited. A new Session starts with empty undo history.
 
 `apply_incremental(&[items::Op], commit)` accepts annotation/layout-Spec operations. The
 library entry is `model::plan_incremental(analysis, before_plan, edited_spec)`. It derives bare
@@ -2829,9 +2831,11 @@ coordinates would move existing ink. This precision fallback remains larger than
 kept layout, so constrained-placement findings can be re-evaluated without saving problems. Coordinates are relative to the view where reversible
 without rounding. It contains no requirement text, dimension terms, measurements, face
 indices, characteristics, table records, problems, author-Spec copy or derived Plan.
-Incremental and pin-loading scopes bypass shared result memos on both reads and writes.
-Incremental preparation uses a fresh call-local scope too: intent and restored variants
-never reuse another edit's retained preparation. Ordinary planning keeps its memos.
+Pure projection and label-wrapping memos remain shared in all scopes. Placement memo keys
+include incremental mode, authored intent, restored variants, pin-reference identity, engine
+pins and scoped reader proof. Incremental solves reuse bounded Analysis preparation;
+preview and commit of identical pinned content reuse their exact retained plan. Title/material
+edits need only the first pinned solve, without another incremental solve.
 Requirements and glyphs are regenerated from the current STEP and Spec; placement checks
 run again on the final ink. Notes, captions and table grids contain coordinates only; their
 text, rows and measurements are always regenerated. A changed text footprint releases
@@ -2839,10 +2843,14 @@ just that annotation for normal placement. Raw saved-Spec composition edits also
 pins, detected by a digest of layout intent without storing a copy of the author Spec.
 
 Saving the Spec and reopening with the same STEP, including CLI rendering, replays these
-pins. Unknown item ids are dropped individually with `engine_pins_replanned` (information).
+pins. Unknown item ids are dropped individually with `engine_pins_partly_retained` (warning).
 A changed STEP with the same verified B-rep keeps surviving stable-id pins and places new
-PMI in the retained frame, with that finding. A different or unverifiable B-rep releases the
-engine pins and opens through the full planner. Old export-based geometry digests remain
+PMI in the retained frame; a source-byte revision alone is not a re-layout finding.
+A different or unverifiable B-rep releases the engine pins and opens through the full planner
+with `engine_pins_replanned` (warning), explicitly requesting review of the new placements.
+Content that does not fit keeps the layout and dimension bases and reports item-level
+`incremental_placement_constrained` warnings; releasing pins requires an explicit layout edit
+or Re-layout choice. Old export-based geometry digests remain
 readable: same-source reloads keep their pins, while a changed source releases those legacy
 pins with the normal finding. Native Session, CLI and MCP STEP readers
 verify geometry only when the source revision differs. An Analysis-only caller without the

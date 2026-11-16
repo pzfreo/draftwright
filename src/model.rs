@@ -13935,3 +13935,26 @@ mod tier_identity_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod spec_fields_tests {
+    #[test]
+    fn spec_and_deserialization_fields_have_identical_types_and_serde_attributes() {
+        let source = include_str!("model.rs");
+        let fields = |name: &str| {
+            source
+                .split_once(name)
+                .unwrap()
+                .1
+                .split_once("\n}")
+                .unwrap()
+                .0
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.starts_with("///"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(fields("pub struct Spec {"), fields("struct SpecFields {"));
+    }
+}

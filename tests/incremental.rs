@@ -100,7 +100,6 @@ fn exercise(name: &str) {
     let mut s = open(name);
     let original = s.state().clone();
     let ops = [Op::set("faces/bottom/datum", json!("A"))];
-    save(name, "a-before", &s);
     let edited = model::edit(s.spec(), &value(&ops)).unwrap();
     let library = model::plan_incremental(s.analysis(), s.plan(), &edited).unwrap();
     let preview = s.apply_incremental(&ops, false).unwrap();
@@ -108,7 +107,6 @@ fn exercise(name: &str) {
     let delta = s.apply_incremental(&ops, true).unwrap();
     assert_eq!(value(&preview), value(&delta));
     assert_eq!(value(&library), value(s.plan()));
-    save(name, "a-after", &s);
     fixed(&original.plan, s.plan());
     assert!(delta.moved.is_empty(), "{}", value(&delta.moved));
     assert!(
@@ -133,7 +131,6 @@ fn exercise(name: &str) {
     assert_eq!(value(&s.state().annotations), value(&original.annotations));
     assert_eq!(s.state().problems, original.problems);
     let before = s.state().clone();
-    save(name, "b-before", &s);
     let delta = s
         .apply_incremental(
             &[Op::set(
@@ -152,7 +149,6 @@ fn exercise(name: &str) {
             && g.source.starts_with("spec:")
             && g.placed.is_some())
     );
-    save(name, "b-after", &s);
     s.apply_incremental(
         &[
             Op::set("faces/bottom/datum", json!("A")),
@@ -189,14 +185,12 @@ fn exercise(name: &str) {
         })
         .collect();
     let before = s.state().clone();
-    save(name, "c-before", &s);
     let delta = s.apply_incremental(&ops, true).unwrap();
     fixed(&before.plan, s.plan());
     assert!(delta.moved.is_empty(), "{}", value(&delta.moved));
     for id in &targets {
         assert!(s.plan().gdt.iter().any(|g| g.source == format!("spec:features/{id}/controls/0") && g.placed.is_some()));
     }
-    save(name, "c-after", &s);
 }
 #[test]
 fn bracket() {
@@ -209,14 +203,6 @@ fn scattered() {
 #[test]
 fn ctc() {
     exercise("ctc");
-}
-
-fn save(name: &str, stage: &str, s: &Session) {
-    if let Some(dir) = std::env::var_os("DRAFTWRIGHT_INCREMENTAL_OUT") {
-        let dir = std::path::PathBuf::from(dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(format!("{name}-{stage}.svg")), s.drawing().svg()).unwrap();
-    }
 }
 
 #[test]
@@ -494,7 +480,6 @@ fn pmi_round_trip(name: &str) {
     let mut s = open(name);
     let original = s.state().clone();
     let updated = datum_step(&bytes, planar_face(&s));
-    save(name, "pmi-a-before", &s);
     let preview = s.replace_step_incremental(name, &updated, false).unwrap();
     assert_eq!(value(s.state()), value(&original));
     assert_eq!(
@@ -512,7 +497,6 @@ fn pmi_round_trip(name: &str) {
             .any(|g| g.cells == ["A"] && g.placed.is_some())
     );
     assert_eq!(value(&s.spec().engine_pins)["written_by"], "engine");
-    save(name, "pmi-a-after", &s);
     let restored = reopened(name, &updated, &s);
     fixed(s.plan(), restored.plan());
     assert_eq!(
@@ -520,7 +504,6 @@ fn pmi_round_trip(name: &str) {
         value(&restored.state().annotations)
     );
     assert_eq!(s.state().problems, restored.state().problems);
-    save(name, "pmi-a-reloaded", &restored);
     let after = s.state().clone();
     s.undo().unwrap();
     assert_eq!(value(s.state()), value(&original));
@@ -1047,7 +1030,14 @@ fn stale_engine_pins_open_and_are_dropped_without_stale_ink() {
     )
     .unwrap();
     let reopened = Session::new(part, analysis, spec).unwrap();
-    assert!(reopened.state().problems.iter().any(|p| p.code == "engine_pins_replanned" && p.refs.contains(&"d:missing/item".into())));
+    assert!(
+        reopened
+            .state()
+            .problems
+            .iter()
+            .any(|p| p.code == "engine_pins_partly_retained"
+                && p.refs.contains(&"d:missing/item".into()))
+    );
     assert!(
         !reopened
             .spec()
@@ -1067,6 +1057,15 @@ fn stale_engine_pins_open_and_are_dropped_without_stale_ink() {
             .problems
             .iter()
             .any(|p| p.code == "engine_pins_replanned")
+    );
+    assert!(
+        changed
+            .state()
+            .problems
+            .iter()
+            .any(|p| p.code == "engine_pins_replanned"
+                && p.severity == "warning"
+                && p.message.contains("geometry"))
     );
     assert!(changed.plan().gdt.iter().all(|g| g.cells != ["A"]));
 }
@@ -1173,7 +1172,7 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
     pins.annotations.insert("d:missing/item".into(), pin);
     cases.push(("missing", step.clone(), missing, true));
     cases.push(("changed", changed, session.spec().clone(), true));
-    cases.push(("revision", revision_path, session.spec().clone(), true));
+    cases.push(("revision", revision_path, session.spec().clone(), false));
     let mut messages = vec![
         json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"incremental-test","version":"1"}}}),
         json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
@@ -1207,7 +1206,12 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|p| p["code"] == "engine_pins_replanned"),
+                .any(|p| p["code"]
+                    == if *name == "missing" {
+                        "engine_pins_partly_retained"
+                    } else {
+                        "engine_pins_replanned"
+                    }),
             *stale,
             "{name}"
         );
@@ -1249,7 +1253,12 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|p| p["code"] == "engine_pins_replanned"),
+                .any(|p| p["code"]
+                    == if *name == "missing" {
+                        "engine_pins_partly_retained"
+                    } else {
+                        "engine_pins_replanned"
+                    }),
             *stale,
             "{name}"
         );
@@ -1293,7 +1302,7 @@ fn outside_pmi_revision_keeps_surviving_pins_and_reads_current_content() {
             .state()
             .problems
             .iter()
-            .any(|p| p.code == "engine_pins_replanned")
+            .all(|p| p.code != "engine_pins_replanned")
     );
     assert!(
         reopened
@@ -1600,4 +1609,90 @@ fn compact_native_dimension_constraints_derive_ink_and_keep_exact_reload() {
         );
         assert_eq!(s.state().problems, cold.state().problems);
     }
+}
+
+#[test]
+fn crowded_full_content_edit_keeps_pins_and_warns_on_the_item() {
+    let (mut s, _) = pinned_bracket();
+    let before = s.plan().clone();
+    let id = before
+        .dimensions
+        .iter()
+        .find(|d| d.placed.is_some())
+        .unwrap()
+        .id
+        .clone();
+    let op = Op::set(
+        format!("dimensions/{}/place/offset", draftwright::items::key(&id)),
+        json!([1000., 1000.]),
+    );
+    let preview = s.apply(std::slice::from_ref(&op), false).unwrap();
+    let committed = s.apply(&[op], true).unwrap();
+    assert_eq!(value(preview), value(committed));
+    assert!(s.spec().engine_pins.is_some());
+    let mut retained = before.clone();
+    retained.dimensions.retain(|d| d.id != id);
+    fixed(&retained, s.plan());
+    for old in before.dimensions.iter().filter(|d| d.id != id) {
+        let current = s.plan().dimensions.iter().find(|d| d.id == old.id).unwrap();
+        assert_eq!(old.placed, current.placed, "{}", old.id);
+        assert_eq!(old.measurements, current.measurements);
+    }
+    assert!(
+        s.state()
+            .problems
+            .iter()
+            .any(|p| p.code == "incremental_placement_constrained"
+                && p.severity == "warning"
+                && p.subjects.contains(&id))
+    );
+    assert!(
+        !s.state()
+            .problems
+            .iter()
+            .any(|p| p.code == "engine_pins_replanned")
+    );
+}
+
+#[test]
+fn trimmed_source_history_stops_at_a_consistent_revision_boundary() {
+    let mut s = open("bracket");
+    // These Spec-only states belong to the original source and must not remain
+    // reachable once its first source transition is evicted.
+    for n in 0..3 {
+        s.apply(
+            &[Op::set(
+                "sheet/title/drawn_by",
+                json!(format!("original-{n}")),
+            )],
+            true,
+        )
+        .unwrap();
+    }
+    let base = source("bracket");
+    let updated = datum_step(&base, planar_face(&s));
+    let mut expected = Vec::new();
+    for n in 0..36 {
+        expected.push((s.analysis().binding.clone(), value(s.state())));
+        let bytes = if n % 2 == 0 { &updated } else { &base };
+        s.replace_step_incremental("bracket", bytes, true).unwrap();
+    }
+    let last = value(s.state());
+    let mut undone = 0;
+    for (binding, state) in expected.iter().rev().take(32) {
+        s.undo().unwrap();
+        assert_eq!(&s.analysis().binding, binding);
+        assert_eq!(value(s.state()), *state);
+        undone += 1;
+    }
+    assert_eq!(undone, 32);
+    assert!(
+        s.undo().is_err(),
+        "the trimmed source boundary must stop undo"
+    );
+    for _ in 0..32 {
+        s.redo().unwrap();
+    }
+    assert_eq!(value(s.state()), last);
+    assert!(s.redo().is_err());
 }
