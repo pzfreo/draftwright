@@ -554,6 +554,7 @@ impl Pmi {
                     )));
                 }
             }
+            let partial = !external && extent.is_some();
             let extent = if external {
                 Some(value(extent.ok_or_else(|| {
                     raised("external thread needs its cylinder length")
@@ -571,7 +572,7 @@ impl Pmi {
             });
             this.model.threads.push(Thread {
                 feature: f,
-                partial_area: Some(f),
+                partial_area: partial.then_some(f),
                 side: if external {
                     ThreadSide::External
                 } else {
@@ -591,7 +592,7 @@ impl Pmi {
                 },
                 crest: None,
                 qualifier: Some(if external { canonical } else { designation }),
-                nominal_size: Some(major_diameter),
+                nominal_size: partial.then_some(major_diameter),
                 runout: None,
             });
             let mut items = vec![("pitch".into(), AttributeValue::Measure(pitch))];
@@ -926,12 +927,19 @@ mod tests {
             vec!["10".into()],
         )
         .unwrap();
+        // Full-depth API declarations retain main's fields. The eventual
+        // exporter supplies these structural AP242 WR12/parameter-count fields.
+        assert!(p.model.threads[0].partial_area.is_none());
+        assert!(p.model.threads[0].nominal_size.is_none());
+        let mut export = p.model.clone();
+        export.threads[0].partial_area = Some(export.threads[0].feature);
+        export.threads[0].nominal_size = Some(export.threads[0].major_diameter.clone());
         let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
         let doc = haecceity::p21::Document::parse(bytes).unwrap();
         let (edit, _) = write(
             &doc,
             &defs,
-            &[(PartId(0), p.model.clone())],
+            &[(PartId(0), export)],
             Mode::Replace,
             write::PresentationPolicy::RemovePresentation,
         )
@@ -972,6 +980,64 @@ mod tests {
         assert_eq!(thread.major_diameter.mm(), 10.0);
         assert_eq!(thread.nominal_size.as_ref().unwrap().mm(), 10.0);
         assert!(thread.partial_area.is_some());
+    }
+
+    #[test]
+    fn full_depth_threads_keep_main_fields_and_internal_depth_round_trips() {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/parts/plate.step"
+        ))
+        .unwrap();
+        let part = haecceity::read_step(&bytes).unwrap();
+        let wall = part.faces.iter().position(|face| matches!(
+            face.surface, haecceity::geom::Surface::Cylinder { radius, .. } if (radius - 3.).abs() < 1e-6
+        )).unwrap();
+        let mut p = Pmi::new(part.faces.len());
+        p.thread(vec![wall], "M7".into(), false, None, vec!["6".into()])
+            .unwrap();
+        assert!(p.model.threads[0].partial_area.is_none());
+        assert!(p.model.threads[0].nominal_size.is_none());
+        p.thread(vec![wall], "M7".into(), false, Some("2"), vec!["6".into()])
+            .unwrap();
+        let thread = &p.model.threads[0];
+        assert_eq!(thread.partial_area, Some(thread.feature));
+        assert_eq!(thread.nominal_size.as_ref().unwrap().mm(), 7.);
+        let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+        let doc = haecceity::p21::Document::parse(bytes).unwrap();
+        let (edit, _) = write(
+            &doc,
+            &defs,
+            &[(PartId(0), p.model)],
+            Mode::Replace,
+            write::PresentationPolicy::RemovePresentation,
+        )
+        .unwrap();
+        let bytes = doc.apply(&edit).unwrap().bytes;
+        let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+        let doc = haecceity::p21::Document::parse(bytes).unwrap();
+        let read = read(&doc, &defs).unwrap();
+        let model = &read.parts[0];
+        let thread = &model.threads[0];
+        assert_eq!(thread.side, ThreadSide::Internal);
+        assert!(thread.partial_area.is_some());
+        let attribute = model
+            .attributes
+            .iter()
+            .find(|a| a.name == "thread manufacturing")
+            .unwrap();
+        assert_eq!(attribute.on, Some(NoteOwner::Feature(thread.feature)));
+        let AttributeValue::Measure(depth) = &attribute
+            .items
+            .iter()
+            .find(|(name, _)| name == "minimum full thread")
+            .unwrap()
+            .1
+        else {
+            panic!("minimum full thread must be a typed length")
+        };
+        assert_eq!(depth.as_length().unwrap().unit, LengthUnit::Millimetre);
+        assert_eq!(depth.as_length().unwrap().mm(), 2.);
     }
 
     fn rejected_without_edits(pmi: &mut Pmi, edit: impl FnOnce(&mut Pmi) -> PyResult<()>) {

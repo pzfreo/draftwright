@@ -143,8 +143,6 @@ pub struct Finding {
     pub severity: String,
     pub message: String,
     pub products: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub part: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -262,7 +260,6 @@ fn finding(code: &str, message: String, products: Vec<String>) -> Finding {
         severity: "info".into(),
         message,
         products,
-        part: None,
     }
 }
 
@@ -1120,15 +1117,6 @@ pub fn build_bytes_with_pmi(
             );
         }
         timings.parts.push(timing);
-        for problem in &row.problems {
-            findings.push(Finding {
-                code: problem.code.clone(),
-                severity: problem.severity.clone(),
-                message: format!("{}: {}", row.name, problem.message),
-                products: row.products.clone(),
-                part: Some(row.name.clone()),
-            });
-        }
         prepared.push(row);
     }
     let general_assembly = ga.map(|g| {

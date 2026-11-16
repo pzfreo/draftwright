@@ -121,6 +121,10 @@ class CylinderRef(FaceRef):
         self._part._pmi.fit(self._targets, _number(diameter), str(fit))
         return self
 
+    @property
+    def _thread_depth_groups(self):
+        return (self._targets,)
+
     def thread(self, size, depth=None):
         """ISO metric thread; depth is minimum full-thread depth in mm for holes.
 
@@ -134,10 +138,30 @@ class CylinderRef(FaceRef):
             if isinstance(depth, (str, bool)) or not isinstance(depth, (int, float)) or not math.isfinite(depth) or depth <= 0:
                 raise ValueError("thread depth must be a finite positive number in mm")
             from OCP.BRepAdaptor import BRepAdaptor_Surface
-            for i in self._targets:
-                surface = BRepAdaptor_Surface(self._part._faces[i].wrapped)
-                if depth > surface.LastVParameter() - surface.FirstVParameter() + _TOL:
-                    raise ValueError("thread depth exceeds the hole's depth")
+            for indices in self._thread_depth_groups:
+                axes = []
+                for i in indices:
+                    face = self._part._faces[i]
+                    origin, direction = _axis(face)
+                    surface = BRepAdaptor_Surface(face.wrapped)
+                    for axis, stations in axes:
+                        point, along = axis
+                        dot = sum(a * b for a, b in zip(direction, along))
+                        offset = [a - b for a, b in zip(origin, point)]
+                        axial = sum(a * b for a, b in zip(offset, along))
+                        radial = sum((a - axial * b) ** 2 for a, b in zip(offset, along))
+                        if abs(abs(dot) - 1) < 1e-6 and radial < _TOL * _TOL:
+                            stations.extend(axial + dot * v for v in
+                                            (surface.FirstVParameter(), surface.LastVParameter()))
+                            break
+                    else:
+                        axes.append(((origin, direction),
+                                     [surface.FirstVParameter(), surface.LastVParameter()]))
+                # One hole can have several cylindrical wall faces after a cross
+                # hole or seam split. Their common-axis span is the bore's depth.
+                for _, stations in axes:
+                    if depth > max(stations) - min(stations) + _TOL:
+                        raise ValueError("thread depth exceeds the hole's depth")
             extent = _number(depth)
         if not self.internal:
             if len(self._targets) != 1:
@@ -174,13 +198,18 @@ class CylinderRef(FaceRef):
 
 
 class HoleRef(CylinderRef):
-    def __init__(self, part, faces, label, bores):
+    def __init__(self, part, faces, label, bores, bore_groups):
         super().__init__(part, faces, label, True)
         self.bores = bores  # smallest-radius cylinders of each hole
+        self._bore_groups = bore_groups
 
     @property
     def _targets(self):
         return self.bores
+
+    @property
+    def _thread_depth_groups(self):
+        return self._bore_groups
 
     def fit(self, fit):
         # Hole patterns can have several equal bores on separate axes.
@@ -397,7 +426,7 @@ class Part:
         if single and len(groups) > 1:
             raise ValueError(
                 f"hole(): the object holds {len(groups)} separate holes; use holes() for several")
-        bores = []
+        bores, bore_groups = [], []
         for g in groups:
             cylinders = [i for i in g if self._faces[i].geom_type.name == "CYLINDER"]
             if not cylinders:
@@ -408,9 +437,11 @@ class Part:
                 raise ValueError(
                     "hole(): the cylindrical faces found are bosses or shafts (material inside), not holes")
             smallest = min(_radius(self._faces[i]) for i in walls)
-            bores += [i for i in walls if abs(_radius(self._faces[i]) - smallest) < _TOL]
+            bore = [i for i in walls if abs(_radius(self._faces[i]) - smallest) < _TOL]
+            bores.extend(bore)
+            bore_groups.append(bore)
         flat = self._assign(groups, label or self._auto("hole"), "hole")
-        return HoleRef(self, flat, self._last_label, bores)
+        return HoleRef(self, flat, self._last_label, bores, bore_groups)
 
     @staticmethod
     def _is_hole_wall(face):

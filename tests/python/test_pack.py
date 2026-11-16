@@ -92,7 +92,10 @@ class PackAPI(unittest.TestCase):
         self.assertEqual({row["part_number"] for row in pack.rows}, {"DWG-101", "DWG-102"})
         report = json.loads((self.directory / "enclosure.json").read_text())
         self.assertEqual(pack.rows, report["rows"])
-        self.assertEqual(pack.findings, report["findings"])
+        self.assertEqual(pack.report, report)
+        self.assertEqual(pack.findings[:len(report["findings"])], report["findings"])
+        self.assertEqual(len(pack.findings), len(report["findings"]) +
+                         sum(len(row["problems"]) for row in report["rows"]))
         self.assertEqual(len((self.directory / "enclosure.csv").read_text().splitlines()), 3)
         for i, page in enumerate(pdf.pages):
             text = page.extract_text()

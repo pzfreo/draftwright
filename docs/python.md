@@ -209,7 +209,7 @@ Straight and diamond knurls draw the engine's manufacturing suffix and depiction
 Pitch is linear mm, and the measured diameter is the maximum diameter after
 knurling. `teeth=` is optional: omitted counts are derived as
 `round(π * diameter / pitch)`. An explicit positive integer is retained; a
-`knurl_tooth_count` warning finding reports a difference greater than 0.5 tooth.
+`knurl_tooth_count` informational finding reports a difference greater than 0.5 tooth.
 The callout still states pattern and pitch. Diamond requires `helix_angle=` in degrees (0 < angle < 90),
 which native PMI retains; the current drawing prints the pattern and pitch, not
 that angle. A straight knurl refuses `helix_angle`. Diagonal knurls are refused
@@ -409,8 +409,10 @@ for finding in pack.findings:
 
 `render(out, formats=("pdf", "csv", "json"))` returns every written path, in format
 order. `out` is a stem (`"enclosure"` produces `enclosure.pdf`, `.csv`, `.json`).
-`pack.rows` and `pack.findings` are lists of dictionaries from the latest successful Rust
-report; `pack.report` also includes the page count and GA details. Row `problems`
+`pack.rows` contains the latest successful Rust report’s rows. `pack.findings` is
+a Python convenience list combining the report’s findings and each row’s problems.
+`pack.report` and the exported JSON retain the native report, including page count
+and GA details; they do not repeat row problems in their findings. Row `problems`
 and `error` retain individual failures. Caller-owned material and process are
 marked `"pmi"` in row `sources`, independently of drawing Spec intent. Each part-sheet problem also appears in `pack.findings`, with `part` naming
 its part and the original `severity`; rows retain their problems. Supplied Parts

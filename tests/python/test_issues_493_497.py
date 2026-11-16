@@ -175,7 +175,11 @@ class PythonIssues(unittest.TestCase):
                                     and f["severity"] == problem["severity"] and problem["message"] in f["message"]
                                     for f in pack.findings), problem)
         self.assertGreater(count, 0)
-        self.assertEqual(pack.findings, json.loads((self.directory / "pack.json").read_text())["findings"])
+        raw = json.loads((self.directory / "pack.json").read_text())
+        self.assertEqual(pack.report, raw)
+        self.assertEqual(pack.findings[:len(raw["findings"])], raw["findings"])
+        self.assertEqual(len(pack.findings), len(raw["findings"]) + count)
+        self.assertTrue(all("part" not in f for f in raw["findings"]))
         for axis in ("y", "z", None):
             Pack([first, second], horizontal_axis=axis)
         for axis in ("X", "xy", 1, []):
@@ -218,12 +222,16 @@ class PythonIssues(unittest.TestCase):
         self.assertEqual(assembly.label, "")
 
     def test_497_old_version_names_required_and_found_before_use(self):
-        with patch("draftwright._build123d.version", return_value="0.9.1"):
+        from draftwright._build123d import _version_check
+        _version_check.cache_clear()
+        self.addCleanup(_version_check.cache_clear)
+        with patch("draftwright._build123d.version", return_value="0.9.1") as version:
             shape = bd.Box(3, 2, 1)
             for use in (lambda: Part(shape), lambda: Pack(bd.Compound(children=[shape])),
                         lambda: make_drawing(shape, out=self.directory / "old")):
                 with self.assertRaisesRegex(DraftwrightError, r"build123d>=0\.10.*found build123d 0\.9\.1"):
                     use()
+            self.assertEqual(version.call_count, 1)
 
     def test_497_build123d_extra_declares_the_minimum(self):
         from importlib.metadata import requires

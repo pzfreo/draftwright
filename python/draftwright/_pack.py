@@ -210,5 +210,13 @@ class Pack:
         result = json.loads(_native.render_pack(data, name, json.dumps(spec), products,
                                                os.fsdecode(os.fspath(out)), list(formats)))
         self.report = result["report"]
-        self.rows, self.findings = self.report["rows"], self.report["findings"]
+        self.rows = self.report["rows"]
+        # The native report/JSON is shared with the CLI and MCP. Only this
+        # Python convenience property includes the individual sheet problems.
+        self.findings = list(self.report["findings"])
+        for row in self.rows:
+            name = row.get("name") or row["key"]
+            self.findings.extend({**problem, "part": name, "products": row["products"],
+                                  "message": f"{name}: {problem['message']}"}
+                                 for problem in row["problems"])
         return tuple(result["written"])
