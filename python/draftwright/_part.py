@@ -156,10 +156,14 @@ class CylinderRef(FaceRef):
         if len(self._targets) != 1:
             raise ValueError("knurl requires one continuous cylindrical face")
         _, diameter, _ = self._part._cylinders(self._targets, "knurl")
-        if isinstance(pitch, bool) or not isinstance(pitch, (int, float)) or not math.isfinite(pitch) or pitch <= 0:
+        try:
+            pitch_value = float(pitch)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("knurl pitch must be a finite positive number in mm") from None
+        if isinstance(pitch, bool) or not math.isfinite(pitch_value) or pitch_value <= 0:
             raise ValueError("knurl pitch must be a finite positive number in mm")
         if teeth is None:
-            teeth = round(math.pi * diameter / pitch)
+            teeth = round(math.pi * diameter / pitch_value)
         if pattern == "straight" and helix_angle is not None:
             raise ValueError("a straight knurl takes no helix_angle")
         if not isinstance(teeth, int) or isinstance(teeth, bool) or teeth <= 0:

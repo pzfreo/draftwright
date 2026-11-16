@@ -140,6 +140,9 @@ class PythonIssues(unittest.TestCase):
         ref.knurl(0.8, teeth=39)
         _, explicit, _ = self.render(p, "explicit")
         self.assertEqual(svg, explicit)
+        ref.knurl("0.8", teeth=39)  # existing numeric-text pitch remains accepted
+        _, numeric_text, _ = self.render(p, "numeric-text")
+        self.assertEqual(svg, numeric_text)
         for teeth, mismatch in ((40, True), (2, True), (39, False)):
             ref.knurl(0.8, teeth=teeth)
             drawing, text, _ = self.render(p, f"teeth-{teeth}")
