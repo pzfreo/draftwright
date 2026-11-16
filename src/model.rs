@@ -10311,7 +10311,7 @@ pub fn edit(spec: &Spec, ops: &serde_json::Value) -> Result<Spec, Invalid> {
     }
     let mut edited: Spec = serde_json::from_value(doc)
         .map_err(|e| invalid(format!("The edited spec is not valid: {e}."), &[]))?;
-    crate::engine_pins::edit(spec, &mut edited, ops);
+    crate::engine_pins::edit(spec, &mut edited);
     let spec = edited;
     crate::sheets::validate(&spec)?;
     if spec.sheet.keep_layout == Some(true) {

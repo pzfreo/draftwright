@@ -974,7 +974,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
 
 /// Full editing releases layout pins for deliberate composition changes; annotation edits
 /// release just their own route, while ordinary title/notes/material changes retain the frame.
-pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
+pub(crate) fn edit(before: &Spec, after: &mut Spec) {
     if before.engine_pins.is_none() || before == after {
         return;
     }
@@ -984,8 +984,8 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
     new_sheet.title.clear();
     // Whole-field/set_spec operations have the same scope as individual paths.
     // Zones and title wording redraw furniture without changing composition.
-    old_sheet.zones.clone_from(&new_sheet.zones);
-    let composition_changed = old_sheet != new_sheet
+    old_sheet.zones = new_sheet.zones;
+    let layout = old_sheet != new_sheet
         || before.views != after.views
         || before.sheets != after.sheets
         || before.units != after.units
@@ -995,26 +995,6 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
         || before.dimension_source != after.dimension_source
         || before.dimension_schemes != after.dimension_schemes
         || before.hole_table != after.hole_table;
-    let layout = composition_changed
-        || ops.iter().any(|op| {
-            let p = op["path"].as_str().unwrap_or("").trim_matches('/');
-            [
-                "views",
-                "sheets",
-                "hole_table",
-                "units",
-                "dimension_source",
-                "dimension_schemes",
-                "origin",
-                "iso_scale_factor",
-            ]
-            .iter()
-            .any(|root| p == *root || p.starts_with(&format!("{root}/")))
-                || (p == "sheet" && old_sheet != new_sheet)
-                || (p.starts_with("sheet/")
-                    && !p.starts_with("sheet/title/")
-                    && !["sheet/title", "sheet/zones"].contains(&p))
-        });
     if layout {
         after.engine_pins = None;
         after.schema = model::SPEC_SCHEMA.into();
@@ -1046,18 +1026,6 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
         for table in &before.tables {
             if after.tables.iter().find(|t| t.id == table.id) != Some(table) {
                 pins.annotations.remove(&table.id);
-            }
-        }
-        for op in ops {
-            let parts: Vec<_> = op["path"]
-                .as_str()
-                .unwrap_or("")
-                .trim_matches('/')
-                .split('/')
-                .collect();
-            if parts.len() >= 2 && ["dimensions", "annotations"].contains(&parts[0]) {
-                pins.annotations
-                    .remove(&parts[1].replace("~1", "/").replace("~0", "~"));
             }
         }
     }
