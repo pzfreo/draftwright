@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::model::Analysis;
 
-type Values = BTreeMap<(&'static str, Vec<u8>), Box<dyn Any>>;
+type Values = BTreeMap<(&'static str, Vec<u8>), (u64, Box<dyn Any>)>;
 
 #[derive(Clone)]
 struct Active {
@@ -21,6 +21,7 @@ struct Active {
 }
 
 thread_local! {
+    static AGE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static ACTIVE: RefCell<Option<Active>> = const { RefCell::new(None) };
     static FIXED_PAIR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static EXPLICIT_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -209,7 +210,12 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
             let mut values = values.borrow_mut();
             values.retain(|(name, _), _| matches!(*name, "selected-paper" | "engine-pins-plan"));
             while values.len() > 4 {
-                values.pop_last();
+                let oldest = values
+                    .iter()
+                    .min_by_key(|(_, (age, _))| age)
+                    .map(|(key, _)| key.clone())
+                    .expect("nonempty retained preparation");
+                values.remove(&oldest);
             }
         }
         // These are policies activated by this invocation, not immutable preparation.
@@ -263,6 +269,14 @@ pub(crate) fn isolated<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> T {
     with(analysis, run)
 }
 
+fn next_age() -> u64 {
+    AGE.with(|age| {
+        let next = age.get() + 1;
+        age.set(next);
+        next
+    })
+}
+
 /// The address is used only while `with` borrows that Analysis, never across calls.
 /// Keys describe every additional input. Ordinary scopes end with the call; session scopes
 /// retain only entries bound to the complete Analysis, with all other inputs in each key.
@@ -282,13 +296,19 @@ pub(crate) fn memo<T: Clone + 'static>(
     let Some(values) = values else {
         return prepare();
     };
-    let key = (name, spaced(key));
+    let key = (name, held(name, key));
     if let Some(value) = values.borrow().get(&key) {
         // Invariant: Preparation keys include TypeId::of::<T>(); only T is stored for that key.
-        return value.downcast_ref::<T>().expect("preparation type").clone();
+        return value
+            .1
+            .downcast_ref::<T>()
+            .expect("preparation type")
+            .clone();
     }
     let value = prepare();
-    values.borrow_mut().insert(key, Box::new(value.clone()));
+    values
+        .borrow_mut()
+        .insert(key, (next_age(), Box::new(value.clone())));
     value
 }
 
@@ -307,7 +327,7 @@ pub(crate) fn lookup<T: Clone + 'static>(
             .borrow()
             .get(&(name, held(name, key.to_vec())))
             // Invariant: Preparation keys include TypeId::of::<T>(); only T is stored for that key.
-            .map(|v| v.downcast_ref::<T>().expect("preparation type").clone())
+            .map(|v| v.1.downcast_ref::<T>().expect("preparation type").clone())
     })
 }
 
@@ -321,7 +341,7 @@ pub(crate) fn store<T: 'static>(analysis: &Analysis, name: &'static str, key: Ve
             active
                 .values
                 .borrow_mut()
-                .insert((name, held(name, key)), Box::new(value));
+                .insert((name, held(name, key)), (next_age(), Box::new(value)));
         }
     });
 }
@@ -351,22 +371,35 @@ fn activated(name: &str) -> bool {
 /// reads and writes the selection's policies: a first attempt read from the shared memos
 /// activates none of its own, and the two attempts must not then be routed differently.
 fn held(name: &str, key: Vec<u8>) -> Vec<u8> {
+    // These readers consume only Analysis and their explicit geometric keys.
+    // A published layout reference changes placement, never this preparation.
+    if matches!(
+        name,
+        "analysis_digest"
+            | "lowered-pmi"
+            | "v_notches"
+            | "inspection-datum"
+            | "projected-model-index"
+            | "projected-feature-footprints"
+    ) {
+        return key;
+    }
     if activated(name) {
-        slot_ladder(|| spaced(key))
+        slot_ladder(|| spaced(key, name == "radius-edit-reference"))
     } else {
-        spaced(key)
+        spaced(key, name == "radius-edit-reference")
     }
 }
 
 /// Compact dimension spacing ([`crate::dims::compact`]) and a non-default frame gutter
 /// ([`crate::layout::gutter`]) change placements, so they key every planning memo: default
 /// keys are unchanged and the others are kept apart.
-fn spaced(mut key: Vec<u8>) -> Vec<u8> {
+fn spaced(mut key: Vec<u8>, reference_matters: bool) -> Vec<u8> {
     if let Some(pins) = crate::engine_pins::digest() {
         key.extend_from_slice(b"\xffengine-pins");
         key.extend_from_slice(&pins);
     }
-    if let Some(context) = retained_digest() {
+    if let Some(context) = retained_digest(reference_matters) {
         key.extend_from_slice(b"\xffretained-layout");
         key.extend_from_slice(&context);
     }
@@ -386,8 +419,16 @@ fn spaced(mut key: Vec<u8>) -> Vec<u8> {
 }
 
 /// All policies that can alter a retained solve, without changing ordinary keys.
-fn retained_digest() -> Option<[u8; 32]> {
-    let reference = PIN_REFERENCE.with(|r| r.borrow().as_ref().map(|r| r.1));
+fn retained_digest(reference_matters: bool) -> Option<[u8; 32]> {
+    // Ordinary preparation already states its layout dependencies explicitly:
+    // candidate/finished-plan/dimension placement include policy_key (the reference
+    // digest), while geometry and idle-view selection do not consume that reference.
+    // Radius-reference preparation predates policy_key and opts in separately.
+    // Incremental preparation must still distinguish every hidden retained input.
+    let retained = crate::incremental::active() || crate::engine_pins::loading();
+    let reference = (reference_matters || retained)
+        .then(|| PIN_REFERENCE.with(|r| r.borrow().as_ref().map(|r| r.1)))
+        .flatten();
     let intent = crate::incremental::context_digest();
     let proof = crate::engine_pins::reader_digest();
     if !crate::incremental::active() && reference.is_none() && intent.is_none() && proof.is_none() {
@@ -413,13 +454,13 @@ pub(crate) fn spaced_digest(key: &[u8; 32]) -> [u8; 32] {
         && gutter == crate::layout::FRAME_GUTTER
         && !is_lane_ladder()
         && crate::engine_pins::digest().is_none()
-        && retained_digest().is_none()
+        && retained_digest(true).is_none()
     {
         return *key;
     }
     let mut hasher = Sha256::new();
     hasher.update(key);
-    if let Some(context) = retained_digest() {
+    if let Some(context) = retained_digest(true) {
         hasher.update(b"retained-layout");
         hasher.update(context);
     }
@@ -525,6 +566,80 @@ impl<T: Clone> BoundedMemo<T> {
 mod tests {
     use super::*;
     use crate::model::Spec;
+
+    #[test]
+    fn ordinary_reference_reuses_pure_preparation_but_separates_placement() {
+        let bytes = include_bytes!("../tests/fixtures/parts/plate.step");
+        let (_, a) = crate::model::analyse_native_bytes("plate", bytes).unwrap();
+        let reference = crate::model::plan_recovered(&a, &Spec::default()).unwrap();
+        with(&a, || {
+            let key = vec![37];
+            assert_eq!(memo(&a, "analysis_digest", key.clone(), || 1_u8), 1);
+            assert_eq!(memo(&a, "candidate", key.clone(), || 2_u8), 2);
+            let candidate_key = serde_json::to_vec(&policy_key(&a)).unwrap();
+            assert_eq!(memo(&a, "candidate", candidate_key.clone(), || 4_u8), 4);
+            assert_eq!(memo(&a, "idle-view", key.clone(), || 5_u8), 5);
+            let digest = spaced_digest(&[37; 32]);
+            with_pin_reference(reference, || {
+                assert_eq!(
+                    memo::<u8>(&a, "analysis_digest", key.clone(), || panic!(
+                        "pure preparation was lost"
+                    )),
+                    1_u8
+                );
+                assert_eq!(
+                    memo::<u8>(&a, "idle-view", key.clone(), || panic!(
+                        "idle-view preparation was lost"
+                    )),
+                    5
+                );
+                assert_ne!(
+                    spaced_digest(&[37; 32]),
+                    digest,
+                    "shared result caches must still distinguish the reference"
+                );
+                let different_key = serde_json::to_vec(&policy_key(&a)).unwrap();
+                assert_ne!(candidate_key, different_key);
+                assert_eq!(memo(&a, "candidate", different_key, || 3_u8), 3);
+            });
+            assert_eq!(
+                memo::<u8>(&a, "candidate", key, || panic!(
+                    "ordinary placement was lost"
+                )),
+                2_u8
+            );
+        });
+    }
+
+    #[test]
+    fn retained_preparation_evicts_oldest_not_largest_key() {
+        let a = analysis();
+        with_retained(&a, || {
+            // Reverse key order makes alphabetical eviction keep the oldest entries.
+            for i in (0_u16..6).rev() {
+                store(&a, "selected-paper", i.to_le_bytes().to_vec(), i);
+            }
+            for i in 0_u16..260 {
+                store(&a, "discard", i.to_le_bytes().to_vec(), i);
+            }
+        });
+        with_retained(&a, || {
+            assert_eq!(
+                lookup::<u16>(&a, "selected-paper", &5_u16.to_le_bytes()),
+                None
+            );
+            assert_eq!(
+                lookup::<u16>(&a, "selected-paper", &4_u16.to_le_bytes()),
+                None
+            );
+            for i in 0_u16..4 {
+                assert_eq!(
+                    lookup::<u16>(&a, "selected-paper", &i.to_le_bytes()),
+                    Some(i)
+                );
+            }
+        });
+    }
 
     #[test]
     fn shared_memo_clones_and_drops_values_outside_its_lock() {

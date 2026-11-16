@@ -1580,7 +1580,16 @@ pub(crate) fn idle_decision(analysis: &Analysis, spec: &Spec) -> IdleDecision {
         a.place = None;
     }
     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-    let key = serde_json::to_vec(&named).expect("planning inputs serialize");
+    let mut key = serde_json::to_vec(&named).expect("planning inputs serialize");
+    if crate::placement_intent::has_pins(&named) {
+        // Dimension/annotation pins were neutralised above. Surviving view pins
+        // can still consume the published reference, so state that input explicitly.
+        key.push(0xff);
+        key.extend(
+            serde_json::to_vec(&crate::planning::policy_key(analysis))
+                .expect("view policy serializes"),
+        );
+    }
     crate::planning::memo(analysis, "idle-view", key, || {
         let shown = crate::planning::isolated(analysis, || {
             with_compact(false, || {
