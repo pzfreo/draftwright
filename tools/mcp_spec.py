@@ -81,7 +81,7 @@ def engine_pin_definitions():
                 'translations': arr(point)}, ('at', 'direction', 'up', 'scale', 'area'))
     pins = obj({
         'written_by': {'const': 'engine'}, 'source_sha256': S,
-        'sheet': obj({'size': S, 'scale': S}, ('size', 'scale')),
+        'sheet': obj({'units': enum('mm', 'in'), 'size': S, 'scale': S}, ('size', 'scale')),
         'views': mapping(view), 'annotations': mapping(ref('engine_pin_annotation')),
         'rebase': arr(S), 'origins': vector,
         'geometry_sha256': {**nullable(S), 'description': 'Identity of the imported B-rep for verifying a PMI-only source revision.'},

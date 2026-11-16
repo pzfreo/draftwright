@@ -2543,6 +2543,12 @@
         "sheet": {
           "type": "object",
           "properties": {
+            "units": {
+              "enum": [
+                "mm",
+                "in"
+              ]
+            },
             "size": {
               "type": "string"
             },

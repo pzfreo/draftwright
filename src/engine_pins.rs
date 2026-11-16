@@ -39,6 +39,9 @@ pub enum Writer {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sheet {
+    /// Effective drawing units; an omitted authored preference remains omitted.
+    #[serde(default)]
+    pub units: crate::units::Units,
     pub size: String,
     pub scale: String,
 }
@@ -143,6 +146,17 @@ thread_local! {
     #[cfg(test)]
     static SOLVES: Cell<usize> = const { Cell::new(0) };
 }
+pub(crate) struct Suspended(Option<EnginePins>, Option<[u8; 32]>);
+pub(crate) fn suspend() -> Suspended {
+    Suspended(LOADING.with(|p| p.take()), DIGEST.replace(None))
+}
+impl Drop for Suspended {
+    fn drop(&mut self) {
+        LOADING.with(|p| *p.borrow_mut() = self.0.take());
+        DIGEST.set(self.1);
+    }
+}
+
 pub(crate) fn digest() -> Option<[u8; 32]> {
     DIGEST.get()
 }
@@ -241,12 +255,25 @@ pub(crate) fn pinned_ink(id: &str) -> bool {
 }
 
 fn basis(a: &Analysis, before: &Plan, id: &str) -> Option<Basis> {
-    let d = before.dimensions.iter().find(|d| d.id == id)?;
-    let axis = d.measurements.iter().find_map(|m| {
-        m.parameter
-            .strip_prefix("location.length.")
-            .and_then(|s| ["x", "y", "z"].iter().position(|v| *v == s))
-    })?;
+    // A schedule's covered coordinates keep their basis too, even though they
+    // no longer have a standalone dimension in the published plan.
+    let (axis, provenance) = if let Some(d) = before.dimensions.iter().find(|d| d.id == id) {
+        (
+            d.measurements.iter().find_map(|m| {
+                m.parameter
+                    .strip_prefix("location.length.")
+                    .and_then(|s| ["x", "y", "z"].iter().position(|v| *v == s))
+            })?,
+            d.basis.as_str(),
+        )
+    } else {
+        let d = before.omitted.iter().find(|d| d.id == id)?;
+        let (_, axis) = id.rsplit_once("/location.length.")?;
+        (
+            ["x", "y", "z"].iter().position(|v| *v == axis)?,
+            d.basis.as_str(),
+        )
+    };
     if let Some(pin) = before
         .spec
         .engine_pins
@@ -263,12 +290,16 @@ fn basis(a: &Analysis, before: &Plan, id: &str) -> Option<Basis> {
     {
         return Some(pin);
     }
-    let mut station = a.envelope[0][axis];
+    let mut station = if provenance.contains("from the axis of") {
+        crate::dims::pin_geometry::round_origin(a, id, axis).unwrap_or(a.envelope[0][axis])
+    } else {
+        a.envelope[0][axis]
+    };
     for g in &before.gdt {
         if g.kind == "datum_feature"
             && g.cells
                 .first()
-                .is_some_and(|letter| d.basis.contains(&format!("datum {letter} (")))
+                .is_some_and(|letter| provenance.contains(&format!("datum {letter} (")))
         {
             for &face in &g.faces {
                 if let Some(f) = a.face_attachments.get(face)
@@ -451,6 +482,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
         .map(|d| (d.id.clone(), Some(d.view.clone())))
         .chain(plan.omitted.iter().map(|d| (d.id.clone(), None)))
     {
+        let kept_basis = basis(a, before.unwrap_or(plan), &id);
         annotations.entry(id).or_insert(Annotation {
             place: Place {
                 view,
@@ -458,7 +490,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                 ..Default::default()
             },
             route: None,
-            basis: None,
+            basis: kept_basis,
             space: None,
             omit: true,
             region: None,
@@ -561,6 +593,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
         layout_sha256: Some(layout_key(&plan.spec)),
         authored_places: authored_places(&plan.spec),
         sheet: Sheet {
+            units: plan.sheet.units,
             size: plan.sheet.size.clone(),
             scale: plan.sheet.scale.clone(),
         },
@@ -591,16 +624,17 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
     compact_dimensions(a, plan);
 }
 fn compact_dimensions(a: &Analysis, plan: &mut Plan) {
+    let spec = plan.resolved_spec().into_owned();
     let pins = plan.spec.engine_pins.as_ref().unwrap();
     let recipes = with_pins((**pins).clone(), || {
-        crate::dims::pin_geometry::Recipes::new(a, &plan.spec, &plan.views)
+        crate::dims::pin_geometry::Recipes::new(a, &spec, &plan.views)
     });
     let updates: Vec<_> = with_pins((**pins).clone(), || {
         plan.dimensions
             .iter()
             .filter_map(|d| {
                 let view = plan.views.iter().find(|v| v.id == d.view)?;
-                let (place, initial, variant) = recipes.encode(a, &plan.spec, view, d)?;
+                let (place, initial, variant) = recipes.encode(a, &spec, view, d)?;
                 Some((d.id.clone(), place, initial, variant))
             })
             .collect()
@@ -625,20 +659,21 @@ fn parse_side(side: &str) -> Option<crate::placement_intent::Side> {
     serde_json::from_value(side.into()).ok()
 }
 fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String> {
-    let effective = crate::spec_gdt::effective(analysis, &plan.spec).expect("validated Spec");
+    let spec = plan.resolved_spec().into_owned();
+    let effective = crate::spec_gdt::effective(analysis, &spec).expect("validated Spec");
     let (mut lowered, _) = crate::pmi_lowering::lower_in(
         &effective,
         &|name| plan.views.iter().any(|v| v.id == format!("v:{name}")),
-        plan.spec.units,
+        spec.units,
     );
-    crate::label_text::annotations(&mut lowered, &plan.spec).expect("validated label text");
+    crate::label_text::annotations(&mut lowered, &spec).expect("validated label text");
     let mut remaining: BTreeSet<_> = pins.annotations.keys().cloned().collect();
 
     let recipes = pins
         .annotations
         .values()
         .any(|p| (p.route.is_none() && !p.omit) || matches!(p.route, Some(Route::Native { .. })))
-        .then(|| crate::dims::pin_geometry::Recipes::new(analysis, &plan.spec, &plan.views));
+        .then(|| crate::dims::pin_geometry::Recipes::new(analysis, &spec, &plan.views));
     for d in &mut plan.dimensions {
         if let Some(pin) = pins.annotations.get(&d.id) {
             if pin.omit {
@@ -657,7 +692,7 @@ fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String>
                 if let Some(view) = plan.views.iter().find(|v| v.id == view_id)
                     && let Some(recipes) = &recipes
                     && let Some(placed) = recipes
-                        .candidates(analysis, &plan.spec, view, d, &pin.place, initial)
+                        .candidates(analysis, &spec, view, d, &pin.place, initial)
                         .into_iter()
                         .nth(variant)
                 {
@@ -778,7 +813,7 @@ fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String>
                     g,
                     &decoded,
                     item,
-                    plan.spec.units,
+                    spec.units,
                     crate::dims::hole_marks::controlled_count(analysis, &item.faces),
                 ) {
                     remaining.remove(&g.id);
@@ -888,6 +923,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
         .layout_sha256
         .as_ref()
         .is_some_and(|key| key != &layout_key(&base))
+        || (!base.units.is_auto() && base.units != pins.sheet.units)
         || camera_changed
         || table_changed
         || (revised && !same_geometry)
@@ -913,6 +949,7 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
         return Ok(result);
     }
     let mut forced = base.clone();
+    forced.units = pins.sheet.units;
     forced.sheet.size = Some(pins.sheet.size.clone());
     forced.sheet.scale = Some(pins.sheet.scale.clone());
     forced.sheet.keep_layout = None;
@@ -994,6 +1031,9 @@ fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Inv
     });
     crate::incremental::constrain(&mut result, constrained);
     result.spec = spec.clone();
+    if spec.units.is_auto() {
+        result = crate::units::record_default(a, result);
+    }
     persist(a, &mut result, Some(&reference));
     if !dropped.is_empty() {
         pin_finding(
@@ -1240,7 +1280,7 @@ fn layout_key(spec: &Spec) -> String {
         "sheet": {"size":spec.sheet.size,"scale":spec.sheet.scale,
             "paper":spec.sheet.paper,"keep_layout":spec.sheet.keep_layout,
             "view_gutter":spec.sheet.view_gutter,"table_columns":spec.sheet.table_columns},
-        "views":spec.views,"sheets":spec.sheets,"units":spec.units,
+        "views":spec.views,"sheets":spec.sheets,"units":(!spec.units.is_auto()).then_some(spec.units),
         "part":spec.part,"origin":spec.origin,"iso_scale_factor":spec.iso_scale_factor,
         "dimension_source":spec.dimension_source,"dimension_schemes":spec.dimension_schemes,
         "hole_table":spec.hole_table

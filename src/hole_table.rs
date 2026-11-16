@@ -3039,7 +3039,7 @@ fn select_with(
             id: format!("hole_schedule_{}", view.id.trim_start_matches("v:")), view: Some(view.id.clone()), origin: Some(origin), pcd, covered: Vec::new(),
             rows, default: plan.spec.hole_table == Setting::Auto, basis: {
                 let mut basis = format!("plan-time hole schedule: {n} holes, {crowded} crowded ordinates, {conflicts} leader crossings; local X/Y from the marked datum corner");
-                if kept_origin.is_none_or(|origin| origin != analysis.envelope[0]) && (crate::dims::pmi_policy::controls_origins(analysis) || !plan.spec.origin.is_empty()) {
+                if !plan.spec.origin.is_empty() || (kept_origin.is_none_or(|origin| origin != analysis.envelope[0]) && crate::dims::pmi_policy::controls_origins(analysis)) {
                     basis += &format!("; origin: {}", crate::dims::pmi_policy::origin_description(analysis, &plan.spec));
                 }
                 basis

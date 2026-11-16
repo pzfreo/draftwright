@@ -477,7 +477,7 @@ pub struct Spec {
 #[serde(deny_unknown_fields, default)]
 struct SpecFields {
     /// Printed length units; geometry remains millimetres.
-    #[serde(skip_serializing_if = "crate::units::Units::is_mm")]
+    #[serde(skip_serializing_if = "crate::units::Units::is_auto")]
     pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
@@ -3088,7 +3088,13 @@ struct FittingFix {
 }
 
 fn fit_fix(analysis: &Analysis, spec: &Spec) -> Result<Option<FittingFix>, Invalid> {
-    if crate::planning::bounded_pair() {
+    // Retained frames cannot participate in a search that unpins sheet/scale:
+    // view substitution would keep restoring the rejected pair and recurse.
+    // The incremental finding offers an explicit Re-layout instead.
+    if crate::planning::bounded_pair()
+        || crate::incremental::active()
+        || crate::engine_pins::loading()
+    {
         return Ok(None);
     }
     let (Some(size), Some(scale)) = (&spec.sheet.size, &spec.sheet.scale) else {
@@ -6351,6 +6357,12 @@ fn finished_edit_reference(analysis: &Analysis, spec: &Spec, recovered: bool) ->
 // for unrelated dimensions. Preserve the finished canonical ink, rather than
 // reusing an earlier, pre-nominal placement inventory.
 fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan, recovered: bool) {
+    // Retained-layout solves already carry their published dimension ink and schedule
+    // tags. A fresh canonical reference here would recurse into that same pin solve.
+    // Keep the ordinary inch edit/repair path for drawings without engine retention.
+    if crate::incremental::active() || crate::engine_pins::loading() {
+        return;
+    }
     let approval_place = |d: &DimensionSpec| {
         d.place.as_ref().is_none_or(|p| {
             *p == crate::placement_intent::Place {

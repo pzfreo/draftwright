@@ -167,6 +167,16 @@ pub(crate) fn with_pin_reference<T>(reference: crate::model::Plan, run: impl FnO
     run()
 }
 
+pub(crate) struct SuspendedReference(Option<(Arc<crate::model::Plan>, [u8; 32])>);
+pub(crate) fn suspend_pin_reference() -> SuspendedReference {
+    SuspendedReference(PIN_REFERENCE.with(|r| r.take()))
+}
+impl Drop for SuspendedReference {
+    fn drop(&mut self) {
+        PIN_REFERENCE.with(|r| *r.borrow_mut() = self.0.take());
+    }
+}
+
 pub(crate) fn pin_reference_shared() -> Option<Arc<crate::model::Plan>> {
     PIN_REFERENCE.with(|r| r.borrow().as_ref().map(|r| r.0.clone()))
 }

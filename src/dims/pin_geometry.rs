@@ -2,6 +2,16 @@
 use super::*;
 use crate::placement_intent::{Place, Side};
 
+/// Recover the existing native round-axis basis without consulting new PMI.
+pub(crate) fn round_origin(a: &Analysis, id: &str, axis: usize) -> Option<f64> {
+    let feature = id.strip_prefix("d:")?.split_once("/location.length.")?.0;
+    let (_, h) = crate::bridge::holes::read(a)
+        .into_iter()
+        .find(|(f, _)| f.id == feature)?;
+    let view = h.ok()?.principal?.0;
+    holes::round_origin(a, view, axis).map(|(_, at)| at[axis])
+}
+
 pub(crate) struct Recipes {
     wants: Vec<Want>,
 }
@@ -164,7 +174,7 @@ impl Recipes {
             let lane = place.lane.unwrap_or(0);
             let candidate = match lane {
                 0..32 => placement::place(&f, &w, side, lane),
-                32..64 => placement::interior_lanes(&f, &w, side)
+                32..64 => placement::interior_lanes(&f, &w, side, false)
                     .into_iter()
                     .nth(lane - 32),
                 _ => placement::opening_lanes(&f, &w, side)

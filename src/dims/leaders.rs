@@ -1038,6 +1038,13 @@ fn settled_nominal_reference(
                         a
                     });
                 let analysis = reference.as_ref().unwrap_or(analysis);
+                // This is an unrendered canonical reference, not the live drawing.
+                // Retaining the live frame here makes its recovery keep restoring
+                // an otherwise rejected sheet. Restore all pin context on return.
+                let retained = crate::incremental::active() || crate::engine_pins::loading();
+                let _incremental = retained.then(crate::incremental::suspend);
+                let _pins = retained.then(crate::engine_pins::suspend);
+                let _reference = retained.then(crate::planning::suspend_pin_reference);
                 crate::planning::isolated(analysis, || {
                     crate::planning::store(
                         analysis,

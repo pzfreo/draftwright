@@ -22,6 +22,30 @@ pub(crate) fn context_digest() -> Option<[u8; 32]> {
     CONTEXT.get()
 }
 
+/// Canonical comparison drawings must not inherit the live retained frame.
+pub(crate) struct Suspended {
+    active: bool,
+    intent: Option<Spec>,
+    restored: BTreeSet<String>,
+    context: Option<[u8; 32]>,
+}
+pub(crate) fn suspend() -> Suspended {
+    Suspended {
+        active: ACTIVE.replace(false),
+        intent: INTENT.with(|s| s.take()),
+        restored: RESTORED.with(|s| s.take()),
+        context: CONTEXT.replace(None),
+    }
+}
+impl Drop for Suspended {
+    fn drop(&mut self) {
+        ACTIVE.set(self.active);
+        CONTEXT.set(self.context);
+        INTENT.with(|s| *s.borrow_mut() = self.intent.take());
+        RESTORED.with(|s| *s.borrow_mut() = std::mem::take(&mut self.restored));
+    }
+}
+
 /// A prior content variant, including its shared statement's contributing edits.
 /// These are bounded by distinct authored variants, never nested plans.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -145,6 +169,7 @@ fn plan_revision_scoped(
     }
     let mut pinned = spec.clone();
     pinned.engine_pins = None;
+    pinned.units = before.sheet.units;
     pinned.sheet.size = Some(before.sheet.size.clone());
     pinned.sheet.scale = Some(before.sheet.scale.clone());
     pinned.sheet.keep_layout = None;
@@ -190,17 +215,17 @@ fn plan_revision_scoped(
     let (mut lowered, _) = crate::pmi_lowering::lower_in(
         &effective,
         &|name| before.views.iter().any(|v| v.id == format!("v:{name}")),
-        spec.units,
+        pinned.units,
     );
     crate::label_text::annotations(&mut lowered, spec)?;
     for old in before.incremental_gdt.iter().rev() {
         if let Some(current) = reference.gdt.iter_mut().find(|g| g.id == old.id) {
             if !lowered
                 .iter()
-                .any(|item| crate::dims::gdt::same_content(current, item, spec.units))
+                .any(|item| crate::dims::gdt::same_content(current, item, pinned.units))
                 && lowered
                     .iter()
-                    .any(|item| crate::dims::gdt::same_content(old, item, spec.units))
+                    .any(|item| crate::dims::gdt::same_content(old, item, pinned.units))
             {
                 *current = old.clone();
             }
@@ -219,7 +244,7 @@ fn plan_revision_scoped(
                     .unwrap_or_default()
             && lowered
                 .iter()
-                .any(|item| crate::dims::gdt::same_content(g, item, spec.units))
+                .any(|item| crate::dims::gdt::same_content(g, item, pinned.units))
         {
             pinned.annotations.entry(g.id.clone()).or_default().place = Some(Place {
                 pinned: true,
@@ -406,6 +431,9 @@ fn plan_revision_scoped(
     let mut ids = BTreeSet::new();
     after.problems.retain(|p| ids.insert(p.id.clone()));
     after.status = crate::completeness::status(&after.problems);
+    if spec.units.is_auto() {
+        after = crate::units::record_default(analysis, after);
+    }
     crate::engine_pins::persist(analysis, &mut after, Some(before));
     Ok(after)
 }
@@ -863,7 +891,7 @@ pub(crate) fn recheck(a: &Analysis, plan: &mut Plan) {
     // actual curves through the ordinary page-bounds audit, not label bounds.
     model::refresh_line_work_problems(plan);
     crate::dims::contacts::report(a, plan);
-    let spec = plan.spec.clone();
+    let spec = plan.resolved_spec().into_owned();
     crate::dims::pmi_policy::audit(a, &spec, plan);
     let measured = plan
         .views
@@ -938,6 +966,14 @@ mod memo_tests {
             assert_eq!(memo.get(&active), None);
             memo.insert(active, 20);
             assert_eq!(memo.get(&active), Some(20));
+            {
+                let _suspended = suspend();
+                assert!(!super::active());
+                assert_eq!(context_digest(), None);
+                assert_eq!(memo.get(&crate::planning::spaced_digest(&key)), Some(10));
+            }
+            assert!(super::active());
+            assert_eq!(memo.get(&crate::planning::spaced_digest(&key)), Some(20));
             // Intent and restored variants are part of every placement key.
             let spec = Spec::default();
             for restored in [BTreeSet::new(), BTreeSet::from(["d:restored".to_string()])] {

@@ -2830,6 +2830,11 @@ commit adopts the new source identity and PMI; undo/redo includes that source re
 Removing PMI takes off its ink and revives dormant variants at their previous placements.
 The older Spec face/feature requirement path remains supported.
 
+Engine-written `engine_pins.sheet.units` records effective `mm` or `in` while an
+omitted authored `Spec.units` stays omitted. Declared-inch incremental PMI, native
+recipe replay and final checks use those effective units; geometry and placement
+coordinates stay in millimetres. Older pin records without units mean millimetres.
+
 Every incremental result saves typed placement-only `engine_pins` in the Spec, with
 `written_by: "engine"` and schema `draftwright.spec/4`. The record contains the source
 revision, geometry and layout-intent identities, paper and scale, view frames, and annotation placements keyed by stable item id:
