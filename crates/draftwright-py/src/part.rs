@@ -111,8 +111,12 @@ impl Pmi {
                 ("general note".into(), AttributeValue::Text(text)),
                 ("note index".into(), AttributeValue::Integer(index as i64)),
             ],
-            description: None,
-            general_property: None,
+            description: Some("user defined attribute".into()),
+            general_property: Some(GeneralProperty {
+                id: String::new(),
+                name: "semantic text".into(),
+                description: None,
+            }),
         });
         Ok(())
     }
@@ -567,13 +571,13 @@ impl Pmi {
             });
             this.model.threads.push(Thread {
                 feature: f,
-                partial_area: None,
+                partial_area: Some(f),
                 side: if external {
                     ThreadSide::External
                 } else {
                     ThreadSide::Internal
                 },
-                major_diameter,
+                major_diameter: major_diameter.clone(),
                 minor_diameter: None,
                 pitch_diameter: None,
                 number_of_threads,
@@ -587,7 +591,7 @@ impl Pmi {
                 },
                 crest: None,
                 qualifier: Some(if external { canonical } else { designation }),
-                nominal_size: None,
+                nominal_size: Some(major_diameter),
                 runout: None,
             });
             let mut items = vec![("pitch".into(), AttributeValue::Measure(pitch))];
@@ -953,10 +957,21 @@ mod tests {
             .find(|a| a.name == "thread manufacturing")
             .unwrap();
         assert_eq!(extent.on, Some(NoteOwner::Feature(thread.feature)));
-        assert!(extent.items.contains(&(
-            "thread length".into(),
-            AttributeValue::Measure(value("12").unwrap())
-        )));
+        let Some(AttributeValue::Measure(length)) = extent
+            .items
+            .iter()
+            .find(|(name, _)| name == "thread length")
+            .map(|(_, value)| value)
+        else {
+            panic!("missing typed thread length: {:?}", extent.items);
+        };
+        let length = length.as_length().unwrap();
+        assert_eq!(length.unit, LengthUnit::Millimetre);
+        // STEP spells an integer REAL as `12.`; Decimal retains that spelling.
+        assert_eq!(length.mm(), 12.0);
+        assert_eq!(thread.major_diameter.mm(), 10.0);
+        assert_eq!(thread.nominal_size.as_ref().unwrap().mm(), 10.0);
+        assert!(thread.partial_area.is_some());
     }
 
     fn rejected_without_edits(pmi: &mut Pmi, edit: impl FnOnce(&mut Pmi) -> PyResult<()>) {

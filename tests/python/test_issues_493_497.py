@@ -155,9 +155,12 @@ class PythonIssues(unittest.TestCase):
         # Two made parts, including an undimensioned slot which has sheet problems.
         slot = bd.Pos(7, 0, 0) * bd.Box(4.75, 12, 10)
         first = Part(bd.Box(30, 20, 6) - slot, "GRM-01 shank")
+        original_faces = list(first.shape.faces())
         second = Part(bd.Pos(0, 0, 20) * bd.Box(15, 12, 3), "lid")
         pack = Pack([first, second], horizontal_axis="x")
         pack.render(self.directory / "pack", formats=("pdf", "json"))
+        self.assertTrue(all(a.wrapped.IsSame(b.wrapped)
+                            for a, b in zip(original_faces, first.shape.faces())))
         self.assertFalse([f for f in pack.findings if f["code"] == "pack_make_guess"])
         self.assertEqual(pack.report["general_assembly"]["frame"][0][:3], [1, 0, 0])
         count = 0

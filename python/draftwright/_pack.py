@@ -139,13 +139,38 @@ class Pack:
         if missing:
             raise ValueError(f"Parts have no matching assembly product: {', '.join(sorted(missing))}")
         assembly = self._assembly
+        copied_shapes = []
+
+        def clone(node):
+            if not node.children:
+                result = copy.deepcopy(node)
+                # Repeated placed instances must still share a definition in
+                # XCAF. Share the private copy, never the caller's TShape.
+                for original, copied in copied_shapes:
+                    if node.wrapped.IsPartner(original):
+                        result.wrapped.TShape(copied.TShape())
+                        break
+                else:
+                    copied_shapes.append((node.wrapped, result.wrapped))
+                return result
+            # Rebuild wrappers from their copied children: copying a whole
+            # Compound separately breaks XCAF's exact shape-to-label lookup.
+            result = Compound(children=[clone(child) for child in node.children])
+            result.label = node.label
+            result.location = node.location
+            return result
+
         if isinstance(assembly, (list, tuple)):
             children = []
             for part in self._parts.values():
-                shape = copy.copy(part.shape)
+                # OCCT 7.8's XCAF transfer can repair shared TShapes in place.
+                # A shallow copy would invalidate the caller's retained faces.
+                shape = clone(part.shape)
                 shape.label = part.name
                 children.append(shape)
             assembly = Compound(children=children)
+        else:
+            assembly = clone(assembly)
         original_label = assembly.label
         try:
             # The STEP reader names a sole product after its assembly wrapper.

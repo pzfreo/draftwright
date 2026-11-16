@@ -618,7 +618,15 @@ def write_step(shape, path, names, faces, product, *, number=None, title=None, p
     # XCAF assemblies separate a child's outer placement from its product B-rep.
     # Export the identical local reference for packs; keep the original placement
     # for ordinary single-Part drawings. Intrinsic sub-face locations stay intact.
-    wrapped = shape.wrapped.Located(TopLoc_Location()) if product_local else shape.wrapped
+    reference = shape.wrapped
+    if product_local and check_version() < (0, 11, 0):
+        # build123d 0.10 wraps primitives in a Compound whose single solid has
+        # its own placement. XCAF exports that solid as the leaf product, with
+        # BOTH placements outside its B-rep. Use the same exact product frame.
+        solids = shape.solids()
+        if len(solids) == 1:
+            reference = solids[0].wrapped
+    wrapped = reference.Located(TopLoc_Location()) if product_local else reference
     writer.Transfer(wrapped, STEPControl_AsIs)
     model = writer.Model()
     for i in range(1, model.NbEntities() + 1):
@@ -630,7 +638,7 @@ def write_step(shape, path, names, faces, product, *, number=None, title=None, p
     for index, name in sorted(names.items()):
         face = faces[index].wrapped
         if product_local:
-            face = face.Moved(shape.wrapped.Location().Inverted())
+            face = face.Moved(reference.Location().Inverted())
         item = STEPConstruct.FindEntity_s(finder, face, TopLoc_Location())
         if item is None:
             raise RuntimeError(f"OCCT wrote no STEP face for the face named {name}")
