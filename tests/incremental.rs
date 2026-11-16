@@ -1963,18 +1963,7 @@ fn inch_source(name: &str) -> Vec<u8> {
 fn inch_session(name: &str, bytes: &[u8]) -> Session {
     let (part, analysis) = model::analyse_native_bytes(name, bytes).unwrap();
     assert_eq!(analysis.declared_length_unit, Some(LengthUnit::Inch));
-    // CTC-05's automatic drawing is multi-sheet. Exercise the single-sheet
-    // incremental API with explicit paper, principal views and box origins,
-    // keeping units automatic. FTC-07 below exercises the automatic layout.
-    let spec = if name == "ctc05" {
-        serde_json::from_value(
-            json!({"sheet":{"size":"ANSI E", "scale":"1:4"}, "views":{"section_aa":{"omit":true}}, "origin":{"x":"min","y":"min","z":"min"}}),
-        )
-        .unwrap()
-    } else {
-        Spec::default()
-    };
-    let s = Session::new(part, analysis, spec).unwrap();
+    let s = Session::new(part, analysis, Spec::default()).unwrap();
     assert_eq!(s.plan().sheet.units, draftwright::units::Units::In);
     assert_eq!(
         draftwright::units::Paper::for_size(&s.plan().sheet.size),
@@ -1986,132 +1975,115 @@ fn inch_session(name: &str, bytes: &[u8]) -> Session {
 
 #[test]
 fn declared_inches_incremental_pmi_keeps_units_basis_and_exact_reload() {
-    for name in ["ftc07", "ctc05"] {
-        let bytes = inch_source(name);
-        let mut s = inch_session(name, &bytes);
-        // The drawing explicitly asks to show this newly declared, uncited datum.
-        s.apply(&[Op::set("sheet/uncited_datums", json!(true))], true)
-            .unwrap();
-        let before = s.state().clone();
-        let source_pmi = value(&s.analysis().pmi);
-        let updated = pmi_edit(&bytes, |p| {
-            assert!(!p.datums.iter().any(|d| d.label().as_str() == "X"));
-            let claimed: std::collections::BTreeSet<_> = s
-                .plan()
-                .gdt
-                .iter()
-                .filter(|g| g.kind == "datum_feature")
-                .flat_map(|g| g.faces.iter().copied())
-                .collect();
-            let face = s
-                .part()
-                .faces
-                .iter()
-                .enumerate()
-                .filter_map(|(i, f)| {
-                    if let draftwright::haecceity::geom::Surface::Plane { frame } = &f.surface {
-                        (!claimed.contains(&i)
-                            && frame.z.iter().any(|v| (v.abs() - 1.0).abs() < 1e-10))
-                        .then_some((i, frame.origin[2]))
-                    } else {
-                        None
-                    }
-                })
-                .max_by(|a, b| a.1.total_cmp(&b.1))
-                .unwrap()
-                .0;
-            let target = face_target(p, face);
-            p.datums
-                .push(Datum::new(DatumLabel::new("X").unwrap(), Some(target), vec![]).unwrap());
-            let mut flatness = pmi_tolerance(target, ToleranceKind::Flatness, None);
-            flatness.magnitude = Some(hp::Value::length(
-                Decimal::parse("0.254").unwrap(),
-                LengthUnit::Millimetre,
-            ));
-            p.tolerances.push(flatness);
-        });
-        let preview = s.replace_step_incremental(name, &updated, false).unwrap();
-        assert_eq!(value(s.state()), value(&before));
-        let applied = s.replace_step_incremental(name, &updated, true).unwrap();
-        assert_eq!(value(&preview), value(&applied));
-        assert!(applied.moved.is_empty(), "{name}: {:?}", applied.moved);
-        fixed_inch_geometry(&before.plan, s.plan());
-        for d in &before.plan.dimensions {
-            let kept = s
-                .plan()
-                .dimensions
-                .iter()
-                .find(|kept| kept.id == d.id)
-                .unwrap();
-            assert_eq!(
-                (&d.label, &d.terms, &d.measurements, &d.basis),
-                (&kept.label, &kept.terms, &kept.measurements, &kept.basis),
-                "{name}: {}",
-                d.id
-            );
-        }
-        let new: Vec<_> = s
+    let name = "ftc07";
+    let bytes = inch_source(name);
+    let mut s = inch_session(name, &bytes);
+    // The drawing explicitly asks to show this newly declared, uncited datum.
+    s.apply(&[Op::set("sheet/uncited_datums", json!(true))], true)
+        .unwrap();
+    let before = s.state().clone();
+    let source_pmi = value(&s.analysis().pmi);
+    let updated = pmi_edit(&bytes, |p| {
+        assert!(!p.datums.iter().any(|d| d.label().as_str() == "X"));
+        let claimed: std::collections::BTreeSet<_> = s
             .plan()
             .gdt
             .iter()
-            .filter(|g| !before.plan.gdt.iter().any(|old| old.id == g.id))
+            .filter(|g| g.kind == "datum_feature")
+            .flat_map(|g| g.faces.iter().copied())
             .collect();
-        assert!(
-            new.iter().any(|g| g.cells == ["X"]),
-            "{name}: datums {:?}; problems {:?}; sheet {:?}",
-            s.plan()
-                .gdt
-                .iter()
-                .map(|g| (&g.id, &g.cells, &g.state))
-                .collect::<Vec<_>>(),
-            s.state()
-                .problems
-                .iter()
-                .filter(|p| p.code == "pmi_not_lowered")
-                .collect::<Vec<_>>(),
-            s.spec().sheet
-        );
-        assert!(
-            new.iter().any(|g| g.cells.first().is_some_and(|c| c == "⏥")
-                && g.cells.iter().any(|c| c == ".010"))
-        );
-        assert!(
-            new.iter().all(|g| g.placed.is_some()),
-            "{name}: new ink must be present"
-        );
-        assert_eq!(s.plan().sheet.units, draftwright::units::Units::In);
-        let wire = value(s.spec());
-        assert!(wire.get("units").is_none());
-        assert_eq!(wire["engine_pins"]["sheet"]["units"], "in");
-        let loaded = reopened(name, &updated, &s);
-        fixed_inch_geometry(s.plan(), loaded.plan());
-        assert_eq!(loaded.plan().sheet.units, draftwright::units::Units::In);
-        assert!(loaded.spec().units.is_auto());
-        s.replace_step_incremental(name, &bytes, true).unwrap();
-        fixed_inch_geometry(&before.plan, s.plan());
-        assert_eq!(
-            source_pmi,
-            value(&s.analysis().pmi),
-            "{name}: source evidence"
-        );
-        // Main emits two source diagnostics twice on CTC-05. Compare every
-        // complete finding by stable ID, and require the incremental result to
-        // contain each only once; the ordinary full path stays byte-identical.
-        let findings = |ps: &[model::Problem]| {
-            let mut unique = std::collections::BTreeMap::new();
-            for p in ps {
-                if let Some(old) = unique.insert(p.id.clone(), value(p)) {
-                    assert_eq!(old, value(p), "conflicting duplicate finding {}", p.id);
+        let face = s
+            .part()
+            .faces
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| {
+                if let draftwright::haecceity::geom::Surface::Plane { frame } = &f.surface {
+                    (!claimed.contains(&i) && frame.z.iter().any(|v| (v.abs() - 1.0).abs() < 1e-10))
+                        .then_some((i, frame.origin[2]))
+                } else {
+                    None
                 }
-            }
-            unique
-        };
-        assert_eq!(findings(&before.problems), findings(&s.state().problems));
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .unwrap()
+            .0;
+        let target = face_target(p, face);
+        p.datums
+            .push(Datum::new(DatumLabel::new("X").unwrap(), Some(target), vec![]).unwrap());
+        let mut flatness = pmi_tolerance(target, ToleranceKind::Flatness, None);
+        flatness.magnitude = Some(hp::Value::length(
+            Decimal::parse("0.254").unwrap(),
+            LengthUnit::Millimetre,
+        ));
+        p.tolerances.push(flatness);
+    });
+    let preview = s.replace_step_incremental(name, &updated, false).unwrap();
+    assert_eq!(value(s.state()), value(&before));
+    let applied = s.replace_step_incremental(name, &updated, true).unwrap();
+    assert_eq!(value(&preview), value(&applied));
+    assert!(applied.moved.is_empty(), "{name}: {:?}", applied.moved);
+    fixed_inch_geometry(&before.plan, s.plan());
+    for d in &before.plan.dimensions {
+        let kept = s
+            .plan()
+            .dimensions
+            .iter()
+            .find(|kept| kept.id == d.id)
+            .unwrap();
         assert_eq!(
-            findings(&s.state().problems).len(),
-            s.state().problems.len()
+            (&d.label, &d.terms, &d.measurements, &d.basis),
+            (&kept.label, &kept.terms, &kept.measurements, &kept.basis),
+            "{name}: {}",
+            d.id
         );
     }
+    let new: Vec<_> = s
+        .plan()
+        .gdt
+        .iter()
+        .filter(|g| !before.plan.gdt.iter().any(|old| old.id == g.id))
+        .collect();
+    assert!(
+        new.iter().any(|g| g.cells == ["X"]),
+        "{name}: datums {:?}; problems {:?}; sheet {:?}",
+        s.plan()
+            .gdt
+            .iter()
+            .map(|g| (&g.id, &g.cells, &g.state))
+            .collect::<Vec<_>>(),
+        s.state()
+            .problems
+            .iter()
+            .filter(|p| p.code == "pmi_not_lowered")
+            .collect::<Vec<_>>(),
+        s.spec().sheet
+    );
+    assert!(
+        new.iter()
+            .any(|g| g.cells.first().is_some_and(|c| c == "⏥")
+                && g.cells.iter().any(|c| c == ".010"))
+    );
+    assert!(
+        new.iter().all(|g| g.placed.is_some()),
+        "{name}: new ink must be present"
+    );
+    assert_eq!(s.plan().sheet.units, draftwright::units::Units::In);
+    let wire = value(s.spec());
+    assert!(wire.get("units").is_none());
+    assert_eq!(wire["engine_pins"]["sheet"]["units"], "in");
+    let loaded = reopened(name, &updated, &s);
+    fixed_inch_geometry(s.plan(), loaded.plan());
+    assert_eq!(loaded.plan().sheet.units, draftwright::units::Units::In);
+    assert!(loaded.spec().units.is_auto());
+    s.replace_step_incremental(name, &bytes, true).unwrap();
+    fixed_inch_geometry(&before.plan, s.plan());
+    assert_eq!(
+        source_pmi,
+        value(&s.analysis().pmi),
+        "{name}: source evidence"
+    );
+    assert_eq!(value(&before.problems), value(&s.state().problems));
 }
 
 #[test]

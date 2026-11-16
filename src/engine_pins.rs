@@ -255,25 +255,12 @@ pub(crate) fn pinned_ink(id: &str) -> bool {
 }
 
 fn basis(a: &Analysis, before: &Plan, id: &str) -> Option<Basis> {
-    // A schedule's covered coordinates keep their basis too, even though they
-    // no longer have a standalone dimension in the published plan.
-    let (axis, provenance) = if let Some(d) = before.dimensions.iter().find(|d| d.id == id) {
-        (
-            d.measurements.iter().find_map(|m| {
-                m.parameter
-                    .strip_prefix("location.length.")
-                    .and_then(|s| ["x", "y", "z"].iter().position(|v| *v == s))
-            })?,
-            d.basis.as_str(),
-        )
-    } else {
-        let d = before.omitted.iter().find(|d| d.id == id)?;
-        let (_, axis) = id.rsplit_once("/location.length.")?;
-        (
-            ["x", "y", "z"].iter().position(|v| *v == axis)?,
-            d.basis.as_str(),
-        )
-    };
+    let d = before.dimensions.iter().find(|d| d.id == id)?;
+    let axis = d.measurements.iter().find_map(|m| {
+        m.parameter
+            .strip_prefix("location.length.")
+            .and_then(|s| ["x", "y", "z"].iter().position(|v| *v == s))
+    })?;
     if let Some(pin) = before
         .spec
         .engine_pins
@@ -290,16 +277,12 @@ fn basis(a: &Analysis, before: &Plan, id: &str) -> Option<Basis> {
     {
         return Some(pin);
     }
-    let mut station = if provenance.contains("from the axis of") {
-        crate::dims::pin_geometry::round_origin(a, id, axis).unwrap_or(a.envelope[0][axis])
-    } else {
-        a.envelope[0][axis]
-    };
+    let mut station = a.envelope[0][axis];
     for g in &before.gdt {
         if g.kind == "datum_feature"
             && g.cells
                 .first()
-                .is_some_and(|letter| provenance.contains(&format!("datum {letter} (")))
+                .is_some_and(|letter| d.basis.contains(&format!("datum {letter} (")))
         {
             for &face in &g.faces {
                 if let Some(f) = a.face_attachments.get(face)
@@ -482,7 +465,6 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
         .map(|d| (d.id.clone(), Some(d.view.clone())))
         .chain(plan.omitted.iter().map(|d| (d.id.clone(), None)))
     {
-        let kept_basis = basis(a, before.unwrap_or(plan), &id);
         annotations.entry(id).or_insert(Annotation {
             place: Place {
                 view,
@@ -490,7 +472,7 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                 ..Default::default()
             },
             route: None,
-            basis: kept_basis,
+            basis: None,
             space: None,
             omit: true,
             region: None,
