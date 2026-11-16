@@ -7,6 +7,11 @@ layout. This page starts with a bare shape and builds one part up in three steps
 then covers assemblies. The
 [Python reference](python.md) has every call, argument and error in detail.
 
+Using a coding agent? Give it the
+[draftwright-build123d skill](../skills/draftwright-build123d/SKILL.md): the same
+workflow, plus the checks and traps agents have met in practice. For Claude Code, copy
+the folder to `.claude/skills/` in your project or to `~/.claude/skills/`.
+
 ## Install
 
 ```sh
