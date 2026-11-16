@@ -138,6 +138,26 @@ dwg.render("review", formats=("pdf",), spec={"sheet": {"title": {"revision": "B"
 Requirements such as material, fits and GD&T are refused there, with a pointer to
 the matching Part call, so each fact has one home.
 
+### Moving a callout
+
+Each dimension and callout has an id, and `place` moves it. The ids appear in the
+`subjects` of `dwg.problems`; for a hole callout it is `"d:" + p.feature_id(hole) +
+"/bore.diameter"`. In step 3 the `⌀16 H7` leader crosses a `⌀5` hole
+(`leader_through_feature`). Asking for the side above the plan view clears it:
+
+```python
+callout = "d:" + p.feature_id(bearing) + "/bore.diameter"
+dwg.update({"dimensions": {callout: {"place": {"view": "plan", "side": "above"}}}})
+```
+
+![The H7 callout and its position frame moved above the plan view](images/build123d-callout-above.png)
+
+`side` keeps the engine choosing a clear spot on that side. `lane` and `along` fix
+the position, and `{"pinned": True, "offset": [dx, dy]}` sets the bend in paper mm
+from where the engine put it. A pinned label is never moved to avoid other ink, so
+check `problems` afterwards. The [placement reference](model.md#placement-place-s3)
+lists every field.
+
 ## Assemblies
 
 A `Pack` draws a general-assembly sheet with balloons and a parts list, then a sheet
@@ -146,10 +166,15 @@ for each made part, as one PDF plus a CSV/JSON bill of materials. From a STEP fi
 ```python
 from draftwright import Pack
 
-pack = Pack("motorcycle-shock-absorber.step", title="Motorcycle shock absorber",
-            number="MSA-100")
-pdf, csv = pack.render("shock", formats=("pdf", "csv"))
+pack = Pack("gramil-assembly.step", title="Gramil", number="GRM-00")
+pdf, csv = pack.render("gramil", formats=("pdf", "csv"))
 ```
+
+![General assembly sheet of a marking gauge (gramil): views, a section, item balloons and a twelve-line parts list](images/build123d-gramil-ga.png)
+
+That is the first page of the gramil's nine-page pack: balloons and a parts list
+with made and bought parts (the screws and washer are recognised as bought), then
+a drawing for each made part.
 
 From build123d, pass a `Compound` whose children are labelled with the `Part`
 names, and the Parts that carry requirements:
