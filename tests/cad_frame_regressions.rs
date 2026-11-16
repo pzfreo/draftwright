@@ -26,7 +26,7 @@ fn accepted_cad_frame_layout(file: &str) {
         // lower counts retain its remaining source-PMI conflicts for review.
         // 2026-11-16: the checked interior slot-size retry removes one
         // dimension-line and one witness crossing, keeping all views/requirements.
-        // Pending maintainer acceptance (not accepted): the f59 seat-diameter
+        // 2026-11-16, Paul accepted (with E 1:1): the f59 seat-diameter
         // callout's leader is 94.7 paper mm (75 mm limit); f94's slot-width
         // callout runs 42.5 mm across front, crossing 5 lines versus 1 on exit.
         // Sixteen bounded offset trials shortened/flipped these routes, but
