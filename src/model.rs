@@ -4898,16 +4898,20 @@ pub fn plan_incremental_source(
         choices: Vec::new(),
         also: Vec::new(),
     };
-    let previous = crate::engine_pins::geometry(before_part, &before.binding)?;
+    // Compare imported geometry, never a STEP re-export. A NURBS curve's derived
+    // inversion table participates in the kernel's current PartialEq; the read-side
+    // digest ignores that query cache while checking every defining field.
     let updated = crate::engine_pins::geometry(part, &analysis.binding)?;
-    if previous.bytes != updated.bytes {
+    if !before_part.same_brep(part)
+        && crate::engine_pins::geometry(before_part, &before.binding)? != updated
+    {
         return Err(refuse("Updated STEP geometry differs; open the updated STEP for a full plan instead of incremental apply.".into()));
     }
     let mut result = crate::planning::with_retained(analysis, || {
         crate::incremental::plan_source(analysis, before, spec)
     })?;
     if let Some(pins) = &mut result.spec.engine_pins {
-        pins.geometry_sha256 = Some(updated.sha256);
+        pins.geometry_sha256 = Some(updated);
     }
     Ok(result)
 }

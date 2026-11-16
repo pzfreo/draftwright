@@ -1,10 +1,10 @@
 //! Engine-written placement intent. Content is always regenerated from STEP and Spec.
 mod furniture;
+mod geometry;
 use crate::model::{self, Analysis, Invalid, Plan, Problem, Spec};
 use crate::placement_intent::Place;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
-use std::sync::Arc;
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
@@ -830,7 +830,7 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
     let same_geometry = pins
         .geometry_sha256
         .as_ref()
-        .is_some_and(|sha| known_geometry(&a.binding).is_some_and(|g| &g.sha256 == sha));
+        .is_some_and(|sha| known_geometry(&a.binding).as_ref() == Some(sha));
     if pins
         .layout_sha256
         .as_ref()
@@ -1095,45 +1095,25 @@ pub(crate) fn keep_views(views: &mut Vec<model::PlannedView>) {
     });
 }
 
-#[derive(Clone)]
-pub(crate) struct GeometryIdentity {
-    pub bytes: Arc<Vec<u8>>,
-    pub sha256: String,
-}
-static GEOMETRY: crate::planning::BoundedMemo<GeometryIdentity> =
-    crate::planning::BoundedMemo::new(8);
+static GEOMETRY: crate::planning::BoundedMemo<String> = crate::planning::BoundedMemo::new(8);
 fn geometry_key(binding: &model::Binding) -> [u8; 32] {
     sha2::Sha256::digest(serde_json::to_vec(binding).expect("binding serializes")).into()
 }
-fn known_geometry(binding: &model::Binding) -> Option<GeometryIdentity> {
+fn known_geometry(binding: &model::Binding) -> Option<String> {
     GEOMETRY.get(&geometry_key(binding))
 }
 pub(crate) fn geometry(
     part: &crate::haecceity::Part,
     binding: &model::Binding,
-) -> Result<GeometryIdentity, Invalid> {
-    if let Some(geometry) = known_geometry(binding) {
-        return Ok(geometry);
-    }
-    let (bytes, _) = crate::haecceity::brep_write::write_step(
-        part,
-        &crate::haecceity::brep_write::WriteOptions::new("incremental"),
-    )
-    .map_err(|e| Invalid {
-        message: format!(
-            "Cannot verify identical B-rep: {e}; open the updated STEP for a full plan."
-        ),
+) -> Result<String, Invalid> {
+    // Verify this Part, even for trusted in-process callers reusing a Binding.
+    // The small memo only bridges a reader to planning after the Part is dropped.
+    let geometry = geometry::digest(part).ok_or_else(|| Invalid {
+        message: "Cannot verify identical B-rep: unresolved or empty geometry; open the updated STEP for a full plan.".into(),
         path: None,
         choices: Vec::new(),
         also: Vec::new(),
     })?;
-    let geometry = GeometryIdentity {
-        sha256: sha2::Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-        bytes: Arc::new(bytes),
-    };
     GEOMETRY.insert(geometry_key(binding), geometry.clone());
     Ok(geometry)
 }

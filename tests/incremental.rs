@@ -556,6 +556,27 @@ fn changed_brep_is_refused_without_mutating_source_or_history() {
     assert!(s.undo().is_err());
 }
 #[test]
+fn changed_brep_is_refused_even_when_an_in_process_caller_reuses_the_binding() {
+    let s = open("bracket");
+    let original = value(s.state());
+    let mut faces = s.part().faces.clone();
+    let frame = faces
+        .iter_mut()
+        .find_map(|f| match &mut f.surface {
+            draftwright::haecceity::geom::Surface::Plane { frame } => Some(frame),
+            _ => None,
+        })
+        .unwrap();
+    frame.origin[0] += 1e-8;
+    let changed =
+        draftwright::haecceity::Part::new(faces, s.part().edges.clone(), s.part().solids.clone());
+    let error =
+        model::plan_incremental_source(s.part(), s.plan(), &changed, s.analysis(), s.spec())
+            .unwrap_err();
+    assert!(error.message.contains("geometry differs") && error.message.contains("full plan"));
+    assert_eq!(value(s.state()), original);
+}
+#[test]
 fn relayout_clears_only_engine_pins() {
     let mut s = open("bracket");
     let id = s

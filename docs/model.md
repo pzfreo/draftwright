@@ -2801,8 +2801,12 @@ reason. Empty `moved` is omitted from the ordinary delta JSON.
 
 Requirements that affect inspection arrive in STEP PMI, written by Specify. Use
 `Session::replace_step_incremental(name, step_bytes, commit)` for an updated source. It
-compares haecceity's deterministic exact B-rep exports (topology, analytic/freeform geometry,
-trims, pcurves and units), not envelopes or tessellations. Different or unverifiable geometry
+compares the imported B-reps with haecceity's `Part::same_brep` and a read-side digest of
+defining surfaces, curves, vertices, pcurves and ordered trim topology. It never writes STEP.
+The digest excludes entity names/ids, samples and lazy query caches; NURBS degrees, poles,
+weights and knots are included without rounding. It also supplies the saved-pin identity,
+without retaining an exported STEP or depending on a shared cache for correctness.
+Different or unverifiable geometry
 is refused with the full-plan path suggested; face traversal must remain identical. The
 library equivalent is `model::plan_incremental_source(before_part, before_plan, updated_part,
 updated_analysis, spec)`. Preview leaves source identity, state and history unchanged. A
@@ -2838,7 +2842,9 @@ Saving the Spec and reopening with the same STEP, including CLI rendering, repla
 pins. Unknown item ids are dropped individually with `engine_pins_replanned` (information).
 A changed STEP with the same verified B-rep keeps surviving stable-id pins and places new
 PMI in the retained frame, with that finding. A different or unverifiable B-rep releases the
-engine pins and opens through the full planner. Native Session, CLI and MCP STEP readers
+engine pins and opens through the full planner. Old export-based geometry digests remain
+readable: same-source reloads keep their pins, while a changed source releases those legacy
+pins with the normal finding. Native Session, CLI and MCP STEP readers
 verify geometry only when the source revision differs. An Analysis-only caller without the
 STEP cannot verify a changed revision and releases those pins conservatively. Nothing from
 the old STEP supplies requirement content. Stable item ids rather than face-list
