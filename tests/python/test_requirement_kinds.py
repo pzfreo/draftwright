@@ -113,7 +113,7 @@ class RequirementKinds(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "external cylinder"):
             p.shaft(wall)
         with self.assertRaisesRegex(ValueError, "external cylinder"):
-            p.cylinder(wall).knurl(0.8, teeth=39)
+            p.cylinder(wall).knurl(0.8)
         with self.assertRaisesRegex(ValueError, "shaft fit"):
             p.cylinder(wall).fit("h6")
         p.hole(wall).diameter(plus_minus=0.017)
@@ -273,7 +273,7 @@ class RequirementKinds(unittest.TestCase):
         before = p._geometry().inspect(p._pmi)
         for angle in (0, 30, 90, -1):
             with self.assertRaisesRegex(ValueError, "straight knurl takes no helix_angle"):
-                ref.knurl(0.8, "straight", teeth=39, helix_angle=angle)
+                ref.knurl(0.8, "straight", helix_angle=angle)
             self.assertEqual(p._geometry().inspect(p._pmi), before)
 
     def test_knurls(self):
@@ -281,7 +281,7 @@ class RequirementKinds(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 p, wall, _ = self.rod()
                 ref = p.shaft(wall)
-                ref.knurl(0.8, pattern, teeth=39, **({"helix_angle": 30} if pattern == "diamond" else {}))
+                ref.knurl(0.8, pattern, **({"helix_angle": 30} if pattern == "diamond" else {}))
                 self.assertEqual(len([r for r in self.records(p) if r["kind"] == "knurl"]), 1)
                 text = self.rendered(p, pattern)
                 self.assertIn(f"{pattern.upper()} KNURL P0.8", text)
@@ -297,7 +297,7 @@ class RequirementKinds(unittest.TestCase):
                 elif kind == "thread":
                     ref.thread("M10x1.5-6h LH")
                 elif kind == "knurl":
-                    ref.knurl(0.8, teeth=39)
+                    ref.knurl(0.8)
                 else:
                     p.distance(ends[0], ends[-1]).tolerance(plus_minus=0.065)
                 geometry = p._geometry()
@@ -308,7 +308,7 @@ class RequirementKinds(unittest.TestCase):
                     p.shaft(wall).thread("M10x1.5-6g")
                     new, old, record_kind = "6g", "6h", "external_thread"
                 elif kind == "knurl":
-                    p.shaft(wall).knurl(1, "diamond", teeth=31, helix_angle=30)
+                    p.shaft(wall).knurl(1, "diamond", helix_angle=30)
                     new, old, record_kind = "DIAMOND KNURL P1", "STRAIGHT KNURL", "knurl"
                 else:
                     p.distance(ends[-1], ends[0]).tolerance(plus_minus=0.019)
@@ -338,10 +338,10 @@ class RequirementKinds(unittest.TestCase):
                    lambda: ref.circular_runout(0.1), lambda: ref.total_runout(0.1),
                    lambda: ref.concentricity(0.1), lambda: ref.profile_surface(0.1, "A"),
                    lambda: ref.parallelism(0.1, "A"), lambda: ref.cylindricity(-0.1),
-                   lambda: ref.knurl(0.8, "diagonal", teeth=39),
-                   lambda: ref.knurl(0.8, "diamond", teeth=39),
-                   lambda: ref.knurl(0.8, teeth=0), lambda: ref.knurl(0, teeth=39),
-                   lambda: ref.knurl(0.8, "diamond", teeth=39, helix_angle=100),
+                   lambda: ref.knurl(0.8, "diagonal"),
+                   lambda: ref.knurl(0.8, "diamond"),
+                   lambda: ref.knurl(-0.8), lambda: ref.knurl(0),
+                   lambda: ref.knurl(0.8, "diamond", helix_angle=100),
                    lambda: ref.diameter(), lambda: ref.diameter(plus_minus=-0.1),
                    lambda: ref.diameter(plus_minus=math.inf),
                    lambda: ref.diameter(limits=(10.1, 10.2)),
@@ -367,7 +367,7 @@ class RequirementKinds(unittest.TestCase):
         before = p._geometry().inspect(p._pmi)
         for call in (lambda: p.shaft(wall).fit("h6"),
                      lambda: p.face(wall).diameter(plus_minus=0.1),
-                     lambda: ref.knurl(0.8, teeth=39)):
+                     lambda: ref.knurl(0.8)):
             with self.assertRaises((ValueError, draftwright.DraftwrightError)):
                 call()
             self.assertEqual(p._geometry().inspect(p._pmi), before)

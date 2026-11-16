@@ -410,7 +410,6 @@ impl Pmi {
         pattern: &str,
         pitch: &str,
         diameter: &str,
-        teeth: u32,
         helix_angle: Option<&str>,
     ) -> PyResult<()> {
         self.edit(|this| {
@@ -427,8 +426,14 @@ impl Pmi {
             let pitch = length(pitch)?;
             let diameter = length(diameter)?;
             let expected = std::f64::consts::PI * diameter.mm() / pitch.mm();
-            if teeth == 0 || !expected.is_finite() || pitch.mm() <= 0.0 {
-                return Err(raised("knurl pitch and teeth must be positive and finite"));
+            let teeth = expected.round_ties_even();
+            if !expected.is_finite()
+                || pitch.mm() <= 0.0
+                || !(1.0..=f64::from(u32::MAX)).contains(&teeth)
+            {
+                return Err(raised(
+                    "knurl pitch must produce a positive tooth count in the AP242 range",
+                ));
             }
             let helix_angle = helix_angle
                 .map(|s| -> PyResult<Angle> {
@@ -463,7 +468,7 @@ impl Pmi {
                 major_diameter: diameter.clone(),
                 nominal_diameter: diameter,
                 diametral_pitch: pitch,
-                number_of_teeth: Some(Count(teeth)),
+                number_of_teeth: Some(Count(teeth as u32)),
                 tooth_depth: None,
                 root_fillet: None,
                 helix_angle,
@@ -897,9 +902,79 @@ mod tests {
                 AttributeValue::Measure(value("12").unwrap())
             )
         );
-        p.knurl(vec![2], "straight", "0.8", "10", 2, None).unwrap();
-        assert_eq!(p.model.knurls[0].number_of_teeth, Some(Count(2)));
+        p.knurl(vec![2], "straight", "0.8", "10", None).unwrap();
+        assert_eq!(p.model.knurls[0].number_of_teeth, Some(Count(39)));
         p.model.validate().unwrap();
+    }
+
+    #[test]
+    fn python_knurls_derive_the_count_and_round_trip_without_pitch_disagreement() {
+        for (pattern, fixture, angle) in [
+            ("straight", "spindle_turned_knurl", None),
+            ("diamond", "spindle_diamond_knurl", Some("30")),
+        ] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+                "../../tests/fixtures/turned_knurl/{fixture}.step.gz"
+            ));
+            let bytes = draftwright::model::read_step_file(&path).unwrap();
+            let part = haecceity::read_step(&bytes).unwrap();
+            let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+            let doc = haecceity::p21::Document::parse(bytes).unwrap();
+            let original = read(&doc, &defs).unwrap();
+            let stated = &original.parts[0].knurls[0];
+            let wall = part
+                .faces
+                .iter()
+                .position(|face| {
+                    matches!(
+                        face.surface, haecceity::geom::Surface::Cylinder { radius, .. }
+                            if (2. * radius - stated.major_diameter.mm()).abs() < 1e-6
+                    )
+                })
+                .unwrap();
+            // Exercise both rounding directions, not just the fixture's own pitch.
+            for pitch in ["0.8", "1", "1.2"] {
+                let mut p = Pmi::new(part.faces.len());
+                p.knurl(vec![wall], pattern, pitch, "24", angle).unwrap();
+                let knurl = &p.model.knurls[0];
+                let expected = std::f64::consts::PI * 24. / length(pitch).unwrap().mm();
+                let count = knurl.number_of_teeth.unwrap();
+                assert_eq!(f64::from(count.0), expected.round_ties_even());
+                assert!((f64::from(count.0) - expected).abs() <= 1.);
+                assert!(knurl.tooth_depth.is_none());
+                assert!(knurl.root_fillet.is_none());
+                // WR2 requires six parameters. Supply only the fixture's explicitly
+                // stated tooth geometry at the export boundary; the Python declaration
+                // remains pattern/pitch/diameter/derived count (plus diamond angle).
+                let mut export = p.model;
+                export.knurls[0].tooth_depth = stated.tooth_depth.clone();
+                export.knurls[0].root_fillet = stated.root_fillet.clone();
+                let (edit, _) = write(
+                    &doc,
+                    &defs,
+                    &[(PartId(0), export)],
+                    Mode::Replace,
+                    write::PresentationPolicy::RemovePresentation,
+                )
+                .unwrap();
+                let bytes = doc.apply(&edit).unwrap().bytes;
+                let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+                let written = haecceity::p21::Document::parse(bytes).unwrap();
+                let imported = read(&written, &defs).unwrap();
+                assert_eq!(imported.parts[0].knurls.len(), 1);
+                let knurl = &imported.parts[0].knurls[0];
+                assert_eq!(knurl.number_of_teeth, Some(count));
+                assert_eq!(knurl.diametral_pitch.mm(), length(pitch).unwrap().mm());
+                assert_eq!(knurl.major_diameter.mm(), 24.);
+                let report = draftwright::pmi::report(&written, &defs, &part, &imported).unwrap();
+                let record = report.records.iter().find(|r| r.kind == "knurl").unwrap();
+                assert!(
+                    record.blockers.is_empty(),
+                    "{pattern}/{pitch}: {:?}",
+                    record.blockers
+                );
+            }
+        }
     }
 
     #[test]
@@ -1098,7 +1173,7 @@ mod tests {
             )
         });
         rejected_without_edits(&mut p, |p| {
-            p.knurl(vec![3], "straight", "0.8", "10", 39, Some("30"))
+            p.knurl(vec![3], "straight", "0.8", "10", Some("30"))
         });
         p.fit(vec![3], "10", "h6").unwrap();
         // A new, overlapping face group is rejected after tentative feature creation.
@@ -1118,7 +1193,7 @@ mod tests {
             p.dimension(vec![5, 6], None, "10", "-0.1", "0.1", false)
         });
         rejected_without_edits(&mut p, |p| {
-            p.knurl(vec![5, 6], "straight", "0.8", "10", 39, None)
+            p.knurl(vec![5, 6], "straight", "0.8", "10", None)
         });
     }
 

@@ -173,7 +173,7 @@ class CylinderRef(FaceRef):
         self._part._pmi.thread(self._targets, str(size), not self.internal, extent, diameters)
         return self
 
-    def knurl(self, pitch, pattern="straight", *, teeth=None, helix_angle=None):
+    def knurl(self, pitch, pattern="straight", *, helix_angle=None):
         """A straight or diamond knurl on an external cylinder; linear pitch in mm."""
         if self.internal:
             raise ValueError("knurl requires an external cylinder, not a hole")
@@ -186,14 +186,10 @@ class CylinderRef(FaceRef):
             raise ValueError("knurl pitch must be a finite positive number in mm") from None
         if isinstance(pitch, bool) or not math.isfinite(pitch_value) or pitch_value <= 0:
             raise ValueError("knurl pitch must be a finite positive number in mm")
-        if teeth is None:
-            teeth = round(math.pi * diameter / pitch_value)
         if pattern == "straight" and helix_angle is not None:
             raise ValueError("a straight knurl takes no helix_angle")
-        if not isinstance(teeth, int) or isinstance(teeth, bool) or teeth <= 0:
-            raise ValueError("knurl teeth must be a positive integer")
         self._part._pmi.knurl(self._targets, str(pattern), _number(pitch), _number(diameter),
-                              teeth, None if helix_angle is None else _number(helix_angle))
+                              None if helix_angle is None else _number(helix_angle))
         return self
 
 

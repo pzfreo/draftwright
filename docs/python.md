@@ -137,7 +137,7 @@ The mapping uses haecceity's native types:
 | `shaft(...).circular_runout(0.03, A)` / `.total_runout(0.04, A)` | `GeometricTolerance::CircularRunout` / `TotalRunout` |
 | `face(...).profile_surface(0.05, A)` | `GeometricTolerance::SurfaceProfile`; datums optional |
 | `shaft(...).concentricity(0.02, A)` | `GeometricTolerance::Concentricity`, cylindrical zone |
-| `shaft(...).knurl(0.8, "straight", teeth=39)` | Native `Knurl` with pitch, maximum diameter and tooth count; also `"diamond"` with `helix_angle=` |
+| `shaft(...).knurl(0.8, "straight")` | Native `Knurl` with pitch, maximum diameter and tooth count; also `"diamond"` with `helix_angle=` |
 | `face(...).finish(1.6)` / `hole(...).finish(1.6)` | `SurfaceTexture` with Ra in micrometres |
 | `material(text)` | `Material` |
 | `general_tolerance(text)` | `GeneralTolerance::Class` with the stated text |
@@ -207,9 +207,7 @@ axis in a cylindrical `⌀` zone; on a plane they use a two-planes zone.
 
 Straight and diamond knurls draw the engine's manufacturing suffix and depiction.
 Pitch is linear mm, and the measured diameter is the maximum diameter after
-knurling. `teeth=` is optional: omitted counts are derived as
-`round(π * diameter / pitch)`. An explicit positive integer is retained; a
-`knurl_tooth_count` informational finding reports a difference greater than 0.5 tooth.
+knurling. The tooth count is derived as `round(π * diameter / pitch)` for the AP242 record.
 The callout still states pattern and pitch. Diamond requires `helix_angle=` in degrees (0 < angle < 90),
 which native PMI retains; the current drawing prints the pattern and pitch, not
 that angle. A straight knurl refuses `helix_angle`. Diagonal knurls are refused
@@ -261,7 +259,7 @@ for kind in ("shaft_fit", "thread", "diameter_pm", "diameter_limits",
                else {"limits": (29.98, 30.04)}))
     elif kind.endswith("knurl"):
         pattern = kind.split("_")[0]
-        shaft.knurl(0.8, pattern, teeth=39,
+        shaft.knurl(0.8, pattern,
                     **({"helix_angle": 30} if pattern == "diamond" else {}))
     elif kind == "cylindricity":
         shaft.cylindricity(0.02)

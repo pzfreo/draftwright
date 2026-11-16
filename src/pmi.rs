@@ -1274,22 +1274,6 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
             name: m.name.clone(),
         })
         .collect();
-    let mut reader = ReaderEvidence::default();
-    for (index, knurl) in model.knurls.iter().enumerate() {
-        let expected =
-            std::f64::consts::PI * knurl.major_diameter.mm() / knurl.diametral_pitch.mm();
-        if let Some(count) = knurl.number_of_teeth
-            && (expected - f64::from(count.0)).abs() > 0.5
-        {
-            reader.problems.push(crate::model::Problem {
-                id: format!("p:knurl_tooth_count:{index}"),
-                code: "knurl_tooth_count".into(),
-                severity: "info".into(),
-                message: format!("Knurl tooth count {} disagrees with pitch on this diameter: expected {expected:.2} teeth (within 0.5 tooth).", count.0),
-                ..Default::default()
-            });
-        }
-    }
     Ok(Report {
         schema: PMI_SCHEMA.into(),
         parts: vec!["part".into()],
@@ -1304,7 +1288,7 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
         records,
         sources,
         materials,
-        reader: Box::new(reader),
+        reader: Box::default(),
         spec_problems: vec![],
     })
 }
@@ -5097,76 +5081,6 @@ mod tests {
             };
             assert_eq!(signature(&caller).len(), 1, "{fixture}");
             assert_eq!(signature(&caller), signature(&imported), "{fixture}");
-        }
-    }
-
-    #[test]
-    fn knurl_count_advice_keeps_sheet_status_and_import_keeps_its_existing_tolerance() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/turned_knurl/spindle_turned_knurl.step.gz");
-        let bytes = crate::model::read_step_file(&path).unwrap();
-        let part = haecceity::read_step(&bytes).unwrap();
-        let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
-        let doc = Document::parse(bytes).unwrap();
-        let read = pmi::read(&doc, &defs).unwrap();
-        let mut model = read.parts[0].clone();
-        let k = &model.knurls[0];
-        let expected = std::f64::consts::PI * k.major_diameter.mm() / k.diametral_pitch.mm();
-        let nearest = expected.round() as u32;
-        model.knurls[0].number_of_teeth = Some(pmi::Count(nearest));
-        let baseline = from_model(&part, &model).unwrap();
-        let before = crate::completeness::status(&baseline.reader.problems);
-        assert_eq!(before, crate::completeness::Status::Clear);
-        let neighbour = if expected >= f64::from(nearest) {
-            nearest + 1
-        } else {
-            nearest - 1
-        };
-        assert!((expected - f64::from(neighbour)).abs() > 0.5);
-        assert!((expected - f64::from(neighbour)).abs() <= 1.);
-        for (count, blocked) in [(neighbour, false), (2, true)] {
-            model.knurls[0].number_of_teeth = Some(pmi::Count(count));
-            let caller = from_model(&part, &model).unwrap();
-            assert_eq!(caller.reader.problems.len(), 1);
-            assert_eq!(caller.reader.problems[0].code, "knurl_tooth_count");
-            assert_eq!(caller.reader.problems[0].severity, "info");
-            assert_eq!(crate::completeness::status(&caller.reader.problems), before);
-            assert!(
-                caller
-                    .records
-                    .iter()
-                    .filter(|r| r.kind == "knurl")
-                    .all(|r| r.blockers.is_empty())
-            );
-            // Report-only: the existing AP242 import threshold remains one tooth.
-            let (edit, _) = pmi::write(
-                &doc,
-                &defs,
-                &[(pmi::PartId(0), model.clone())],
-                pmi::Mode::Replace,
-                pmi::write::PresentationPolicy::RemovePresentation,
-            )
-            .unwrap();
-            let written = doc.apply(&edit).unwrap().bytes;
-            let defs = haecceity::step::read_part_definitions(&written).unwrap();
-            let part = haecceity::read_step(&written).unwrap();
-            let written = Document::parse(written).unwrap();
-            let read = pmi::read(&written, &defs).unwrap();
-            assert_eq!(
-                read.parts[0].knurls[0].number_of_teeth,
-                Some(pmi::Count(count))
-            );
-            let imported = report(&written, &defs, &part, &read).unwrap();
-            let knurl = imported.records.iter().find(|r| r.kind == "knurl").unwrap();
-            assert_eq!(
-                knurl.blockers.iter().any(|b| b.contains("tooth count")),
-                blocked
-            );
-            eprintln!(
-                "knurl re-import: expected={expected:.6}, count={count}, delta={:.6}, blockers={:?}",
-                (expected - f64::from(count)).abs(),
-                knurl.blockers
-            );
         }
     }
 

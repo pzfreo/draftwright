@@ -129,30 +129,30 @@ class PythonIssues(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "external thread takes no depth"):
             Part(shaft).shaft(shaft).thread("M6", depth=6)
 
-    def test_495_tester_knob_omitted_teeth_and_mismatch_finding(self):
+    def test_495_tester_knob_pattern_and_pitch(self):
         knob = bd.Pos(0, 0, 12) * bd.Cylinder(5, 12)
         p = Part(bd.Box(30, 20, 12) + knob, "block")
         ref = p.shaft(knob).knurl(0.8)
-        drawing, svg, _ = self.render(p, "derived")
+        _, svg, _ = self.render(p, "derived")
         self.assertIn("STRAIGHT KNURL P0.8", svg)
         self.assertIn("MAX AFTER KNURL", svg)
-        self.assertFalse([f for f in drawing.problems if f["code"] == "knurl_tooth_count"])
-        ref.knurl(0.8, teeth=39)
-        _, explicit, _ = self.render(p, "explicit")
-        self.assertEqual(svg, explicit)
-        ref.knurl("0.8", teeth=39)  # existing numeric-text pitch remains accepted
+        ref.knurl("0.8")  # existing numeric-text pitch remains accepted
         _, numeric_text, _ = self.render(p, "numeric-text")
         self.assertEqual(svg, numeric_text)
-        for teeth, mismatch in ((40, True), (2, True), (39, False)):
-            ref.knurl(0.8, teeth=teeth)
-            drawing, text, _ = self.render(p, f"teeth-{teeth}")
-            findings = [f for f in drawing.problems if f["code"] == "knurl_tooth_count"]
-            self.assertEqual(bool(findings), mismatch)
-            self.assertTrue(all(f["severity"] != "error" for f in findings))
-            self.assertIn("STRAIGHT KNURL P0.8", text)
-        for invalid in (0, -1, 3.2, True):
-            with self.assertRaises(ValueError):
-                ref.knurl(0.8, teeth=invalid)
+
+    def test_495_teeth_is_an_unknown_keyword_and_pitch_refusals_are_atomic(self):
+        knob = bd.Cylinder(5, 12)
+        p = Part(knob)
+        ref = p.shaft(knob).knurl(0.8)
+        before = self.records(p)
+        for count in (39, 0, -1, 3.2, True, None):
+            with self.subTest(teeth=count), self.assertRaisesRegex(TypeError, "unexpected keyword argument 'teeth'"):
+                ref.knurl(0.8, teeth=count)
+            self.assertEqual(self.records(p), before)
+        for pitch in (0, -0.8, math.inf, math.nan, True, "not a pitch"):
+            with self.subTest(pitch=pitch), self.assertRaises(ValueError):
+                ref.knurl(pitch)
+            self.assertEqual(self.records(p), before)
 
     def test_496_orientation_findings_and_supplied_parts_are_stated_make(self):
         # Two made parts, including an undimensioned slot which has sheet problems.
