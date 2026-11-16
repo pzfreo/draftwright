@@ -142,7 +142,10 @@ pub(crate) fn digest() -> Option<[u8; 32]> {
     DIGEST.get()
 }
 pub(crate) fn loading() -> bool {
-    LOADING.with(|p| p.borrow().is_some()) || READING.with(|p| p.borrow().is_some())
+    LOADING.with(|p| p.borrow().is_some())
+}
+pub(crate) fn memo_bypass() -> bool {
+    loading() || READING.with(|p| p.borrow().is_some())
 }
 fn with_pins<T>(pins: EnginePins, run: impl FnOnce() -> T) -> T {
     struct Restore(Option<EnginePins>, Option<[u8; 32]>);
@@ -1201,17 +1204,20 @@ mod memo_tests {
         let key = [7; 32];
         memo.insert(key, 10);
         {
-            let _proof = GeometryRead(READING.with(|p| p.replace(Some((key, Some("verified".into()))))));
-            assert!(loading());
+            let _proof =
+                GeometryRead(READING.with(|p| p.replace(Some((key, Some("verified".into()))))));
+            assert!(memo_bypass());
+            assert!(!loading(), "a reader proof must not enable placement overrides");
             assert_eq!(memo.get(&key), None);
             memo.insert(key, 20);
             {
                 let _nested = GeometryRead(READING.with(|p| p.replace(None)));
-                assert!(!loading());
+                assert!(!memo_bypass());
+                assert_eq!(memo.get(&key), Some(10));
             }
-            assert!(loading());
+            assert!(memo_bypass());
         }
-        assert!(!loading());
+        assert!(!memo_bypass());
         assert_eq!(memo.get(&key), Some(10));
     }
 }

@@ -468,7 +468,7 @@ impl<T: Clone> BoundedMemo<T> {
     }
 
     pub(crate) fn get(&self, key: &[u8; 32]) -> Option<T> {
-        if crate::incremental::active() || crate::engine_pins::loading() {
+        if crate::incremental::active() || crate::engine_pins::memo_bypass() {
             return None;
         }
         let stored = self
@@ -483,7 +483,7 @@ impl<T: Clone> BoundedMemo<T> {
     }
 
     pub(crate) fn insert(&self, key: [u8; 32], value: T) {
-        if crate::incremental::active() || crate::engine_pins::loading() {
+        if crate::incremental::active() || crate::engine_pins::memo_bypass() {
             return;
         }
         let value = Arc::new(value);
