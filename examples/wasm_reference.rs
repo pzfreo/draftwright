@@ -51,6 +51,10 @@ fn main() -> Result<(), api::Error> {
     );
     for step in replay.steps {
         match step.action.as_str() {
+            "analysis" => {
+                println!("{}", serde_json::to_string(session.analysis()).unwrap());
+                continue;
+            }
             "step_incremental" => {
                 let bytes =
                     model::read_step_file(Path::new(&step.step)).map_err(api::Error::invalid)?;

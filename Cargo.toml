@@ -72,6 +72,10 @@ lto = true
 codegen-units = 1
 opt-level = 3
 
+# Keep the drawing engine at speed optimization. Only generated STEP parsing uses size optimization.
+[profile.wasm-release.package.step-io]
+opt-level = "s"
+
 # See docs/test-binaries.md; tools/check_test_binaries.py guards module coverage.
 
 [[test]]
