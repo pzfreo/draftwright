@@ -2155,27 +2155,43 @@ fn ftc08_schedule_tags_compose_with_engine_pins_and_inch_repairs() {
 
 #[test]
 fn pre_declared_units_saved_pins_reopen_without_releasing_the_layout() {
-    let mut s = open("bracket");
-    s.apply_incremental(&[], true).unwrap();
-    let before = s.plan().clone();
-    let mut wire = value(s.spec());
-    // The /4 representation written before #492 omitted both mm preferences.
-    wire.as_object_mut().unwrap().remove("units");
-    wire["engine_pins"]["sheet"]
-        .as_object_mut()
-        .unwrap()
-        .remove("units");
-    let spec: Spec = serde_json::from_value(wire).unwrap();
-    assert_eq!(spec.units, draftwright::units::Units::Mm);
-    let (part, a) = model::analyse_native_bytes("bracket", &source("bracket")).unwrap();
-    let loaded = Session::new(part, a, spec).unwrap();
-    fixed(&before, loaded.plan());
-    assert!(loaded.spec().engine_pins.is_some());
-    assert!(
-        !loaded
-            .plan()
-            .problems
-            .iter()
-            .any(|p| p.code == "engine_pins_replanned")
-    );
+    for units in [draftwright::units::Units::Mm, draftwright::units::Units::In] {
+        let mut s = open_spec(
+            "bracket",
+            Spec {
+                units,
+                ..Default::default()
+            },
+        );
+        s.apply_incremental(&[], true).unwrap();
+        let before = s.plan().clone();
+        let mut wire = value(s.spec());
+        // The old /4 writer omitted mm and kept explicit inches at the root.
+        if units.is_mm() {
+            wire.as_object_mut().unwrap().remove("units");
+        }
+        wire["engine_pins"]["sheet"]
+            .as_object_mut()
+            .unwrap()
+            .remove("units");
+        let spec: Spec = serde_json::from_value(wire).unwrap();
+        assert_eq!(spec.units, units);
+        assert_eq!(spec.engine_pins.as_ref().unwrap().sheet.units, units);
+        let (part, a) = model::analyse_native_bytes("bracket", &source("bracket")).unwrap();
+        let loaded = Session::new(part, a, spec).unwrap();
+        if units.is_mm() {
+            fixed(&before, loaded.plan());
+        } else {
+            fixed_inch_geometry(&before, loaded.plan());
+        }
+        assert_eq!(loaded.plan().sheet.units, units);
+        assert!(loaded.spec().engine_pins.is_some());
+        assert!(
+            !loaded
+                .plan()
+                .problems
+                .iter()
+                .any(|p| p.code == "engine_pins_replanned")
+        );
+    }
 }

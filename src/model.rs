@@ -615,17 +615,21 @@ impl<'de> Deserialize<'de> for Spec {
         // Before declared-unit defaults, /4 writers omitted the authored mm
         // preference and had no effective units in their sheet pins. Preserve
         // that intent (and its layout digest) when opening those saved drawings.
-        let legacy_mm = value
+        let legacy_units = value
             .get("engine_pins")
             .and_then(|p| p.get("sheet"))
             .is_some_and(|sheet| sheet.get("units").is_none());
-        let s: SpecFields = SpecFields::deserialize(value).map_err(serde::de::Error::custom)?;
+        let mut s: SpecFields = SpecFields::deserialize(value).map_err(serde::de::Error::custom)?;
+        if legacy_units {
+            if s.units.is_auto() {
+                s.units = crate::units::Units::Mm;
+            }
+            if let Some(pins) = &mut s.engine_pins {
+                pins.sheet.units = s.units;
+            }
+        }
         Ok(Self {
-            units: if legacy_mm && s.units.is_auto() {
-                crate::units::Units::Mm
-            } else {
-                s.units
-            },
+            units: s.units,
             process: s.process,
             schema: if s.schema == crate::engine_pins::SCHEMA && s.engine_pins.is_none() {
                 SPEC_SCHEMA.into()
