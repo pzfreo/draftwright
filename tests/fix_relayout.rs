@@ -341,9 +341,8 @@ fn ctc01_crossings_offer_local_edits_and_identify_the_sheet_remedy() {
     );
     // CTC-01 plans no radius-centre table (its 4× R25 leader is not obstructed), so no
     // dimension carries one. A crossing's first offer is a local edit when one leaves fewer
-    // findings than it clears. The complete strip and witness-station search finds
-    // six more strict local improvements than the former short prefix: eight of
-    // nine now have local repairs, and exactly one keeps just the sheet remedy.
+    // findings than it clears. Metric repairs keep the original bounded search:
+    // two local offers and seven sheet remedies.
     // The rest checks the table-carrier contract for a plan that has the table.
     if plan.radius_table.is_none() {
         let mut local = 0;
@@ -362,7 +361,7 @@ fn ctc01_crossings_offer_local_edits_and_identify_the_sheet_remedy() {
                 );
             }
         }
-        assert_eq!(local, 8);
+        assert_eq!(local, 2);
         return;
     }
     // Table-carrier edits cannot cheaply prove that automatic radius-centre

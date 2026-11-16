@@ -5471,7 +5471,12 @@ fn local_placement_candidate(
 ) -> Option<(crate::fixes::Fix, PlannedDimension)> {
     use crate::placement_intent::{Along, Place, Slot};
     let spec = plan.resolved_spec();
-    let mut raw = pmi_policy::wants(analysis, &spec).0;
+    let inch = spec.units == crate::units::Units::In;
+    let mut raw = if inch {
+        pmi_policy::wants(analysis, &spec).0
+    } else {
+        wants(analysis).0
+    };
     callouts::apply(analysis, &spec, &mut raw);
     schemes::apply(analysis, &spec, &mut raw).ok()?;
     authored::append(analysis, &spec, &mut raw).ok()?;
@@ -5490,6 +5495,8 @@ fn local_placement_candidate(
     // Inspect the bounded placement grid against the existing settled ink. A
     // withheld trade must not hide a clean repair later in the same strip.
     let mut fallback = None;
+    let mut traded = false;
+    let mut remaining = 3usize;
     for id in &problem.subjects {
         let Some(index) = plan.dimensions.iter().position(|d| &d.id == id) else {
             continue;
@@ -5563,6 +5570,13 @@ fn local_placement_candidate(
                 .chain(&plan.sheets)
                 .find(|s| s.number == view.sheet)?;
             let mut offer = |placed: Placed, place: &Place| {
+                // Metric repairs retain the established three-candidate trade budget.
+                if !inch && traded {
+                    if remaining == 0 {
+                        return fallback.take();
+                    }
+                    remaining -= 1;
+                }
                 all[index] = d.clone();
                 all[index].placed = Some(placed);
                 all[index].view = view.id.clone();
@@ -5638,6 +5652,7 @@ fn local_placement_candidate(
                 if added.is_empty() {
                     return Some((crate::fixes::Fix::new(description, ops), all[index].clone()));
                 }
+                traded = true;
                 // A trade that stays local is offered only when it leaves strictly fewer
                 // findings: the published findings on this item that the candidate clears must
                 // outnumber those it adds. Equal or worse is withheld, and nothing replaces it.
@@ -5745,7 +5760,7 @@ fn local_placement_candidate(
                         })
                     })
                     .collect();
-                if d.kind == "linear" && held.lines.len() >= 3 {
+                if inch && d.kind == "linear" && held.lines.len() >= 3 {
                     // An outside ladder can be hundreds of paper mm from its
                     // own witnesses. Also inspect short approaches beside those
                     // stations, rather than only nudging the distant ladder.

@@ -819,12 +819,9 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
             }
             assert_eq!(
                 sheet_only,
-                // The expanded bounded search now finds six additional strict
-                // local improvements: it inspects all strips after a withheld
-                // trade, including approaches beside each physical witness.
-                // Exactly one of the nine still needs a whole-sheet remedy.
+                // Metric repairs retain the original bounded search and scopes.
                 if code == "extension_through_feature" {
-                    1
+                    7
                 } else {
                     0
                 }
