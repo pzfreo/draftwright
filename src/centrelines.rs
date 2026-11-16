@@ -172,6 +172,26 @@ pub(crate) fn axis(
 
 /// Populate every shown view; dimensional omissions never affect furniture.
 pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
+    let poses = crate::engine_pins::furniture_poses();
+    if let Some(poses) = poses {
+        for v in views {
+            let final_at = v.at;
+            if let Some((at, _)) = poses.get(&v.id) {
+                v.at = *at;
+            }
+            plan_unpinned(a, std::slice::from_mut(v));
+            if let Some((_, steps)) = poses.get(&v.id) {
+                for delta in steps {
+                    shift(v, *delta);
+                }
+            }
+            v.at = final_at;
+        }
+    } else {
+        plan_unpinned(a, views);
+    }
+}
+fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
     let frame = holes::frame(a);
     let holes: Vec<_> = holes::read(a)
         .into_iter()
@@ -196,6 +216,7 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
     let [lo, hi] = a.envelope;
     for v in views.iter_mut() {
         v.line_work.clear();
+        v.line_pose = Some((v.at, Vec::new()));
         if (v.id == "v:iso" || v.detail.is_some())
             && v.line_style.centre_marks != Some(true)
             && v.line_style.centre_lines != Some(true)
@@ -801,6 +822,11 @@ fn merge(work: &mut Vec<LineWork>) {
 /// Moves a view's furniture with the view, when a later layout step shifts the view on the
 /// page after its furniture was planned.
 pub(crate) fn shift(view: &mut PlannedView, d: P) {
+    if d != [0., 0.]
+        && let Some((_, steps)) = &mut view.line_pose
+    {
+        steps.push(d);
+    }
     let m = |q: &mut P| {
         q[0] += d[0];
         q[1] += d[1];

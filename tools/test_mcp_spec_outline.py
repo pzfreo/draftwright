@@ -26,7 +26,9 @@ spec['properties']['sheet']['properties']['future_setting'] = {'type': 'string'}
         outputs = []
         full = []
         private = []
-        for source in (original, changed):
+        changed_pins = original.replace("full_spec = document()", """full_spec = document()
+full_spec['$defs']['engine_pins']['properties']['future_constraint'] = {'type': 'number'}""")
+        for source in (original, changed, changed_pins):
             with tempfile.TemporaryDirectory(prefix='mcp-outline-') as directory:
                 root = Path(directory)
                 (root / 'schemas/mcp').mkdir(parents=True)
@@ -48,6 +50,9 @@ spec['properties']['sheet']['properties']['future_setting'] = {'type': 'string'}
         self.assertEqual(outputs[0], outputs[1])
         self.assertNotEqual(full[0], full[1])
         self.assertNotEqual(private[0], private[1])
+        self.assertEqual(outputs[0], outputs[2])
+        self.assertNotEqual(full[0], full[2])
+        self.assertEqual(private[0], private[2])
 
     def test_wire_field_inventory_keeps_renamed_raw_and_ordinary_fields(self):
         fields = '''
@@ -64,6 +69,7 @@ spec['properties']['sheet']['properties']['future_setting'] = {'type': 'string'}
         root = Path(__file__).resolve().parents[1] / 'src'
         definitions = document()['$defs']
         types = {
+            'engine_pins': {'EnginePins': 'engine_pins', 'Annotation': 'engine_pin_annotation'},
             'model': {'Binding': 'binding', 'SheetSpec': 'sheet', 'ViewSpec': 'view',
                       'DimensionSpec': 'dimension', 'FeatureSpec': 'feature'},
             'broken': {'Request': 'break'},

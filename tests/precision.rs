@@ -153,6 +153,36 @@ fn invalid_and_conflicting_precision_fail_closed_at_both_inputs() {
 }
 
 #[test]
+fn precision_conflicts_survive_version_preflight_and_unpinned_normalisation() {
+    for schema in ["draftwright.spec/3", "draftwright.spec/4"] {
+        for fields in [
+            format!(
+                r#""schema":"{schema}","precision":{{"d:envelope/width.length":2,"d:envelope/width.length":3}}"#
+            ),
+            format!(
+                r#""precision":{{"d:envelope/width.length":2,"d:envelope/width.length":3}},"schema":"{schema}""#
+            ),
+        ] {
+            let error = serde_json::from_str::<Spec>(&format!("{{{fields}}}"))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("conflicting precision"), "{error}");
+        }
+    }
+    // An unknown version wins over extension fields, regardless of document order.
+    for source in [
+        r#"{"new_future_field":{},"schema":"draftwright.spec/5"}"#,
+        r#"{"schema":"draftwright.spec/5","new_future_field":{}}"#,
+    ] {
+        let error = serde_json::from_str::<Spec>(source)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("draftwright.spec/5"), "{error}");
+        assert!(error.contains("Spec version"), "{error}");
+    }
+}
+
+#[test]
 fn zero_place_precision_is_checked_against_the_drawn_span_and_never_licenses_false_ink() {
     let (part, mut a) = analysed("prismatic");
     a.envelope[1][0] = a.envelope[0][0] + 4.45;

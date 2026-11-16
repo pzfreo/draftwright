@@ -398,6 +398,14 @@ fn finite_optional_numbers(spec: &Spec) -> Result<(), Invalid> {
 }
 
 pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
+    let mut normal;
+    let spec = if spec.schema == crate::engine_pins::SCHEMA && spec.engine_pins.is_none() {
+        normal = spec.clone();
+        normal.schema = SPEC_SCHEMA.into();
+        &normal
+    } else {
+        spec
+    };
     crate::geometry_ids::with(a, || migrate_indexed(spec, a))
 }
 
@@ -474,7 +482,11 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
             out = serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?;
         }
     }
-    out.schema = SPEC_SCHEMA.into();
+    out.schema = if out.engine_pins.is_some() {
+        crate::engine_pins::SCHEMA.into()
+    } else {
+        SPEC_SCHEMA.into()
+    };
     let mut checked = serde_json::to_value(&out).expect("Spec serializes");
     strip_text(&mut checked);
     let unmapped = unmapped(&checked, a);

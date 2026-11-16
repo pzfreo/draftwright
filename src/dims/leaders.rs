@@ -1038,6 +1038,13 @@ fn settled_nominal_reference(
                         a
                     });
                 let analysis = reference.as_ref().unwrap_or(analysis);
+                // This is an unrendered canonical reference, not the live drawing.
+                // Retaining the live frame here makes its recovery keep restoring
+                // an otherwise rejected sheet. Restore all pin context on return.
+                let retained = crate::incremental::active() || crate::engine_pins::loading();
+                let _incremental = retained.then(crate::incremental::suspend);
+                let _pins = retained.then(crate::engine_pins::suspend);
+                let _reference = retained.then(crate::planning::suspend_pin_reference);
                 crate::planning::isolated(analysis, || {
                     crate::planning::store(
                         analysis,
@@ -5811,20 +5818,16 @@ fn nearest(sites: &[Site], elbow: P2) -> Site {
 /// then crossings, length and generation order), near-duplicates dropped.
 type Inventories = (Vec<Candidate>, Vec<Candidate>, Vec<Candidate>);
 
-fn inventory(
-    job: &Job,
-    fixed: &Fixed,
-    page: &Page,
-    semantic_pmi: bool,
-    short_shoulders: bool,
-) -> Inventories {
-    let o = job.outline;
-    let d = page.drawable();
+fn base_candidates(
+    sites: &[Site],
+    o: [f64; 4],
+    d: [f64; 4],
+    beyond: [f64; 4],
+) -> Vec<(P2, P2, Option<bool>)> {
     let mut raw: Vec<(P2, P2, Option<bool>)> = Vec::new(); // (tip, elbow, label right?)
     // Columns beside the view: the site nearest that edge, rows within the view's height.
     for right in [true, false] {
-        let site = *job
-            .sites
+        let site = *sites
             .iter()
             .max_by(|a, b| {
                 let k = |s: &Site| if right { s.0[0] } else { -s.0[0] };
@@ -5833,22 +5836,17 @@ fn inventory(
             // Invariant: Callout wants are constructed only with nonempty proven-site inventories.
             .expect("a callout has a site");
         let k = if right { 3 } else { 2 };
-        for off in offsets(job.beyond[k]) {
+        for off in offsets(beyond[k]) {
             let x = if right { o[2] + off } else { o[0] - off };
             for y in stations(site.0[1], o[1].max(d[1]), o[3].min(d[3])) {
                 let elbow = [x, y];
-                raw.push((
-                    rim_tip(nearest(&job.sites, elbow), elbow),
-                    elbow,
-                    Some(right),
-                ));
+                raw.push((rim_tip(nearest(sites, elbow), elbow), elbow, Some(right)));
             }
         }
     }
     // Rows above and below: the site nearest that edge, columns within the view's width.
     for up in [false, true] {
-        let site = *job
-            .sites
+        let site = *sites
             .iter()
             .max_by(|a, b| {
                 let k = |s: &Site| if up { s.0[1] } else { -s.0[1] };
@@ -5857,17 +5855,17 @@ fn inventory(
             // Invariant: Callout wants are constructed only with nonempty proven-site inventories.
             .expect("a callout has a site");
         let k = usize::from(up);
-        for off in offsets(job.beyond[k]) {
+        for off in offsets(beyond[k]) {
             let y = if up { o[3] + off } else { o[1] - off };
             for x in stations(site.0[0], o[0].max(d[0]), o[2].min(d[2])) {
                 let elbow = [x, y];
-                let tip = rim_tip(nearest(&job.sites, elbow), elbow);
+                let tip = rim_tip(nearest(sites, elbow), elbow);
                 raw.push((tip, elbow, None));
             }
         }
     }
     // Escapes from each site.
-    for &site in &job.sites {
+    for &site in sites {
         for j in 0..DIRECTIONS {
             let a = std::f64::consts::TAU * j as f64 / DIRECTIONS as f64;
             let u = [a.cos(), a.sin()];
@@ -5879,6 +5877,18 @@ fn inventory(
             }
         }
     }
+    raw
+}
+
+fn inventory(
+    job: &Job,
+    fixed: &Fixed,
+    page: &Page,
+    semantic_pmi: bool,
+    short_shoulders: bool,
+) -> Inventories {
+    let o = job.outline;
+    let mut raw = base_candidates(&job.sites, o, page.drawable(), job.beyond);
     if job.short_profile {
         // A hidden end rim may be represented from its visible profile. Give
         // its real end stations the same short bounded rays as interior jobs,
@@ -6654,7 +6664,11 @@ fn measure_fixed(c: &mut Candidate, job: &Job, fixed: &Fixed) {
 /// and label side, the label on the side the leader runs to (either for a vertical one). The
 /// sites are taken nearest *tip* first, so the sweep starts where the leader is.
 fn sweep(job: &Job, tip: P2) -> Vec<(P2, P2, bool)> {
-    let mut sites: Vec<Site> = job.sites.clone();
+    sweep_sites(&job.sites, tip)
+}
+
+fn sweep_sites(source: &[Site], tip: P2) -> Vec<(P2, P2, bool)> {
+    let mut sites: Vec<Site> = source.to_vec();
     let d = |s: &Site| (s.0[0] - tip[0]).hypot(s.0[1] - tip[1]);
     sites.sort_by(|a, b| d(a).total_cmp(&d(b)));
     let mut out = Vec::new();
@@ -9623,4 +9637,66 @@ mod arc_tip_tests {
         let hole = rim_tip(([0.0, 0.0], 8.5, None), [-20.0, 20.0]);
         assert!(hole[1] > 0.0);
     }
+}
+
+/// Regenerate a prescribed leader from the normal geometry producers, without a solve.
+/// The rounded elbow selects a producer; it never substitutes rounded source geometry.
+pub(super) fn pin_candidates(
+    frame: &Frame,
+    w: &Want,
+    drawable: [f64; 4],
+    hint: P2,
+    origin: P2,
+) -> Vec<Placed> {
+    let Shape::Callout { sites, arcs } = &w.shape else {
+        return Vec::new();
+    };
+    let sites = page_sites(frame, sites, arcs);
+    if sites.is_empty() {
+        return Vec::new();
+    }
+    let same = |p: P2| {
+        (0..2).all(|k| (((p[k] - origin[k]) * 10000.).round() / 10000. - hint[k]).abs() < 1e-8)
+    };
+    let mut raw = base_candidates(&sites, frame.outline(), drawable, [0.; 4]);
+    for site in &sites {
+        raw.extend(
+            sweep_sites(&sites, site.0)
+                .into_iter()
+                .map(|(tip, elbow, right)| (tip, elbow, Some(right))),
+        );
+    }
+    let ink = label_ink(&w.terms, font());
+    let mut result = Vec::new();
+    for (tip, elbow, _) in raw.into_iter().filter(|(_, elbow, _)| same(*elbow)) {
+        for right in [true, false] {
+            for shoulder in [
+                SHOULDER,
+                SHOULDER * 0.25,
+                SHOULDER * 0.5,
+                SHOULDER * 0.75,
+                SHOULDER + 0.5,
+                SHOULDER + 1.,
+                SHOULDER + 1.5,
+                SHOULDER + 2.,
+            ] {
+                let end = [
+                    elbow[0] + if right { shoulder } else { -shoulder },
+                    elbow[1],
+                ];
+                let (label_at, label_box) = label_geometry(elbow, end, right, ink.min, ink.max);
+                let p = Placed {
+                    lines: vec![[tip, elbow], [elbow, end]],
+                    arrows: vec![arrow(tip, elbow)],
+                    label_at,
+                    rotation: 0.,
+                    label_box,
+                };
+                if !result.contains(&p) {
+                    result.push(p);
+                }
+            }
+        }
+    }
+    result
 }

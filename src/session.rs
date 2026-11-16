@@ -36,7 +36,7 @@ const COLLECTIONS: [&str; 14] = [
     "problems",
 ];
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "geometry", rename_all = "snake_case")]
 pub enum Placement {
     Dimension(crate::dims::Placed),
@@ -161,10 +161,19 @@ pub struct PlanDelta {
     pub collections: BTreeMap<String, CollectionDelta>,
 }
 
+/// A pre-existing item's changed geometry, independently of metadata changes.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Movement {
+    pub id: String,
+    pub reason: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delta {
-    /// Complete recovered-planner invocations used for this edit, including a preview.
+    /// Planner entry-point invocations used for this edit, including a preview.
     pub plans: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved: Vec<Movement>,
     pub changed: Vec<ItemAnswer>,
     pub added: Vec<ItemAnswer>,
     pub removed: Vec<String>,
@@ -580,7 +589,7 @@ impl Delta {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Stats {
-    /// Complete recovered-planner invocations, excluding previews and queries.
+    /// Full or incremental planner invocations, excluding previews and queries.
     pub plans: usize,
     /// Actual recovered sheet-1 runs, summed across committed planner invocations.
     pub sheet_steps: usize,
@@ -604,23 +613,32 @@ impl Planner {
         })?)
     }
 }
+#[derive(Clone)]
+struct History {
+    spec: Spec,
+    source: Option<(std::sync::Arc<Part>, std::sync::Arc<Analysis>)>,
+    plan: Option<Box<Plan>>,
+}
+
 struct Evaluation {
     state: State,
     drawing: Drawing,
     projections: Projections,
     planner: Planner,
     rendered: usize,
+    incremental: bool,
 }
 
 pub struct Session {
-    part: Part,
-    analysis: Analysis,
+    part: std::sync::Arc<Part>,
+    analysis: std::sync::Arc<Analysis>,
     state: State,
     drawing: Drawing,
     font: Font,
     projections: Projections,
-    undo: Vec<Spec>,
-    redo: Vec<Spec>,
+    undo: Vec<History>,
+    redo: Vec<History>,
+    incremental: bool,
     stats: Stats,
     planner: Planner,
     render_memo: crate::planning::BoundedMemo<Drawing>,
@@ -655,6 +673,7 @@ impl Session {
     ) -> Result<Self, Error> {
         // Invariant: Font bytes are bundled at build time and parsed unchanged, independently of user input.
         let font = Font::new(api::MONO.to_vec()).expect("the bundled font parses");
+        let _geometry = crate::engine_pins::prepare_read(&part, &analysis, &spec);
         let mut planner = Planner::default();
         let plan = planner.plan(&analysis, &spec)?;
         let geometry = model::render_geometry(&part, &analysis, &plan, &mut projections)
@@ -673,14 +692,15 @@ impl Session {
             ..Default::default()
         };
         Ok(Self {
-            part,
-            analysis,
+            part: std::sync::Arc::new(part),
+            analysis: std::sync::Arc::new(analysis),
             state,
             drawing,
             font,
             projections,
             undo: Vec::new(),
             redo: Vec::new(),
+            incremental: false,
             stats,
             planner,
             render_memo: crate::planning::BoundedMemo::new(1),
@@ -844,11 +864,129 @@ impl Session {
             evaluated.planner.calls - self.planner.calls,
         );
         if commit {
-            self.undo.push(self.spec().clone());
+            self.push_undo(self.snapshot(false));
             self.redo.clear();
             self.install(evaluated);
         }
         Ok(delta)
+    }
+    /// Place new/changed annotations around the committed layout. Never re-picks paper,
+    /// scale or view frames; the Spec receives marked engine-written pins.
+    pub fn apply_incremental(&mut self, ops: &[Op], commit: bool) -> Result<Delta, Error> {
+        let spec = model::edit(
+            self.spec(),
+            &serde_json::to_value(ops).expect("ops serialize"),
+        )?;
+        let mut planner = self.planner.clone();
+        planner.calls += 1;
+        let plan = crate::planning::with_retained(&self.analysis, || {
+            crate::sheets::count_runs(&mut planner.sheet_steps, || {
+                model::plan_incremental(&self.analysis, self.plan(), &spec)
+            })
+        })?;
+        let evaluated = self.evaluate_plan(plan, planner, None)?;
+        let delta = difference(&self.state, &evaluated.state, &self.analysis, 1);
+        if commit {
+            let mut previous = self.snapshot(false);
+            previous.plan = Some(Box::new(self.plan().clone()));
+            self.push_undo(previous);
+            self.redo.clear();
+            self.install(evaluated);
+        }
+        Ok(delta)
+    }
+    /// Replace STEP PMI while retaining the identical imported B-rep and layout.
+    /// Preview is transactional, including source identity and undo history.
+    pub fn replace_step_incremental(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+        commit: bool,
+    ) -> Result<Delta, Error> {
+        let (new_part, new_analysis, evaluated, delta) =
+            self.prepare_step_incremental(name, bytes)?;
+        if commit {
+            self.push_undo(self.snapshot(true));
+            self.redo.clear();
+            self.part = new_part;
+            self.analysis = new_analysis;
+            self.install(evaluated);
+        }
+        Ok(delta)
+    }
+    fn prepare_step_incremental(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<
+        (
+            std::sync::Arc<Part>,
+            std::sync::Arc<Analysis>,
+            Evaluation,
+            Delta,
+        ),
+        Error,
+    > {
+        let (part, analysis) =
+            model::analyse_native_bytes_part(name, bytes, self.analysis.binding.part_index)?;
+        let plan =
+            model::plan_incremental_source(&self.part, self.plan(), &part, &analysis, self.spec())?;
+        let old_part = std::mem::replace(&mut self.part, std::sync::Arc::new(part));
+        let old_analysis = std::mem::replace(&mut self.analysis, std::sync::Arc::new(analysis));
+        let mut planner = self.planner.clone();
+        planner.calls += 1;
+        let evaluated = self.evaluate_plan(plan, planner, None);
+        let new_part = std::mem::replace(&mut self.part, old_part);
+        let new_analysis = std::mem::replace(&mut self.analysis, old_analysis);
+        let evaluated = evaluated?;
+        let delta = difference(&self.state, &evaluated.state, &new_analysis, 1);
+        Ok((new_part, new_analysis, evaluated, delta))
+    }
+    /// Editor preview of a source update, with one parse/analysis and no full Analysis JSON.
+    pub fn preview_step_incremental(&mut self, name: &str, bytes: &[u8]) -> Result<Value, Error> {
+        let (part, analysis, evaluated, delta) = self.prepare_step_incremental(name, bytes)?;
+        Ok(
+            serde_json::json!({"plan":evaluated.state.plan,"spec":evaluated.state.plan.spec,"problems":evaluated.state.problems,
+            "svg":evaluated.drawing.svg(),"moved":delta.moved,"notices":delta.notices,"pmi":Self::pmi_report_for(&analysis,&evaluated.state),
+            "provenance":{"source_sha256":analysis.binding.source_sha256,"face_entities":(0..part.faces.len()).map(|i|part.face_source(i).map(|s|s.entity)).collect::<Vec<_>>()}}),
+        )
+    }
+    /// One operation removes only engine-written layout pins, preserving user intent.
+    pub fn relayout(&mut self, commit: bool) -> Result<Delta, Error> {
+        self.apply(&[Op::remove("engine_pins")], commit)
+    }
+    fn push_undo(&mut self, entry: History) {
+        self.undo.push(entry);
+        self.trim_plan_history();
+    }
+    fn trim_plan_history(&mut self) {
+        const LIMIT: usize = 32;
+        let carries_plan = |h: &History| h.plan.is_some() || h.source.is_some();
+        while self
+            .undo
+            .iter()
+            .chain(&self.redo)
+            .filter(|h| carries_plan(h))
+            .count()
+            > LIMIT
+        {
+            if let Some(at) = self.undo.iter().position(carries_plan) {
+                // A source transition is a boundary: older Spec-only entries must
+                // never be replayed against a newer part. Keep a contiguous suffix.
+                self.undo.drain(..=at);
+            } else if let Some(at) = self.redo.iter().position(carries_plan) {
+                // Preserve the nearest redo states when only future snapshots remain.
+                self.redo.drain(..=at);
+            }
+        }
+    }
+    fn snapshot(&self, source: bool) -> History {
+        History {
+            spec: self.spec().clone(),
+            source: source.then(|| (self.part.clone(), self.analysis.clone())),
+            plan: (source || self.incremental || self.spec().engine_pins.is_some())
+                .then(|| Box::new(self.plan().clone())),
+        }
     }
     /// Replace the Spec with *spec* (read in its current form, [`model::migrate`]), as one
     /// committed edit of the top-level fields that differ; refused as [`Session::apply`] refuses.
@@ -964,14 +1102,13 @@ impl Session {
         // A part of an assembly read alone takes its own PMI only.
         let reading = crate::pmi::read_part(bytes, &self.part, self.analysis.binding.part_index)
             .map_err(Error::invalid)?;
-        let previous = self
-            .analysis
+        let previous = std::sync::Arc::make_mut(&mut self.analysis)
             .pmi
             .replace(crate::pmi::Reading::Read(reading));
         let evaluated = match self.evaluate(&spec) {
             Ok(value) => value,
             Err(error) => {
-                self.analysis.pmi = previous;
+                std::sync::Arc::make_mut(&mut self.analysis).pmi = previous;
                 return Err(error);
             }
         };
@@ -1135,11 +1272,15 @@ impl Session {
         Ok(out)
     }
     pub fn pmi_report(&self) -> Value {
+        Self::pmi_report_for(&self.analysis, &self.state)
+    }
+    /// PMI packet for a preview State and its source revision.
+    pub fn pmi_report_for(analysis: &Analysis, state: &State) -> Value {
         let mut lowered = Vec::new();
         let mut unresolved = Vec::new();
         // Include Spec-authored datums and controls, exactly as the planner reads them.
         // A session already validated this Spec against its Analysis.
-        let effective = crate::spec_gdt::effective(self.analysis(), self.spec())
+        let effective = crate::spec_gdt::effective(analysis, &state.plan.spec)
             .expect("the session has a validated Spec");
         if let Some(crate::pmi::Reading::Read(report)) = &effective.pmi {
             let identities = report.identities();
@@ -1152,8 +1293,8 @@ impl Session {
                 // the planned item made for it or one that conveys it, neither of which claims it
                 // (#265). One that is drawn lowers it; one not drawn because another item states
                 // what it would (a hole callout the hole table replaces) lowers it to that item.
-                let ids: Vec<_> = self
-                    .plan()
+                let ids: Vec<_> = state
+                    .plan
                     .dimensions
                     .iter()
                     .filter(|d| {
@@ -1185,7 +1326,8 @@ impl Session {
                     // A planners' item that conveys it but is itself left out because other
                     // stated dimensions determine it still states that size on the sheet.
                     .chain(
-                        self.plan()
+                        state
+                            .plan
                             .omitted
                             .iter()
                             .filter(|o| {
@@ -1199,14 +1341,16 @@ impl Session {
                             .map(|o| (o.id.clone(), o.label.clone(), "covered".to_string())),
                     )
                     .chain(
-                        self.plan()
+                        state
+                            .plan
                             .gdt
                             .iter()
                             .filter(|g| g.source == record.source_id && g.placed.is_some())
                             .map(|g| (g.id.clone(), g.label.clone(), g.kind.clone())),
                     )
                     .chain(
-                        self.plan()
+                        state
+                            .plan
                             .requirements
                             .iter()
                             .filter(|r| {
@@ -1218,8 +1362,7 @@ impl Session {
                     .collect();
                 if ids.is_empty() {
                     let related = identities.id(&record.source_id).ok();
-                    let reasons: Vec<_> = self
-                        .state
+                    let reasons: Vec<_> = state
                         .problems
                         .iter()
                         .filter(|p| {
@@ -1231,10 +1374,10 @@ impl Session {
                         .map(|p| p.message.as_str())
                         .collect();
                     let reason = if let Some(reason) = crate::spec_gdt::datum_omission(
-                        &self.plan().spec,
+                        &state.plan.spec,
                         report,
                         record,
-                        &crate::dims::pmi_policy::origin_datums(&self.analysis, &self.plan().spec),
+                        &crate::dims::pmi_policy::origin_datums(analysis, &state.plan.spec),
                     ) {
                         reason.into()
                     } else if !reasons.is_empty() {
@@ -1245,11 +1388,8 @@ impl Session {
                         && !g.reasons.is_empty()
                     {
                         g.reasons.join("; ")
-                    } else if let Some(item) = self
-                        .plan()
-                        .gdt
-                        .iter()
-                        .find(|g| g.source == record.source_id)
+                    } else if let Some(item) =
+                        state.plan.gdt.iter().find(|g| g.source == record.source_id)
                     {
                         format!("Annotation is not drawn ({:?}): {}", item.state, item.basis)
                     } else if crate::pmi_lowering::no_part_requirement(record) {
@@ -1275,8 +1415,8 @@ impl Session {
                 }
             }
             if let Some(material) = report.title_material()
-                && self
-                    .plan()
+                && state
+                    .plan
                     .sheet
                     .title
                     .get("material")
@@ -1303,7 +1443,7 @@ impl Session {
         self.history(true)
     }
     fn history(&mut self, redo: bool) -> Result<Delta, Error> {
-        let spec = if redo {
+        let entry = if redo {
             self.redo.last()
         } else {
             self.undo.last()
@@ -1316,27 +1456,56 @@ impl Session {
             })
         })?
         .clone();
-        let evaluated = self.evaluate(&spec)?;
+        let current = self.snapshot(entry.source.is_some());
+        let old_source = entry.source.as_ref().map(|(part, analysis)| {
+            (
+                std::mem::replace(&mut self.part, part.clone()),
+                std::mem::replace(&mut self.analysis, analysis.clone()),
+            )
+        });
+        let evaluated = match if let Some(plan) = entry.plan {
+            self.evaluate_plan(*plan, self.planner.clone(), None)
+        } else {
+            self.evaluate(&entry.spec)
+        } {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some((part, analysis)) = old_source {
+                    self.part = part;
+                    self.analysis = analysis;
+                }
+                return Err(error);
+            }
+        };
         let delta = difference(
             &self.state,
             &evaluated.state,
             &self.analysis,
             evaluated.planner.calls - self.planner.calls,
         );
-        let current = self.spec().clone();
         if redo {
             self.redo.pop();
-            self.undo.push(current);
+            self.push_undo(current);
         } else {
             self.undo.pop();
             self.redo.push(current);
+            self.trim_plan_history();
         }
         self.install(evaluated);
         Ok(delta)
     }
     fn evaluate(&self, spec: &Spec) -> Result<Evaluation, Error> {
+        let _geometry = crate::engine_pins::prepare_read(&self.part, &self.analysis, spec);
         let mut planner = self.planner.clone();
         let plan = planner.plan(&self.analysis, spec)?;
+        self.evaluate_plan(plan, planner, Some(spec))
+    }
+    fn evaluate_plan(
+        &self,
+        plan: Plan,
+        planner: Planner,
+        input_spec: Option<&Spec>,
+    ) -> Result<Evaluation, Error> {
         let mut cache = self.projections.clone();
         let geometry = model::render_geometry(&self.part, &self.analysis, &plan, &mut cache)
             .map_err(|e| Error::failed(format!("cannot render session: {e}")))?;
@@ -1356,7 +1525,13 @@ impl Session {
         // drawing, still planning, placing geometry and computing ink/deltas each time.
         let key: [u8; 32] = Sha256::digest(
             // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-            serde_json::to_vec(&(spec, &self.analysis.pmi)).expect("render inputs serialize"),
+            if let Some(spec) = input_spec {
+                // Preserve the ordinary render memo's original input-Spec key.
+                serde_json::to_vec(&(spec, &self.analysis.pmi))
+            } else {
+                serde_json::to_vec(&(&state.plan, &self.analysis.pmi))
+            }
+            .expect("render inputs serialize"),
         )
         .into();
         let drawing = if let Some(drawing) = self.render_memo.get(&key) {
@@ -1373,9 +1548,11 @@ impl Session {
             projections: cache,
             planner,
             rendered,
+            incremental: input_spec.is_none(),
         })
     }
     fn install(&mut self, evaluated: Evaluation) {
+        self.incremental = evaluated.incremental;
         self.state = evaluated.state;
         self.drawing = evaluated.drawing;
         self.projections = evaluated.projections;
@@ -2453,6 +2630,11 @@ fn difference(old: &State, new: &State, analysis: &Analysis, plans: usize) -> De
             .collect::<Vec<_>>()
     };
     Delta {
+        moved: if new.plan.spec.engine_pins.is_some() || old.plan.spec.engine_pins.is_some() {
+            movements(old, new, &before, &after, &old_records, &new_records)
+        } else {
+            Vec::new()
+        },
         plans,
         notices: crate::local_layout::notice(&old.plan, &new.plan)
             .into_iter()
@@ -2519,4 +2701,88 @@ fn same_finding(a: &model::Problem, b: &model::Problem) -> bool {
 
 fn unchanged_problem(a: &model::Problem, b: &model::Problem, old: &State, new: &State) -> bool {
     a == b || (same_finding(a, b) && old.plan.problems.contains(a) && new.plan.problems.contains(b))
+}
+
+/// Compare page geometry, including non-annotation furniture. Text alone is content,
+/// while a changed label box, leader, lane, carrier or rendered shape is movement.
+fn movements(
+    old: &State,
+    new: &State,
+    before: &BTreeMap<String, ItemAnswer>,
+    after: &[ItemAnswer],
+    old_records: &BTreeMap<String, Vec<Value>>,
+    new_records: &BTreeMap<String, Vec<Value>>,
+) -> Vec<Movement> {
+    after
+        .iter()
+        .filter_map(|item| {
+            let previous = before.get(&item.item.id)?;
+            let id = &item.item.id;
+            let geometry = previous.placement != item.placement;
+            let ink = old
+                .annotations
+                .get(id)
+                .zip(new.annotations.get(id))
+                .is_some_and(|(a, b)| a.items != b.items || a.drawn != b.drawn);
+            let furniture = old_records.get(id) != new_records.get(id)
+                && old_records
+                    .get(id)
+                    .map(|r| r.iter().map(record_geometry).collect::<Vec<_>>())
+                    != new_records
+                        .get(id)
+                        .map(|r| r.iter().map(record_geometry).collect::<Vec<_>>());
+            (geometry || ink || furniture || previous.item.sheet != item.item.sheet).then(|| {
+                Movement {
+                    id: id.clone(),
+                    reason: if previous.item.sheet != item.item.sheet {
+                        "carrier sheet changed"
+                    } else if furniture {
+                        "annotation ink, carrier or sheet furniture geometry changed"
+                    } else if geometry {
+                        "placement or label extent changed"
+                    } else {
+                        "rendered ink changed"
+                    }
+                    .into(),
+                }
+            })
+        })
+        .collect()
+}
+
+fn record_geometry(record: &Value) -> Value {
+    let mut geometry = serde_json::Map::new();
+    for key in [
+        "placed",
+        "at",
+        "area",
+        "scale",
+        "direction",
+        "up",
+        "cut",
+        "half_section",
+        "break",
+        "line_work",
+        "page",
+        "title_block",
+        "title_cells",
+        "projection_symbol",
+        "origin",
+        "radius",
+        "label_box",
+        "leader",
+        "lines",
+        "ink",
+    ] {
+        if let Some(value) = record.get(key) {
+            geometry.insert(key.into(), value.clone());
+        }
+    }
+    if let Some(blocks) = record.get("blocks").and_then(Value::as_array) {
+        geometry.insert(
+            "blocks".into(),
+            Value::Array(blocks.iter().map(record_geometry).collect()),
+        );
+    }
+    Value::Object(geometry)
 }

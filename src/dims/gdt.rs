@@ -118,10 +118,27 @@ pub struct PlannedGdt {
     pub placed: Option<GdtPlaced>,
 }
 
+/// Compare lowered semantic content before deriving a transaction-local pin.
+pub(crate) fn same_content(g: &PlannedGdt, item: &Lowered, units: crate::units::Units) -> bool {
+    let cells = match &item.glyph {
+        Glyph::Datum { letter, .. } => vec![letter.clone()],
+        Glyph::Label { text } => vec![text.clone()],
+        Glyph::FlagNote { number, .. } => vec![number.to_string()],
+        Glyph::Finish { texture, .. } => finish_symbol(texture, units).1,
+        glyph => control_frame(glyph).1,
+    };
+    g.id == item.id && g.faces == item.faces && g.cells == cells
+}
+
 /// A frame's or symbol's ink, mm on the page.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub type PlacementPose = ([f64; 2], Vec<[f64; 2]>, Option<usize>);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GdtPlaced {
+    /// Placement operations only; preserves exact floating-point translations on pin replay.
+    #[serde(skip)]
+    pub pose: Option<PlacementPose>,
     /// Where it attaches: the leader's arrowhead or the triangle's base.
     pub tip: P2,
     /// Its leader's lines: a frame's shaft and shelf, a symbol's line to its frame.
@@ -147,6 +164,22 @@ pub struct GdtPlaced {
     pub letters: Vec<GdtText>,
     /// The text layer: each compartment's run, centred on its cell.
     pub runs: Vec<GdtText>,
+}
+
+// Placement history is provenance, not ink. Keep the pre-existing equality contract.
+impl PartialEq for GdtPlaced {
+    fn eq(&self, other: &Self) -> bool {
+        self.tip == other.tip
+            && self.lines == other.lines
+            && self.arrows == other.arrows
+            && self.label_box == other.label_box
+            && self.strokes == other.strokes
+            && self.frame_strokes == other.frame_strokes
+            && self.arcs == other.arcs
+            && self.fills == other.fills
+            && self.letters == other.letters
+            && self.runs == other.runs
+    }
 }
 
 fn all_strokes() -> usize {
@@ -303,6 +336,9 @@ pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
     if p.runs.iter().any(|run| run.text == count) {
         return;
     }
+    if let Some((_, steps, at)) = &mut p.pose {
+        *at = Some(steps.len());
+    }
     let b = p.label_box;
     let pad = 0.6 * TEXT_HEIGHT;
     let base = b[3] + pad;
@@ -355,6 +391,9 @@ pub(super) fn take_count(g: &mut PlannedGdt) -> Option<usize> {
     let count = &p.runs.first()?.text;
     let n = count.strip_suffix('×')?.parse().ok()?;
     let laid = haecceity::presentation::gdt::cad_datum_frame(count);
+    if let Some((_, _, at)) = &mut p.pose {
+        *at = None;
+    }
     p.strokes
         .truncate(p.strokes.len() - (laid.strokes.len() - laid.frame_strokes));
     p.arcs.drain(..laid.arcs.len());
@@ -1788,6 +1827,11 @@ pub(crate) fn plan_anchored(
 }
 
 pub(super) fn translated(mut p: GdtPlaced, delta: P2) -> GdtPlaced {
+    if delta != [0., 0.]
+        && let Some((_, steps, _)) = &mut p.pose
+    {
+        steps.push(delta);
+    }
     use crate::placement_intent::{move_box, move_point};
     move_point(&mut p.tip, delta);
     move_box(&mut p.label_box, delta);
@@ -2133,7 +2177,14 @@ fn plan_search(
         if intent.is_some_and(crate::placement_intent::automatic_pin)
             && let Some(base) = canonical
             && let Some(g) = base.gdt.iter().find(|g| {
-                g.id == item.id && (g.view == planned.view || super::hole_marks::attached(g))
+                g.id == item.id
+                    && (crate::incremental::active()
+                        || g.view == planned.view
+                        || super::hole_marks::attached(g))
+                    && (!crate::incremental::active()
+                        || (g.cells == planned.cells
+                            && g.modifiers == planned.modifiers
+                            && g.faces == planned.faces))
             })
             && let Some(delta) = crate::placement_intent::anchor_delta(base, views, &g.view)
             && let Some(mut p) = g.placed.clone()
@@ -2581,6 +2632,7 @@ fn plan_search(
         }
         planned.state = State::Shown;
         planned.placed = Some(GdtPlaced {
+            pose: Some((chosen.origin, Vec::new(), None)),
             tip,
             lines: chosen.lines,
             arrows: chosen.arrows,
@@ -2669,6 +2721,7 @@ pub(super) fn datum_at(letter: &str, tip: P2, side: &str, tier: usize) -> GdtPla
         size: t.size,
     };
     GdtPlaced {
+        pose: Some((c.origin, Vec::new(), None)),
         tip,
         lines: c.lines,
         arrows: c.arrows,
@@ -2951,6 +3004,21 @@ pub(crate) fn finish_collisions_cached(
         .into_iter()
         .filter(|q| q.subjects.contains(&r.id) && q.code != "annotation_over_title_block")
         .collect()
+}
+
+pub(crate) fn retain_region(g: &mut PlannedGdt, interior: bool) {
+    if interior && !g.basis.contains(super::interior::BASIS) {
+        g.basis += super::interior::BASIS;
+    } else if !interior {
+        g.basis = g.basis.replace(super::interior::BASIS, "");
+    }
+}
+
+pub(crate) fn has_ink(g: &PlannedGdt) -> bool {
+    g.placed.is_some()
+        && !(g.kind == "datum_feature"
+            && (g.state == State::OmittedByUser
+                || g.state == State::not_drawable("datum_not_drawn")))
 }
 
 /// Draws a planned item into *items* (the dims layer) and its runs into *text*, from the plan
@@ -3298,6 +3366,7 @@ pub(crate) fn validate_placements(
             half_section: None,
             broken: None,
             line_work: Vec::new(),
+            line_pose: None,
             line_style: Default::default(),
             from_spec: Vec::new(),
         })
@@ -3478,6 +3547,137 @@ fn datum_omission(analysis: &Analysis, spec: &Spec, item: &Lowered) -> Option<&'
             let origins = super::pmi_policy::origin_datums(analysis, spec);
             crate::spec_gdt::datum_omission(spec, report, r, &origins)
         })
+}
+
+pub(crate) fn pin_origin(g: &PlannedGdt) -> [f64; 2] {
+    let p = g.placed.as_ref().expect("placed pin");
+    if let Some((origin, _, _)) = &p.pose {
+        return *origin;
+    }
+    if g.kind == "datum_feature" {
+        [
+            (p.label_box[0] + p.label_box[2]) / 2.,
+            (p.label_box[1] + p.label_box[3]) / 2.,
+        ]
+    } else {
+        [p.label_box[0], p.label_box[1]]
+    }
+}
+pub(crate) fn apply_pin(
+    g: &mut PlannedGdt,
+    pin: &crate::engine_pins::Annotation,
+    item: &Lowered,
+    units: crate::units::Units,
+    controlled_count: Option<usize>,
+) -> bool {
+    let Some(origin) = pin.place.offset else {
+        return false;
+    };
+    let Some(crate::engine_pins::Route::Gdt {
+        bounds: kept_bounds,
+        tip,
+        lines,
+        arrows,
+        fills,
+        transforms,
+        counted_after,
+    }) = &pin.route
+    else {
+        return false;
+    };
+    let count = controlled_count.or_else(|| {
+        g.placed.as_ref().and_then(|p| {
+            p.runs.iter().find_map(|r| {
+                r.text
+                    .strip_suffix('×')
+                    .and_then(|s| s.parse::<usize>().ok())
+            })
+        })
+    });
+    let laid = match &item.glyph {
+        Glyph::Datum { letter, .. } => datum_frame(letter),
+        Glyph::Label { text } => label(text),
+        Glyph::FlagNote { number, .. } => flag_note(*number),
+        Glyph::Finish { texture, .. } => finish_symbol(texture, units).0,
+        glyph => control_frame(glyph).0,
+    };
+    let shift = |q: P2| [q[0] + origin[0], q[1] + origin[1]];
+    let moved = |t: &GdtText| GdtText {
+        text: t.text.clone(),
+        at: shift(t.at),
+        size: t.size,
+    };
+    let arcs: Vec<_> = laid
+        .arcs
+        .iter()
+        .map(|a| [a[0] + origin[0], a[1] + origin[1], a[2], a[3], a[4]])
+        .collect();
+    let bounds = if g.kind == "datum_feature" {
+        [
+            origin[0] - laid.size[0] / 2.,
+            origin[1] - laid.size[1] / 2.,
+            origin[0] + laid.size[0] / 2.,
+            origin[1] + laid.size[1] / 2.,
+        ]
+    } else {
+        [
+            origin[0],
+            origin[1],
+            origin[0] + laid.size[0],
+            origin[1] + laid.size[1],
+        ]
+    };
+    let mut p = GdtPlaced {
+        pose: Some((origin, Vec::new(), None)),
+        tip: *tip,
+        lines: lines.clone(),
+        arrows: arrows.clone(),
+        fills: fills.clone(),
+        label_box: bounds,
+        strokes: laid
+            .strokes
+            .iter()
+            .map(|[a, b]| [shift(*a), shift(*b)])
+            .collect(),
+        frame_strokes: laid.frame_strokes.unwrap_or(usize::MAX),
+        arcs,
+        letters: laid.letters.iter().map(moved).collect(),
+        runs: laid.runs.iter().map(moved).collect(),
+    };
+    for index in 0..=transforms.len() {
+        if counted_after.is_some_and(|at| at == index)
+            && let Some(n) = count
+        {
+            with_count(&mut p, n);
+        }
+        if let Some(delta) = transforms.get(index) {
+            p = translated(p, *delta);
+        }
+    }
+    // The route is final paper-space placement, independent of the glyph transform stack.
+    p.tip = *tip;
+    p.lines.clone_from(lines);
+    p.arrows.clone_from(arrows);
+    p.fills.clone_from(fills);
+    if let Some(line) = lines.first() {
+        for m in &g.modifiers {
+            p.arcs.push(circle(line[1], RING));
+            if m == "all_over" {
+                p.arcs.push(circle(line[1], 1.7 * RING));
+            }
+        }
+    }
+    if ((p.label_box[2] - p.label_box[0]) - (kept_bounds[2] - kept_bounds[0])).abs() > 1e-7
+        || ((p.label_box[3] - p.label_box[1]) - (kept_bounds[3] - kept_bounds[1])).abs() > 1e-7
+    {
+        return false;
+    }
+    p.label_box = *kept_bounds;
+    if !pin.omit {
+        g.state = State::Shown;
+    }
+    g.placed = Some(p);
+    true
 }
 
 #[cfg(test)]
@@ -3664,6 +3864,7 @@ mod tests {
             basis: String::new(),
             state: State::Shown,
             placed: Some(GdtPlaced {
+                pose: None,
                 tip: c.lines[0][0],
                 lines: c.lines.clone(),
                 arrows: c.arrows.clone(),

@@ -2,6 +2,8 @@ export class Engine {
   [Symbol.dispose](): void;
   apply(ops: string, commit: boolean): string;
   applyFragments(ops: string): string;
+  applyIncremental(ops: string, commit: boolean): string;
+  applyIncrementalFragments(ops: string): string;
   calloutOffset(address: string): string;
   constructor(name: string, bytes: Uint8Array);
   faceCount(): number;
@@ -16,9 +18,13 @@ export class Engine {
   planCount(): number;
   pmi(): string;
   preview(ops: string): string;
+  previewIncremental(ops: string): string;
+  previewStepIncremental(name: string, bytes: Uint8Array): string;
   redo(): string;
   renderPdf(): Uint8Array;
   renderSvg(): Uint8Array;
+  replaceStepIncremental(name: string, bytes: Uint8Array, commit: boolean): string;
+  replaceStepIncrementalFragments(name: string, bytes: Uint8Array): string;
   setPmi(source: string, bytes: Uint8Array): void;
   setPmiOps(source: string, bytes: Uint8Array, ops: string): void;
   setSpec(json: string): void;
@@ -84,6 +90,8 @@ export interface InitOutput {
   readonly __wbindgen_start: () => void;
   readonly engine_apply: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly engine_applyFragments: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly engine_applyIncremental: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+  readonly engine_applyIncrementalFragments: (a: number, b: number, c: number) => [number, number, number, number];
   readonly engine_calloutOffset: (a: number, b: number, c: number) => [number, number, number, number];
   readonly engine_faceCount: (a: number) => number;
   readonly engine_featureCount: (a: number) => number;
@@ -98,9 +106,13 @@ export interface InitOutput {
   readonly engine_planCount: (a: number) => number;
   readonly engine_pmi: (a: number) => [number, number];
   readonly engine_preview: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly engine_previewIncremental: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly engine_previewStepIncremental: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly engine_redo: (a: number) => [number, number, number, number];
   readonly engine_renderPdf: (a: number) => [number, number, number, number];
   readonly engine_renderSvg: (a: number) => [number, number, number, number];
+  readonly engine_replaceStepIncremental: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+  readonly engine_replaceStepIncrementalFragments: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly engine_setPmi: (a: number, b: number, c: number, d: number, e: number) => [number, number];
   readonly engine_setPmiOps: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
   readonly engine_setSpec: (a: number, b: number, c: number) => [number, number];

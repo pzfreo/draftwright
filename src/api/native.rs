@@ -91,7 +91,9 @@ pub fn plan_part(
     features: Features,
     spec: &Spec,
 ) -> Result<Plan, Error> {
-    let (_, analysis) = analysed(step, selected_part(step, part, spec)?, features)?;
+    let (part, analysis) = analysed(step, selected_part(step, part, spec)?, features)?;
+    let _geometry = crate::engine_pins::prepare_read(&part, &analysis, spec);
+    drop(part);
     Ok(planned(&analysis, spec)?)
 }
 
@@ -197,6 +199,7 @@ pub fn edit(spec: &Spec, ops: &Value) -> Result<Spec, Error> {
 /// problems include the drawing's: what could not be drawn as planned.
 fn drawn(step: &Path, given: Given, spec: &Spec) -> Result<(Analysis, Plan, Vec<Drawing>), Error> {
     let (part, analysis) = read(step, given, spec)?;
+    let _geometry = crate::engine_pins::prepare_read(&part, &analysis, spec);
     let mut plan = planned(&analysis, spec)?;
     let font = Font::new(MONO.to_vec()).expect("the bundled font parses");
     let drawings = model::render_sheets(&part, &analysis, &plan, &font).map_err(|e| {
@@ -697,10 +700,14 @@ fn dispatch(op: &str, args: &Value) -> Result<Value, Error> {
         }
         "plan" => match analysis()? {
             Some(analysis) => {
-                if args.get("step").is_some_and(|s| !s.is_null()) {
-                    bound(text("step")?, &analysis)?;
-                }
-                Ok(json_of(&plan_analysed(&analysis, &given()?)?))
+                let spec = given()?;
+                let _geometry = if args.get("step").is_some_and(|s| !s.is_null()) {
+                    let part = bound(text("step")?, &analysis)?;
+                    Some(crate::engine_pins::prepare_read(&part, &analysis, &spec))
+                } else {
+                    None
+                };
+                Ok(json_of(&plan_analysed(&analysis, &spec)?))
             }
             None => Ok(json_of(&plan_part(
                 text("step")?,

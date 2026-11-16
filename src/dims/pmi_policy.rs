@@ -329,6 +329,49 @@ pub(super) fn origins(a: &Analysis, s: &Spec, wants: &mut [Want]) -> Vec<Problem
     }
     let (selected, mut problems) = selected_origins(a, s);
     for w in wants {
+        let kept_origin = if let Shape::Linear { axis, .. } = &w.shape {
+            w.measurements
+                .first()
+                .filter(|m| location_role(&m.parameter))
+                .and_then(|_| crate::engine_pins::kept_origin(&w.id, *axis))
+        } else {
+            None
+        };
+        if let Some(pin) = kept_origin
+            && let Shape::Linear {
+                a: p,
+                b: q,
+                axis: k,
+                ..
+            } = &mut w.shape
+            && *k == pin.axis
+        {
+            if selected[*k]
+                .as_ref()
+                .is_some_and(|(v, _)| *v != pin.station)
+                && crate::engine_pins::pinned_ink(&w.id)
+            {
+                problems.extend(crate::incremental::basis_offers(a, &w.id, &w.measurements));
+            }
+            p[*k] = pin.station;
+            w.value = (q[*k] - pin.station).abs();
+            w.terms = vec![fmt(w.value)];
+            for m in &mut w.measurements {
+                if location_role(&m.parameter) {
+                    m.value = w.value;
+                }
+            }
+            if w.value < 1e-9
+                && selected[*k]
+                    .as_ref()
+                    .is_some_and(|(v, _)| (*v - pin.station).abs() < 1e-9)
+            {
+                problems.push(Problem { id: format!("p:location_on_datum:{}",w.id), code:"location_on_datum".into(), severity:"info".into(),
+                    message:"A feature lies on the selected datum; its location has no nonzero distance to draw.".into(),
+                    subjects:w.measurements.iter().filter(|m| a.features.iter().any(|f| f.id == m.feature)).map(|m| m.feature.clone()).collect(), ..Default::default() });
+            }
+            continue;
+        }
         if let Shape::Linear {
             a: p,
             b: q,

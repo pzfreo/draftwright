@@ -355,6 +355,11 @@ fn rehang(g: &mut gdt::PlannedGdt, next: &Placed) {
         q[0] += delta[0];
         q[1] += delta[1];
     };
+    if delta != [0., 0.]
+        && let Some((_, steps, _)) = &mut p.pose
+    {
+        steps.push(delta);
+    }
     // The glyph and text move as one rigid object: compartment widths and text size stay.
     for line in &mut p.strokes {
         for q in line {
