@@ -21,7 +21,7 @@ not a claim about later versions. Older installed versions raise `DraftwrightErr
 on first shape use, naming the required and found versions. STEP-only use needs
 no build123d installation.
 
-With build123d 0.10, pin `ocp-gordon<0.3` (the test environment uses 0.1.17):
+With build123d 0.10, pin `ocp-gordon<0.3` (tested with 0.1.17 and 0.2.2):
 ocp-gordon 0.3.1 imports `OCP.collections`, absent from 0.10's OCCT 7.8.
 
 **The return value is `(svg_path, dxf_path)`, both strings, as in 0.4.** The DXF is
