@@ -6202,6 +6202,38 @@ fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan, recovere
             }
         }
     }
+    // The schedule and callouts are one proven arrangement. A bare replay
+    // may install tags before restoring these routes; rebuilding the same tags
+    // greedily need not find the existing complete solution. Carry the proven
+    // tags when their entire dimension/frame and table geometry is unchanged.
+    let same_ink = plan.dimensions.len() == before.dimensions.len()
+        && plan.dimensions.iter().all(|d| {
+            before.dimensions.iter().any(|old| {
+                d.id == old.id
+                    && d.view == old.view
+                    && d.terms == old.terms
+                    && d.placed == old.placed
+            })
+        })
+        && plan.gdt == before.gdt;
+    let same_tables = same_ink && {
+        let mut tables = before.hole_tables.clone();
+        // Basis records the pre-schedule crossing count. It is provenance, not
+        // table geometry, and can differ before the same final ink is restored.
+        for (old, new) in tables.iter_mut().zip(&plan.hole_tables) {
+            old.basis.clone_from(&new.basis);
+            for (old, new) in old.blocks.iter_mut().zip(&new.blocks) {
+                old.basis.clone_from(&new.basis);
+            }
+        }
+        tables == plan.hole_tables
+    };
+    if same_tables {
+        changed |= plan.balloons != before.balloons;
+        plan.balloons.clone_from(&before.balloons);
+    } else {
+        changed |= crate::hole_table::refresh_marks(analysis, plan);
+    }
     if changed {
         let checks = crate::dims::recheck(analysis, plan);
         let codes: BTreeSet<_> = old_checks

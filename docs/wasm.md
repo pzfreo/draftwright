@@ -204,7 +204,8 @@ next 100,000 bytes. `tools/wasm_size.py` enforces that raw-byte ceiling in CI an
 builds; equality passes. It prints actual transfer sizes and remaining headroom on every
 run. The initial ceiling (2026-10-16) was **15,700,000 bytes**, 15% above a 13,602,172-byte
 baseline. On 2026-10-19 the maintainer re-baselined on main's 15,649,337-byte build with a
-**17,300,000-byte** ceiling (10.5% headroom). Brotli reporting requires the Python `brotli` module
+**17,300,000-byte** ceiling (10.5% headroom). On 2026-11-16 the maintainer re-baselined on main's 23,940,973-byte build after declared-inch
+drawings (#492) with a **26,400,000-byte** ceiling, rather than lower the browser build's optimisation. Brotli reporting requires the Python `brotli` module
 or the `brotli` CLI; enforcement
 has no optional dependencies. Gzip/Brotli sizes are recorded for deployment planning and
 are not separate gates. A budget increase requires a deliberate reviewed JSON edit; the
