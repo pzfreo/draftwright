@@ -5225,9 +5225,9 @@
     "subject": "f:hole:f34",
     "field": "parameters.cbore",
     "python": "null",
-    "rust": "{\"depth\":10.0,\"diameter\":70.0}",
+    "rust": "{\"depth\":10.0,\"diameter\":70.0,\"faces\":[34.0]}",
     "verdict": "rust-correct",
-    "evidence": "quiddity-rust v0.2.2 (#118): a near-side step is a spotface only at depth <= 1.0 mm and < 0.2 \u00d7 its diameter, so the \u230070 step 10 mm deep is a counterbore; Python quiddity still calls it a spotface. draftwright prints \u2334 \u230070 \u21a7 10 instead of \u2334SF."
+    "evidence": "quiddity-rust v0.2.2 (#118): a near-side step is a spotface only at depth <= 1.0 mm and < 0.2 \u00d7 its diameter, so the \u230070 step 10 mm deep is a counterbore; Python quiddity still calls it a spotface. draftwright prints \u2334 \u230070 \u21a7 10 instead of \u2334SF. quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 34 is a cylinder on this hole's axis, diameter 70 mm and axial span 10 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [34, 55]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
   },
   {
     "set": "corpus",
@@ -9965,9 +9965,9 @@
     "subject": "f:hole:f34",
     "field": "parameters.cbore",
     "python": "null",
-    "rust": "{\"depth\":10.0,\"diameter\":70.0}",
+    "rust": "{\"depth\":10.0,\"diameter\":70.0,\"faces\":[34.0]}",
     "verdict": "rust-correct",
-    "evidence": "quiddity-rust v0.2.2 (#118): a near-side step is a spotface only at depth <= 1.0 mm and < 0.2 \u00d7 its diameter, so the \u230070 step 10 mm deep is a counterbore; Python quiddity still calls it a spotface. draftwright prints \u2334 \u230070 \u21a7 10 instead of \u2334SF."
+    "evidence": "quiddity-rust v0.2.2 (#118): a near-side step is a spotface only at depth <= 1.0 mm and < 0.2 \u00d7 its diameter, so the \u230070 step 10 mm deep is a counterbore; Python quiddity still calls it a spotface. draftwright prints \u2334 \u230070 \u21a7 10 instead of \u2334SF. quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 34 is a cylinder on this hole's axis, diameter 70 mm and axial span 10 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [34, 55]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
   },
   {
     "set": "sheets",
@@ -11698,5 +11698,245 @@
     "rust": "f:hole:f7",
     "verdict": "rust-wrong",
     "evidence": "The face-anchored identity follows the provider face-set difference already recorded for this same feature: Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/1) carries only the defining ones. Face 4, a plane (the blind floor) closes the hole: quiddity-rust finds it, as the hole occurrence's context (holes::discover at dff320c), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change)."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f47",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[49.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 49 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [47, 49]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f50",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[52.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 52 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [50, 52]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f53",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[55.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 55 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [53, 55]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f56",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[58.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 58 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [56, 58]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f59",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[61.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 61 is a cylinder on this hole's axis, diameter 20.64 mm and axial span 14.29 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [59, 61]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f62",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[64.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 64 is a cylinder on this hole's axis, diameter 20.64 mm and axial span 14.29 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [62, 64]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f65",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[67.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 67 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [65, 67]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f68",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[70.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 70 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [68, 70]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f71",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[73.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 73 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [71, 73]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "corpus",
+    "part": "ftc06",
+    "subject": "f:hole:f74",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[76.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 76 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [74, 76]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f47",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[49.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 49 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [47, 49]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f50",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[52.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 52 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [50, 52]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f53",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[55.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 55 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [53, 55]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f56",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[58.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 58 is a cylinder on this hole's axis, diameter 15.88 mm and axial span 12.7 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [56, 58]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f59",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[61.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 61 is a cylinder on this hole's axis, diameter 20.64 mm and axial span 14.29 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [59, 61]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f62",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[64.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 64 is a cylinder on this hole's axis, diameter 20.64 mm and axial span 14.29 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [62, 64]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f65",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[67.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 67 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [65, 67]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f68",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[70.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 70 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [68, 70]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f71",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[73.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 73 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [71, 73]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "sheets",
+    "part": "ftc06",
+    "subject": "f:hole:f74",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[76.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 76 is a cylinder on this hole's axis, diameter 10.16 mm and axial span 7.94 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [74, 76]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "dims",
+    "part": "ftc07",
+    "subject": "f:hole:f218",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[218.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 218 is a cylinder on this hole's axis, diameter 11.11 mm and axial span 7.62 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [218, 219]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "dims",
+    "part": "ftc07",
+    "subject": "f:hole:f221",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[221.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 221 is a cylinder on this hole's axis, diameter 11.11 mm and axial span 7.62 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [221, 222]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "dims",
+    "part": "ftc07",
+    "subject": "f:hole:f224",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[224.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 224 is a cylinder on this hole's axis, diameter 11.11 mm and axial span 7.62 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [224, 225]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
+  },
+  {
+    "set": "dims",
+    "part": "ftc07",
+    "subject": "f:hole:f227",
+    "field": "parameters.cbore.faces",
+    "python": "-",
+    "rust": "[227.0]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.4 adds CounterBore::faces in recognition/6. Face 227 is a cylinder on this hole's axis, diameter 11.11 mm and axial span 7.62 mm (checked against Analysis face_attachments sites and bounds within its 0.01 mm size rounding), already in the unchanged parent faces [227, 228]. The older Python record has no sub-record face list; the machining sizes and parent claim are unchanged."
   }
 ]
