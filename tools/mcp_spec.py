@@ -85,6 +85,7 @@ def engine_pin_definitions():
         'views': mapping(view), 'annotations': mapping(ref('engine_pin_annotation')),
         'rebase': arr(S), 'origins': vector,
         'geometry_sha256': {**nullable(S), 'description': 'Identity of the imported B-rep for verifying a PMI-only source revision.'},
+        'authored_places': {**mapping(ref('place')), 'description': 'Authored item placements at capture, used to release only changed item pins on a file edit.'},
         'layout_sha256': {**nullable(S), 'description': 'Identity of authored composition intent, excluding text and requirements.'},
     }, ('written_by', 'source_sha256', 'sheet', 'views', 'annotations'))
     grid = obj({'x': arr(N), 'y': arr({'type': ['number', 'null']}), 'bounds': bounds,
