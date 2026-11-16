@@ -616,7 +616,7 @@ impl Planner {
 #[derive(Clone)]
 struct History {
     spec: Spec,
-    source: Option<(std::sync::Arc<Part>, Box<Analysis>)>,
+    source: Option<(std::sync::Arc<Part>, std::sync::Arc<Analysis>)>,
     plan: Option<Box<Plan>>,
 }
 
@@ -631,7 +631,7 @@ struct Evaluation {
 
 pub struct Session {
     part: std::sync::Arc<Part>,
-    analysis: Analysis,
+    analysis: std::sync::Arc<Analysis>,
     state: State,
     drawing: Drawing,
     font: Font,
@@ -693,7 +693,7 @@ impl Session {
         };
         Ok(Self {
             part: std::sync::Arc::new(part),
-            analysis,
+            analysis: std::sync::Arc::new(analysis),
             state,
             drawing,
             font,
@@ -918,13 +918,21 @@ impl Session {
         &mut self,
         name: &str,
         bytes: &[u8],
-    ) -> Result<(std::sync::Arc<Part>, Analysis, Evaluation, Delta), Error> {
+    ) -> Result<
+        (
+            std::sync::Arc<Part>,
+            std::sync::Arc<Analysis>,
+            Evaluation,
+            Delta,
+        ),
+        Error,
+    > {
         let (part, analysis) =
             model::analyse_native_bytes_part(name, bytes, self.analysis.binding.part_index)?;
         let plan =
             model::plan_incremental_source(&self.part, self.plan(), &part, &analysis, self.spec())?;
         let old_part = std::mem::replace(&mut self.part, std::sync::Arc::new(part));
-        let old_analysis = std::mem::replace(&mut self.analysis, analysis);
+        let old_analysis = std::mem::replace(&mut self.analysis, std::sync::Arc::new(analysis));
         let mut planner = self.planner.clone();
         planner.calls += 1;
         let evaluated = self.evaluate_plan(plan, planner, None);
@@ -963,17 +971,19 @@ impl Session {
             > LIMIT
         {
             if let Some(at) = self.undo.iter().position(carries_plan) {
-                self.undo.remove(at);
+                // A source transition is a boundary: older Spec-only entries must
+                // never be replayed against a newer part. Keep a contiguous suffix.
+                self.undo.drain(..=at);
             } else if let Some(at) = self.redo.iter().position(carries_plan) {
                 // Preserve the nearest redo states when only future snapshots remain.
-                self.redo.remove(at);
+                self.redo.drain(..=at);
             }
         }
     }
     fn snapshot(&self, source: bool) -> History {
         History {
             spec: self.spec().clone(),
-            source: source.then(|| (self.part.clone(), Box::new(self.analysis.clone()))),
+            source: source.then(|| (self.part.clone(), self.analysis.clone())),
             plan: (source || self.incremental || self.spec().engine_pins.is_some())
                 .then(|| Box::new(self.plan().clone())),
         }
@@ -1092,14 +1102,13 @@ impl Session {
         // A part of an assembly read alone takes its own PMI only.
         let reading = crate::pmi::read_part(bytes, &self.part, self.analysis.binding.part_index)
             .map_err(Error::invalid)?;
-        let previous = self
-            .analysis
+        let previous = std::sync::Arc::make_mut(&mut self.analysis)
             .pmi
             .replace(crate::pmi::Reading::Read(reading));
         let evaluated = match self.evaluate(&spec) {
             Ok(value) => value,
             Err(error) => {
-                self.analysis.pmi = previous;
+                std::sync::Arc::make_mut(&mut self.analysis).pmi = previous;
                 return Err(error);
             }
         };
@@ -1451,7 +1460,7 @@ impl Session {
         let old_source = entry.source.as_ref().map(|(part, analysis)| {
             (
                 std::mem::replace(&mut self.part, part.clone()),
-                std::mem::replace(&mut self.analysis, (**analysis).clone()),
+                std::mem::replace(&mut self.analysis, analysis.clone()),
             )
         });
         let evaluated = match if let Some(plan) = entry.plan {
