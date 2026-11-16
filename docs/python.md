@@ -81,6 +81,8 @@ Rust. Unknown keywords raise Python's normal `TypeError`.
 
 ## Requirements and drawings from build123d (`Part`, 0.6.0-alpha.2)
 
+For a task-by-task introduction, see [Drawings from build123d](build123d.md).
+
 State requirements where you build the faces. `Part` owns an in-memory
 `haecceity::pmi::PartPmi`, the same semantic model the engine reads from AP242.
 Drawing lowers that model directly; requirements never go into the drawing Spec.
