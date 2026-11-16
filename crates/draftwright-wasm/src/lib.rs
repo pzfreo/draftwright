@@ -648,12 +648,12 @@ mod tests {
         let mut delta = Session::open("plate.step", bytes).unwrap();
         assert_eq!(
             delta.apply_json(ops, true).unwrap(),
-            r#"{"plans":1,"changed":[],"added":[],"removed":[],"problems_added":[],"problems_resolved":[],"plan":{"fields":{"spec":{"binding":{"face_count":10,"loader":"haecceity via draftwright 0.6.0-alpha.2","part":"plate","source_sha256":"e980c12943dcfe9dbf7e7c47e2a6a5741cf6b9a371ba35e7436ebfe9d858e361"},"hole_table":"never","schema":"draftwright.spec/3","sheet":{}}},"collections":{}},"geometry":{"views":[]},"annotations":{},"geometry_order":null,"problem_order":null}"#
+            r#"{"plans":1,"changed":[],"added":[],"removed":[],"problems_added":[],"problems_resolved":[],"plan":{"fields":{"spec":{"binding":{"face_count":10,"loader":"haecceity via draftwright 0.6.0-alpha.3","part":"plate","source_sha256":"e980c12943dcfe9dbf7e7c47e2a6a5741cf6b9a371ba35e7436ebfe9d858e361"},"hole_table":"never","schema":"draftwright.spec/3","sheet":{}}},"collections":{}},"geometry":{"views":[]},"annotations":{},"geometry_order":null,"problem_order":null}"#
         );
         let mut fragments = Session::open("plate.step", bytes).unwrap();
         assert_eq!(
             fragments.apply_fragments_json(ops).unwrap(),
-            r#"{"delta":{"annotations":{},"changed":[],"notices":[],"plan":{"collections":{},"fields":{"spec":{"binding":{"face_count":10,"loader":"haecceity via draftwright 0.6.0-alpha.2","part":"plate","source_sha256":"e980c12943dcfe9dbf7e7c47e2a6a5741cf6b9a371ba35e7436ebfe9d858e361"},"hole_table":"never","schema":"draftwright.spec/3","sheet":{}}}},"plans":1,"problem_order":null,"problems_added":[],"problems_resolved":[],"removed":[]},"fragments":{},"pmi":{"lowered":[],"unresolved":[]}}"#
+            r#"{"delta":{"annotations":{},"changed":[],"notices":[],"plan":{"collections":{},"fields":{"spec":{"binding":{"face_count":10,"loader":"haecceity via draftwright 0.6.0-alpha.3","part":"plate","source_sha256":"e980c12943dcfe9dbf7e7c47e2a6a5741cf6b9a371ba35e7436ebfe9d858e361"},"hole_table":"never","schema":"draftwright.spec/3","sheet":{}}}},"plans":1,"problem_order":null,"problems_added":[],"problems_resolved":[],"removed":[]},"fragments":{},"pmi":{"lowered":[],"unresolved":[]}}"#
         );
     }
 

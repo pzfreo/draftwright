@@ -21,6 +21,8 @@ struct Step {
     ops: Vec<Op>,
     #[serde(default)]
     spec: serde_json::Value,
+    #[serde(default)]
+    step: String,
 }
 
 fn emit(edit: &str, spec: &model::Spec, plan: &model::Plan, svg: String) {
@@ -49,6 +51,11 @@ fn main() -> Result<(), api::Error> {
     );
     for step in replay.steps {
         match step.action.as_str() {
+            "step_incremental" => {
+                let bytes =
+                    model::read_step_file(Path::new(&step.step)).map_err(api::Error::invalid)?;
+                session.replace_step_incremental(&replay.name, &bytes, true)?;
+            }
             "open_spec" => {
                 println!(
                     "{}",

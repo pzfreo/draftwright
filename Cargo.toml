@@ -72,14 +72,6 @@ lto = true
 codegen-units = 1
 opt-level = 3
 
-# Size-optimize generated STEP codec functions in browser builds.
-[profile.wasm-release.package.step-io]
-opt-level = "s"
-
-# Keep the browser engine compact; native release builds retain their existing profile.
-[profile.wasm-release.package.draftwright]
-opt-level = "s"
-
 # See docs/test-binaries.md; tools/check_test_binaries.py guards module coverage.
 
 [[test]]
