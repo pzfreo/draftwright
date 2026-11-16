@@ -11,10 +11,15 @@ use crate::placement_intent::Place;
 thread_local! {
     static RESTORED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
     static INTENT: RefCell<Option<Spec>> = const { RefCell::new(None) };
+    static CONTEXT: Cell<Option<[u8; 32]>> = const { Cell::new(None) };
     static ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 pub(crate) fn active() -> bool {
     ACTIVE.get()
+}
+
+pub(crate) fn context_digest() -> Option<[u8; 32]> {
+    CONTEXT.get()
 }
 
 /// A prior content variant, including its shared statement's contributing edits.
@@ -80,11 +85,9 @@ fn plan_revision(
     spec: &Spec,
     source_verified: bool,
 ) -> Result<Plan, Invalid> {
-    // INTENT and RESTORED also govern call-local preparation. A retained Session
-    // scope must not reuse their products from an earlier incremental edit.
-    crate::planning::isolated(analysis, || {
-        plan_revision_scoped(analysis, before, spec, source_verified)
-    })
+    // Every placement memo includes INTENT, RESTORED and the pin reference.
+    // Keep the caller's retained Analysis preparation for preview/commit reuse.
+    plan_revision_scoped(analysis, before, spec, source_verified)
 }
 
 fn plan_revision_scoped(
@@ -224,18 +227,24 @@ fn plan_revision_scoped(
             });
         }
     }
-    struct Restore(bool, Option<Spec>, BTreeSet<String>);
+    struct Restore(bool, Option<Spec>, BTreeSet<String>, Option<[u8; 32]>);
     impl Drop for Restore {
         fn drop(&mut self) {
             ACTIVE.set(self.0);
+            CONTEXT.set(self.3);
             INTENT.with(|s| *s.borrow_mut() = self.1.take());
             RESTORED.with(|s| *s.borrow_mut() = std::mem::take(&mut self.2));
         }
     }
+    let context = Sha256::digest(
+        serde_json::to_vec(&(spec, &restored)).expect("incremental intent serializes"),
+    )
+    .into();
     let _restore = Restore(
         ACTIVE.replace(true),
         INTENT.with(|s| s.replace(Some(spec.clone()))),
         RESTORED.with(|s| s.replace(restored)),
+        CONTEXT.replace(Some(context)),
     );
     let compact = before.sheet.dimension_spacing == model::DimensionSpacing::Compact;
     let mut after = crate::planning::with_pin_reference(reference.clone(), || {
@@ -890,12 +899,12 @@ pub(crate) fn recheck(a: &Analysis, plan: &mut Plan) {
     plan.status = crate::completeness::status(&plan.problems);
 }
 
-fn constrain(plan: &mut Plan, ids: Vec<String>) {
+pub(crate) fn constrain(plan: &mut Plan, ids: Vec<String>) {
     for id in ids {
         plan.problems.push(Problem {
             id: format!("p:incremental_placement_constrained:{id}"),
             code: "incremental_placement_constrained".into(), severity: "warning".into(),
-            message: "New annotation ink could not be placed cleanly in the retained layout. Existing placements were kept; inspect the placement findings or preview an explicit full apply.".into(),
+            message: "New annotation ink could not be placed cleanly in the retained layout. Existing placements were kept; inspect the placement findings or preview Re-layout explicitly.".into(),
             subjects: vec![id], ..Default::default()
         });
     }
@@ -905,22 +914,37 @@ fn constrain(plan: &mut Plan, ids: Vec<String>) {
 mod memo_tests {
     use super::*;
     #[test]
-    fn active_planning_neither_reads_nor_populates_shared_memos() {
-        let memo = crate::planning::BoundedMemo::new(1);
+    fn active_planning_separates_placement_and_shares_pure_memos() {
+        let memo = crate::planning::BoundedMemo::new(4);
         let key = [7; 32];
-        memo.insert(key, 10);
-        struct Restore(bool);
+        let base = crate::planning::spaced_digest(&key);
+        memo.insert(base, 10);
+        struct Restore(bool, Option<[u8; 32]>);
         impl Drop for Restore {
             fn drop(&mut self) {
                 ACTIVE.set(self.0);
+                CONTEXT.set(self.1);
             }
         }
         {
-            let _restore = Restore(ACTIVE.replace(true));
-            assert_eq!(memo.get(&key), None);
-            memo.insert(key, 20);
-            assert_eq!(memo.get(&key), None);
+            let _restore = Restore(ACTIVE.replace(true), CONTEXT.get());
+            let active = crate::planning::spaced_digest(&key);
+            assert_eq!(memo.get(&active), None);
+            memo.insert(active, 20);
+            assert_eq!(memo.get(&active), Some(20));
+            // Intent and restored variants are part of every placement key.
+            let spec = Spec::default();
+            for restored in [BTreeSet::new(), BTreeSet::from(["d:restored".to_string()])] {
+                CONTEXT.set(Some(
+                    Sha256::digest(serde_json::to_vec(&(&spec, restored)).unwrap()).into(),
+                ));
+                let context = crate::planning::spaced_digest(&key);
+                assert_eq!(memo.get(&context), None);
+                memo.insert(context, 30);
+                assert_eq!(memo.get(&context), Some(30));
+            }
+            assert_eq!(memo.get(&base), Some(10), "pure immutable keys stay shared");
         }
-        assert_eq!(memo.get(&key), Some(10));
+        assert_eq!(memo.get(&crate::planning::spaced_digest(&key)), Some(10));
     }
 }

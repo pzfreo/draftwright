@@ -206,7 +206,7 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
             // Exact canonical paper choices are expensive and shared by annotation
             // edits. Keep at most four while dropping the larger per-trial preparation.
             let mut values = values.borrow_mut();
-            values.retain(|(name, _), _| *name == "selected-paper");
+            values.retain(|(name, _), _| matches!(*name, "selected-paper" | "engine-pins-plan"));
             while values.len() > 4 {
                 values.pop_last();
             }
@@ -227,6 +227,13 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
     });
     let _scope = Scope(previous);
     crate::geometry_ids::with(analysis, run)
+}
+
+#[cfg(test)]
+thread_local! { static HITS: RefCell<BTreeMap<&'static str, usize>> = const { RefCell::new(BTreeMap::new()) }; }
+#[cfg(test)]
+pub(crate) fn memo_hits(name: &'static str) -> usize {
+    HITS.with(|h| *h.borrow().get(name).unwrap_or(&0))
 }
 
 struct Scope(Option<Active>);
@@ -284,6 +291,8 @@ pub(crate) fn memo<T: Clone + 'static>(
     let key = (name, spaced(key));
     if let Some(value) = values.borrow().get(&key) {
         // Invariant: Preparation keys include TypeId::of::<T>(); only T is stored for that key.
+        #[cfg(test)]
+        HITS.with(|hits| *hits.borrow_mut().entry(name).or_default() += 1);
         return value.downcast_ref::<T>().expect("preparation type").clone();
     }
     let value = prepare();
@@ -365,8 +374,9 @@ fn spaced(mut key: Vec<u8>) -> Vec<u8> {
         key.extend_from_slice(b"\xffengine-pins");
         key.extend_from_slice(&pins);
     }
-    if crate::incremental::active() {
-        key.extend_from_slice(b"\xffincremental");
+    if let Some(context) = retained_digest() {
+        key.extend_from_slice(b"\xffretained-layout");
+        key.extend_from_slice(&context);
     }
     if crate::dims::compact() {
         // 0xFF never occurs in the UTF-8 JSON keys, and closes any raw byte key.
@@ -383,6 +393,25 @@ fn spaced(mut key: Vec<u8>) -> Vec<u8> {
     key
 }
 
+/// All policies that can alter a retained solve, without changing ordinary keys.
+fn retained_digest() -> Option<[u8; 32]> {
+    let reference = PIN_REFERENCE.with(|r| r.borrow().as_ref().map(|r| r.1));
+    let intent = crate::incremental::context_digest();
+    let proof = crate::engine_pins::reader_digest();
+    if !crate::incremental::active() && reference.is_none() && intent.is_none() && proof.is_none() {
+        return None;
+    }
+    let mut h = Sha256::new();
+    h.update([u8::from(crate::incremental::active())]);
+    for value in [reference, intent, proof] {
+        h.update([u8::from(value.is_some())]);
+        if let Some(value) = value {
+            h.update(value);
+        }
+    }
+    Some(h.finalize().into())
+}
+
 /// A cross-call digest key for a placement result, kept apart under compact spacing or a
 /// non-default frame gutter. Geometric caches (projections, wrapped label text) do not use it
 /// and stay shared.
@@ -392,11 +421,16 @@ pub(crate) fn spaced_digest(key: &[u8; 32]) -> [u8; 32] {
         && gutter == crate::layout::FRAME_GUTTER
         && !is_lane_ladder()
         && crate::engine_pins::digest().is_none()
+        && retained_digest().is_none()
     {
         return *key;
     }
     let mut hasher = Sha256::new();
     hasher.update(key);
+    if let Some(context) = retained_digest() {
+        hasher.update(b"retained-layout");
+        hasher.update(context);
+    }
     if let Some(pins) = crate::engine_pins::digest() {
         hasher.update(b"engine-pins");
         hasher.update(pins);
@@ -449,9 +483,8 @@ type SharedValues<T> = VecDeque<([u8; 32], Arc<T>)>;
 
 /// Bounded exact results across immutable calls. Only reference/queue updates hold
 /// the lock: cloning and destroying a large Plan must not stall other planners.
-/// Retained-layout solves bypass both reads and writes: their thread-local intent,
-/// restored variants and pin references are not complete inputs to these shared keys.
-/// In particular, their results must never populate an ordinary planner's memo.
+/// Pure caches use their immutable input keys directly. Placement caches must use
+/// `spaced_digest`, which includes all retained-layout policies and references.
 pub(crate) struct BoundedMemo<T> {
     capacity: usize,
     values: Mutex<SharedValues<T>>,
@@ -468,9 +501,6 @@ impl<T: Clone> BoundedMemo<T> {
     }
 
     pub(crate) fn get(&self, key: &[u8; 32]) -> Option<T> {
-        if crate::incremental::active() || crate::engine_pins::memo_bypass() {
-            return None;
-        }
         let stored = self
             .values
             .lock()
@@ -483,9 +513,6 @@ impl<T: Clone> BoundedMemo<T> {
     }
 
     pub(crate) fn insert(&self, key: [u8; 32], value: T) {
-        if crate::incremental::active() || crate::engine_pins::memo_bypass() {
-            return;
-        }
         let value = Arc::new(value);
         // Invariant: The memo lock protects fixed-key deque updates; evicted values are dropped after unlocking.
         let mut values = self.values.lock().expect("planning memo lock");

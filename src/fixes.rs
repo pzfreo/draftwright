@@ -383,6 +383,7 @@ pub(crate) fn attach(analysis: &crate::model::Analysis, plan: &mut crate::model:
             .expect("fix inputs serialize"),
     )
     .into();
+    let key = crate::planning::spaced_digest(&key);
     if let Some(problems) = MEMO.get(&key) {
         plan.problems = problems;
         return;

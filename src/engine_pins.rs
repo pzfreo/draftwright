@@ -144,8 +144,12 @@ pub(crate) fn digest() -> Option<[u8; 32]> {
 pub(crate) fn loading() -> bool {
     LOADING.with(|p| p.borrow().is_some())
 }
-pub(crate) fn memo_bypass() -> bool {
-    loading() || READING.with(|p| p.borrow().is_some())
+pub(crate) fn reader_digest() -> Option<[u8; 32]> {
+    READING.with(|p| {
+        p.borrow().as_ref().map(|proof| {
+            sha2::Sha256::digest(serde_json::to_vec(proof).expect("reader proof serializes")).into()
+        })
+    })
 }
 fn with_pins<T>(pins: EnginePins, run: impl FnOnce() -> T) -> T {
     struct Restore(Option<EnginePins>, Option<[u8; 32]>);
@@ -1181,8 +1185,8 @@ fn layout_key(spec: &Spec) -> String {
 mod memo_tests {
     use super::*;
     #[test]
-    fn loading_pins_neither_reads_nor_populates_shared_memos() {
-        let memo = crate::planning::BoundedMemo::new(1);
+    fn loading_pins_keys_placement_and_shares_pure_memos() {
+        let memo = crate::planning::BoundedMemo::new(2);
         let key = [9; 32];
         memo.insert(key, 10);
         let pins = serde_json::from_value(serde_json::json!({
@@ -1191,36 +1195,41 @@ mod memo_tests {
         }))
         .unwrap();
         with_pins(pins, || {
-            assert_eq!(memo.get(&key), None);
-            memo.insert(key, 20);
-            assert_eq!(memo.get(&key), None);
+            let pinned = crate::planning::spaced_digest(&key);
+            assert_eq!(memo.get(&pinned), None);
+            memo.insert(pinned, 20);
+            assert_eq!(memo.get(&pinned), Some(20));
+            assert_eq!(memo.get(&key), Some(10));
         });
         assert_eq!(memo.get(&key), Some(10));
     }
 
     #[test]
-    fn reader_proofs_are_scoped_and_bypass_shared_memos() {
-        let memo = crate::planning::BoundedMemo::new(1);
+    fn reader_proofs_are_scoped_and_key_placement_memos() {
+        let memo = crate::planning::BoundedMemo::new(2);
         let key = [7; 32];
         memo.insert(key, 10);
         {
             let _proof =
                 GeometryRead(READING.with(|p| p.replace(Some((key, Some("verified".into()))))));
-            assert!(memo_bypass());
+            assert!(reader_digest().is_some());
             assert!(
                 !loading(),
                 "a reader proof must not enable placement overrides"
             );
-            assert_eq!(memo.get(&key), None);
-            memo.insert(key, 20);
+            let verified = crate::planning::spaced_digest(&key);
+            assert_eq!(memo.get(&verified), None);
+            memo.insert(verified, 20);
+            assert_eq!(memo.get(&verified), Some(20));
+            assert_eq!(memo.get(&key), Some(10));
             {
                 let _nested = GeometryRead(READING.with(|p| p.replace(None)));
-                assert!(!memo_bypass());
+                assert!(!reader_digest().is_some());
                 assert_eq!(memo.get(&key), Some(10));
             }
-            assert!(memo_bypass());
+            assert!(reader_digest().is_some());
         }
-        assert!(!memo_bypass());
+        assert!(!reader_digest().is_some());
         assert_eq!(memo.get(&key), Some(10));
     }
 }

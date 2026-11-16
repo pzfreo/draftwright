@@ -5372,6 +5372,7 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
             .expect("canonical label inputs serialize"),
         )
         .into();
+        let key = crate::planning::spaced_digest(&key);
         if spec.dimensions.values().any(|d| {
             d.place.is_some()
                 || d.view.is_some()
@@ -5899,7 +5900,7 @@ fn plan_escalated_with(
         // execute their normal prefixes and validity checks for every planner invocation.
         static MEMO: crate::planning::BoundedMemo<Result<Plan, Invalid>> =
             crate::planning::BoundedMemo::new(64);
-        let digest: [u8; 32] = Sha256::digest(&key).into();
+        let digest = crate::planning::spaced_digest(&Sha256::digest(&key).into());
         if let Some(plan) = MEMO.get(&digest) {
             return plan;
         }

@@ -2777,7 +2777,7 @@ pub(crate) fn plan_inventory(
         type Inventory = Result<(Planned, Vec<PlannedDimension>), Invalid>;
         static MEMO: crate::planning::BoundedMemo<Inventory> =
             crate::planning::BoundedMemo::new(64);
-        let digest: [u8; 32] = Sha256::digest(&key).into();
+        let digest = crate::planning::spaced_digest(&Sha256::digest(&key).into());
         if let Some(result) = MEMO.get(&digest) {
             return result;
         }
