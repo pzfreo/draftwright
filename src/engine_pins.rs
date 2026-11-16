@@ -142,7 +142,7 @@ pub(crate) fn digest() -> Option<[u8; 32]> {
     DIGEST.get()
 }
 pub(crate) fn loading() -> bool {
-    LOADING.with(|p| p.borrow().is_some())
+    LOADING.with(|p| p.borrow().is_some()) || READING.with(|p| p.borrow().is_some())
 }
 fn with_pins<T>(pins: EnginePins, run: impl FnOnce() -> T) -> T {
     struct Restore(Option<EnginePins>, Option<[u8; 32]>);
@@ -1095,38 +1095,55 @@ pub(crate) fn keep_views(views: &mut Vec<model::PlannedView>) {
     });
 }
 
-static GEOMETRY: crate::planning::BoundedMemo<String> = crate::planning::BoundedMemo::new(8);
+type ReadGeometry = ([u8; 32], Option<String>);
+thread_local! {
+    static READING: RefCell<Option<ReadGeometry>> = const { RefCell::new(None) };
+}
+
+/// A reader's proof belongs to this synchronous planning call, never a shared memo.
+#[must_use]
+pub(crate) struct GeometryRead(Option<ReadGeometry>);
+impl Drop for GeometryRead {
+    fn drop(&mut self) {
+        READING.with(|p| p.replace(self.0.take()));
+    }
+}
 fn geometry_key(binding: &model::Binding) -> [u8; 32] {
     sha2::Sha256::digest(serde_json::to_vec(binding).expect("binding serializes")).into()
 }
 fn known_geometry(binding: &model::Binding) -> Option<String> {
-    GEOMETRY.get(&geometry_key(binding))
+    let key = geometry_key(binding);
+    READING.with(|p| {
+        p.borrow()
+            .as_ref()
+            .filter(|(k, _)| *k == key)
+            .and_then(|(_, digest)| digest.clone())
+    })
 }
-pub(crate) fn geometry(
-    part: &crate::haecceity::Part,
-    binding: &model::Binding,
-) -> Result<String, Invalid> {
+pub(crate) fn geometry(part: &crate::haecceity::Part) -> Result<String, Invalid> {
     // Verify this Part, even for trusted in-process callers reusing a Binding.
-    // The small memo only bridges a reader to planning after the Part is dropped.
-    let geometry = geometry::digest(part).ok_or_else(|| Invalid {
+    geometry::digest(part).ok_or_else(|| Invalid {
         message: "Cannot verify identical B-rep: unresolved or empty geometry; open the updated STEP for a full plan.".into(),
         path: None,
         choices: Vec::new(),
         also: Vec::new(),
-    })?;
-    GEOMETRY.insert(geometry_key(binding), geometry.clone());
-    Ok(geometry)
+    })
 }
 /// A byte revision is not a geometry change. Verify only when persisted source identity changed.
-pub(crate) fn prepare_read(part: &crate::haecceity::Part, a: &Analysis, spec: &Spec) {
-    if spec
+pub(crate) fn prepare_read(
+    part: &crate::haecceity::Part,
+    a: &Analysis,
+    spec: &Spec,
+) -> GeometryRead {
+    let proof = spec
         .engine_pins
         .as_ref()
         .is_some_and(|p| p.source_sha256 != a.binding.source_sha256)
-    {
-        // Failed verification releases unverifiable pins with a finding; it never prevents opening.
-        let _ = geometry(part, &a.binding);
-    }
+        .then(|| {
+            // Failed verification releases unverifiable pins with a finding; it never prevents opening.
+            (geometry_key(&a.binding), geometry(part).ok())
+        });
+    GeometryRead(READING.with(|p| p.replace(proof)))
 }
 
 fn layout_key(spec: &Spec) -> String {
@@ -1175,6 +1192,26 @@ mod memo_tests {
             memo.insert(key, 20);
             assert_eq!(memo.get(&key), None);
         });
+        assert_eq!(memo.get(&key), Some(10));
+    }
+
+    #[test]
+    fn reader_proofs_are_scoped_and_bypass_shared_memos() {
+        let memo = crate::planning::BoundedMemo::new(1);
+        let key = [7; 32];
+        memo.insert(key, 10);
+        {
+            let _proof = GeometryRead(READING.with(|p| p.replace(Some((key, Some("verified".into()))))));
+            assert!(loading());
+            assert_eq!(memo.get(&key), None);
+            memo.insert(key, 20);
+            {
+                let _nested = GeometryRead(READING.with(|p| p.replace(None)));
+                assert!(!loading());
+            }
+            assert!(loading());
+        }
+        assert!(!loading());
         assert_eq!(memo.get(&key), Some(10));
     }
 }

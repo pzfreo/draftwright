@@ -1309,6 +1309,30 @@ fn outside_pmi_revision_keeps_surviving_pins_and_reads_current_content() {
 }
 
 #[test]
+fn opening_a_saved_spec_in_an_existing_session_verifies_the_current_step() {
+    let (session, bytes) = pinned_bracket();
+    let revised = pmi_edit(&bytes, |p| {
+        let target = face_target(p, planar_face(&session));
+        p.tolerances
+            .push(pmi_tolerance(target, ToleranceKind::Flatness, None));
+    });
+    let (part, analysis) = model::analyse_native_bytes("bracket", &revised).unwrap();
+    let mut opened = Session::new(part, analysis, Spec::default()).unwrap();
+    opened
+        .open_spec(&serde_json::to_string(session.spec()).unwrap())
+        .unwrap();
+    fixed(session.plan(), opened.plan());
+    assert!(opened.spec().engine_pins.is_some());
+    assert!(
+        opened
+            .plan()
+            .gdt
+            .iter()
+            .any(|g| g.cells.iter().any(|c| c == "⏥"))
+    );
+}
+
+#[test]
 fn crowded_ctc_retained_datums_reload_as_their_published_ink() {
     let bytes = source("ctc");
     let mut session = open_spec(

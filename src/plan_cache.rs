@@ -125,6 +125,11 @@ fn planned(
     spec: &Spec,
     compute: fn(&Analysis, &Spec) -> Result<Plan, Invalid>,
 ) -> Result<Plan, Invalid> {
+    // Pin replay can depend on a reader's verified B-rep, which is not an input
+    // to this disk cache. Re-evaluate it instead of persisting a missing proof.
+    if spec.engine_pins.is_some() {
+        return compute(analysis, spec);
+    }
     let Some(dir) = dir else {
         return compute(analysis, spec);
     };
