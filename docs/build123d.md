@@ -1,16 +1,10 @@
 # Drawings from build123d
 
-<p align="center">
-  <img src="images/build123d-pack-ga.png" alt="General assembly sheet of a motorcycle shock absorber: front and side views, section A–A, an isometric view, item balloons and a ten-line parts list" width="100%">
-  <br>
-  <sub>The general-assembly sheet from a ten-part drawing pack of a text-to-CAD shock absorber,
-  made by <code>Pack("motorcycle-shock-absorber.step", ...)</code> with no other input.</sub>
-</p>
-
 Draftwright turns a build123d part into a manufacturing drawing: views, dimensions,
 hole and thread callouts, GD&T frames, surface finish, notes and a title block. You
 state requirements in the same script that builds the faces; the engine does the
-layout. This page builds one part up in three steps, then covers assemblies. The
+layout. This page starts with a bare shape and builds one part up in three steps,
+then covers assemblies. The
 [Python reference](python.md) has every call, argument and error in detail.
 
 ## Install
@@ -66,7 +60,7 @@ p.holes(tapped).thread("M6", depth=8)       # minimum full-thread depth
 ends = bracket.faces().sort_by(Axis.X)
 p.distance(ends[0], ends[-1]).tolerance(plus_minus=0.1)
 
-dwg = p.drawing(sheet="A3")
+dwg = p.drawing(sheet="A3", scale=1)        # pin the sheet so the steps compare
 svg, pdf = dwg.render("step2", formats=("svg", "pdf"))
 ```
 
@@ -98,7 +92,7 @@ A = p.datum("A", bracket.faces().sort_by(Axis.Z)[0])
 B = p.datum("B", ends[0])
 C = p.datum("C", bracket.faces().sort_by(Axis.Y)[0])
 
-bearing.position(0.05, A, B, C).finish(1.6)
+bearing.position(0.05, A, B, C)
 p.holes(tapped).position(0.2, A, B, C)
 p.face(bracket.faces().sort_by(Axis.Z)[-1]).flatness(0.05)
 p.note("Break all sharp edges 0.2 max.").default_finish(3.2)
@@ -112,10 +106,9 @@ for f in dwg.problems:
 
 ![Step 3: datums, position and flatness frames, surface finish and notes](images/build123d-step3.png)
 
-The datum symbols, position and flatness frames, the bore's Ra 1.6 and the
-default Ra 3.2 are added, and the note joins the notes table. To make room, the
-engine moved from 1:1 to 1:2 on the same A3 sheet; `problems` reports that as
-`layout_replanned`.
+Datum symbols A, B and C, the two position frames, the flatness frame and the
+part-wide Ra 3.2 are added, and the note joins the notes table. A finish on one
+surface is `face(f).finish(1.6)` or `hole(h).finish(1.6)`.
 
 Also available: `perpendicularity`, `parallelism`, `cylindricity`,
 `circular_runout`, `total_runout`, `profile_surface` and `concentricity`. Declare a
