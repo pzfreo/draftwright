@@ -33,7 +33,7 @@ model.
 ## Setup
 
 ```sh
-pipx install --pip-args=--pre draftwright   # or: uvx --prerelease=allow draftwright ...
+pipx install draftwright                    # or: uvx draftwright ...
 pipx install specify-core                   # only for requirements (step 3)
 draftwright --version
 ```

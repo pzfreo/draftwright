@@ -15,9 +15,9 @@ the folder to `.claude/skills/` in your project or to `~/.claude/skills/`.
 ## Install
 
 ```sh
-pip install --pre "draftwright[build123d]"
+pip install "draftwright[build123d]"
 # or, without installing anything:
-uv run --with draftwright --prerelease=allow --with build123d script.py
+uv run --with draftwright --with build123d script.py
 ```
 
 build123d 0.10 or later is required; 0.10.0 and 0.13.0 are tested, on Python 3.12.
@@ -206,7 +206,7 @@ for f in pack.findings:
 Supplied Parts are drawn with their requirements; other products are drawn from
 geometry. If one part fails, the rest still render and the failure appears in
 `pack.findings` with severity `error`. The
-[Python reference](python.md#assembly-drawing-packs-pack-060-alpha3) has a complete
+[Python reference](python.md#assembly-drawing-packs-pack) has a complete
 example you can run.
 
 ## Not yet available

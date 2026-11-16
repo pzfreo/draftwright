@@ -25,7 +25,7 @@ modelled, render, read the problems, and look at every sheet. The person guide i
 ## Setup
 
 ```sh
-uv run --no-project --python 3.12 --prerelease=allow \
+uv run --no-project --python 3.12 \
   --with draftwright --with "build123d>=0.13" python script.py
 ```
 

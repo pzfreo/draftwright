@@ -21,9 +21,8 @@ views and dimensions, and lays them out on standard sheets. It reports what it c
 
 **Contents:** [Examples](#examples) · [Install](#install) · [Command line](#command-line) · [Output and the Spec](#output-and-the-spec) · [Python](#python) · [What it does](#what-it-does) · [Assemblies and revisions](#assemblies-and-revisions) · [With agents](#with-agents) · [Documentation](#documentation) · [How it's built](#how-its-built) · [Related projects](#related-projects) · [Licence and contributing](#licence-and-contributing)
 
-0.6.0 is in alpha (pre-release); the current version is **0.6.0-alpha.2**. The Rust half of
-the build123d API remains to be completed; layout regressions are tracked in
-[#452](https://github.com/pzfreo/draftwright/issues/452).
+The current version is **0.6.0**, about ten times faster than the Python 0.4 package in a
+sixth of the memory ([release notes](https://github.com/pzfreo/draftwright/releases/tag/v0.6.0)).
 
 ## Examples
 
@@ -49,13 +48,11 @@ pinned draftwright release is bumped.
 
 ## Install
 
-These commands select the pre-release; unqualified installs can select older releases.
-
 | You use | Install | Platforms |
 | --- | --- | --- |
-| **Python 3.9+ (abi3)** | `pip install --pre draftwright` ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
-| **Command line** | `uv tool install --prerelease allow draftwright`; installs `draftwright` and `draftwright-mcp` | The same five wheel platforms |
-| **Rust crate** | `cargo install draftwright --version 0.6.0-alpha.2` for both binaries; `draftwright = "=0.6.0-alpha.2"` for the library ([operations](docs/model.md#the-five-operations)) | Native Rust toolchain |
+| **Python 3.9+ (abi3)** | `pip install draftwright` ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
+| **Command line** | `uv tool install draftwright`; installs `draftwright` and `draftwright-mcp` | The same five wheel platforms |
+| **Rust crate** | `cargo install draftwright` for both binaries; `draftwright = "0.6"` for the library ([operations](docs/model.md#the-five-operations)) | Native Rust toolchain |
 | **Prebuilt archives** | Download a CLI archive from [Releases](https://github.com/pzfreo/draftwright/releases); includes both binaries, schemas and agent docs | macOS arm64, Linux x86_64, Windows x64 |
 | **Browser** | [draftwright.io](https://draftwright.io) | WebAssembly ([package guide](docs/wasm.md)) |
 
@@ -63,13 +60,13 @@ These commands select the pre-release; unqualified installs can select older rel
 
 **Upgrading from the old Python package.** If you installed 0.4 or 0.5 as a tool with uv or pipx,
 its `draftwright` command stays on your PATH and the new install won't replace it. Remove the old
-one first, then install the pre-release:
+one first, then install 0.6:
 
 ```sh
 uv tool uninstall draftwright        # if you used uv
 pipx uninstall draftwright           # if you used pipx
-pipx install --pip-args=--pre draftwright   # or: uv tool install --prerelease allow draftwright
-draftwright --version                # should print 0.6.0-alpha.2 or later
+pipx install draftwright             # or: uv tool install draftwright
+draftwright --version                # should print 0.6.0 or later
 ```
 
 If pipx says the command "is not on your PATH" or points elsewhere, `pipx install --force` takes
@@ -78,7 +75,7 @@ the link over. An older Rust build in `~/.cargo/bin` can also shadow it: `cargo 
 ## Command line
 
 ```sh
-draftwright render part.step -o part --formats svg,pdf,dxf  # includes editable DXF in alpha.2
+draftwright render part.step -o part --formats svg,pdf,dxf  # includes editable DXF
 draftwright render part.step -o part --units in --paper ansi
 draftwright review part.step
 ```
