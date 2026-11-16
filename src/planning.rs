@@ -449,18 +449,28 @@ fn retained_digest(reference_matters: bool) -> Option<[u8; 32]> {
 /// non-default frame gutter. Geometric caches (projections, wrapped label text) do not use it
 /// and stay shared.
 pub(crate) fn spaced_digest(key: &[u8; 32]) -> [u8; 32] {
+    result_digest(key, true)
+}
+
+/// A solve without authored pins cannot consume an ordinary published reference.
+/// Hidden incremental state and engine-pin loading still always key its result.
+pub(crate) fn unreferenced_digest(key: &[u8; 32]) -> [u8; 32] {
+    result_digest(key, false)
+}
+
+fn result_digest(key: &[u8; 32], reference_matters: bool) -> [u8; 32] {
     let gutter = crate::layout::gutter();
     if !crate::dims::compact()
         && gutter == crate::layout::FRAME_GUTTER
         && !is_lane_ladder()
         && crate::engine_pins::digest().is_none()
-        && retained_digest(true).is_none()
+        && retained_digest(reference_matters).is_none()
     {
         return *key;
     }
     let mut hasher = Sha256::new();
     hasher.update(key);
-    if let Some(context) = retained_digest(true) {
+    if let Some(context) = retained_digest(reference_matters) {
         hasher.update(b"retained-layout");
         hasher.update(context);
     }
@@ -580,6 +590,7 @@ mod tests {
             assert_eq!(memo(&a, "candidate", candidate_key.clone(), || 4_u8), 4);
             assert_eq!(memo(&a, "idle-view", key.clone(), || 5_u8), 5);
             let digest = spaced_digest(&[37; 32]);
+            let unreferenced = unreferenced_digest(&[37; 32]);
             with_pin_reference(reference, || {
                 assert_eq!(
                     memo::<u8>(&a, "analysis_digest", key.clone(), || panic!(
@@ -598,6 +609,7 @@ mod tests {
                     digest,
                     "shared result caches must still distinguish the reference"
                 );
+                assert_eq!(unreferenced_digest(&[37; 32]), unreferenced);
                 let different_key = serde_json::to_vec(&policy_key(&a)).unwrap();
                 assert_ne!(candidate_key, different_key);
                 assert_eq!(memo(&a, "candidate", different_key, || 3_u8), 3);

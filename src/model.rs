@@ -3038,7 +3038,8 @@ fn recover_inner(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
     ))
     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
     .expect("plan inputs serialize");
-    let key = crate::planning::spaced_digest(&Sha256::digest(&bytes).into());
+    // Authored-pin recovery returned above; an ordinary reference is not consumed here.
+    let key = crate::planning::unreferenced_digest(&Sha256::digest(&bytes).into());
     let mut plan = if let Some(plan) = MEMO.get(&key) {
         plan
     } else {
@@ -5372,7 +5373,8 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
             .expect("canonical label inputs serialize"),
         )
         .into();
-        let key = crate::planning::spaced_digest(&key);
+        // This branch has no authored pins; canonical labels ignore an ordinary reference.
+        let key = crate::planning::unreferenced_digest(&key);
         if spec.dimensions.values().any(|d| {
             d.place.is_some()
                 || d.view.is_some()
@@ -9602,7 +9604,12 @@ pub(crate) fn radius_edit_reference(
         // retain their identical reference without planning it again.
         static MEMO: crate::planning::BoundedMemo<Option<Plan>> =
             crate::planning::BoundedMemo::new(128);
-        let digest = crate::planning::spaced_digest(&Sha256::digest(&key).into());
+        let digest = Sha256::digest(&key).into();
+        let digest = if crate::placement_intent::has_pins(&base) {
+            crate::planning::spaced_digest(&digest)
+        } else {
+            crate::planning::unreferenced_digest(&digest)
+        };
         if let Some(reference) = MEMO.get(&digest) {
             return reference;
         }

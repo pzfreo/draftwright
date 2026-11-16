@@ -934,6 +934,7 @@ mod memo_tests {
         {
             let _restore = Restore(ACTIVE.replace(true), CONTEXT.get());
             let active = crate::planning::spaced_digest(&key);
+            assert_eq!(crate::planning::unreferenced_digest(&key), active);
             assert_eq!(memo.get(&active), None);
             memo.insert(active, 20);
             assert_eq!(memo.get(&active), Some(20));
@@ -944,6 +945,7 @@ mod memo_tests {
                     Sha256::digest(serde_json::to_vec(&(&spec, restored)).unwrap()).into(),
                 ));
                 let context = crate::planning::spaced_digest(&key);
+                assert_eq!(crate::planning::unreferenced_digest(&key), context);
                 assert_eq!(memo.get(&context), None);
                 memo.insert(context, 30);
                 assert_eq!(memo.get(&context), Some(30));

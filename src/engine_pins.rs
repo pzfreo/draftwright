@@ -1266,6 +1266,7 @@ mod memo_tests {
         .unwrap();
         with_pins(pins, || {
             let pinned = crate::planning::spaced_digest(&key);
+            assert_eq!(crate::planning::unreferenced_digest(&key), pinned);
             assert_eq!(memo.get(&pinned), None);
             memo.insert(pinned, 20);
             assert_eq!(memo.get(&pinned), Some(20));
