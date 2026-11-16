@@ -627,8 +627,8 @@ mod tests {
     fn retained_preparation_evicts_oldest_not_largest_key() {
         let a = analysis();
         with_retained(&a, || {
-            // Reverse key order makes alphabetical eviction keep the oldest entries.
-            for i in (0_u16..6).rev() {
+            // Ascending keys make alphabetical eviction discard the newest entries.
+            for i in 0_u16..6 {
                 store(&a, "selected-paper", i.to_le_bytes().to_vec(), i);
             }
             for i in 0_u16..260 {
@@ -637,14 +637,14 @@ mod tests {
         });
         with_retained(&a, || {
             assert_eq!(
-                lookup::<u16>(&a, "selected-paper", &5_u16.to_le_bytes()),
+                lookup::<u16>(&a, "selected-paper", &0_u16.to_le_bytes()),
                 None
             );
             assert_eq!(
-                lookup::<u16>(&a, "selected-paper", &4_u16.to_le_bytes()),
+                lookup::<u16>(&a, "selected-paper", &1_u16.to_le_bytes()),
                 None
             );
-            for i in 0_u16..4 {
+            for i in 2_u16..6 {
                 assert_eq!(
                     lookup::<u16>(&a, "selected-paper", &i.to_le_bytes()),
                     Some(i)
