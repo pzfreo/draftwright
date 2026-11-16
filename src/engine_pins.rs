@@ -836,9 +836,18 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
         crate::decision_overrides::reference_only(),
     ))
     .expect("pinned plan inputs serialize");
-    crate::planning::memo(a, "engine-pins-plan", key, || {
-        plan_uncached(a, spec, recovered)
-    })
+    // Keep the bounded result container as one retained preparation entry. A
+    // preparation sweep must not evict the latest preview by sorting Spec bytes.
+    let memo = crate::planning::memo(a, "engine-pins-plan", Vec::new(), || {
+        std::rc::Rc::new(crate::planning::BoundedMemo::new(4))
+    });
+    let key = crate::planning::spaced_digest(&sha2::Sha256::digest(key).into());
+    if let Some(result) = memo.get(&key) {
+        return result;
+    }
+    let result = plan_uncached(a, spec, recovered);
+    memo.insert(key, result.clone());
+    result
 }
 fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Invalid> {
     #[cfg(test)]
@@ -1285,20 +1294,38 @@ mod memo_tests {
         let mut s = crate::session::Session::new(part, a, Spec::default()).unwrap();
         s.apply_incremental(&[], true).unwrap();
         assert!(s.spec().engine_pins.is_some());
-        let ops = [crate::items::Op::set(
-            "sheet/title/drawn_by",
-            serde_json::json!("Reviewer"),
-        )];
         let before = serde_json::to_value(s.state()).unwrap();
-        let first = s.apply(&ops, false).unwrap();
-        let hits = crate::planning::memo_hits("engine-pins-plan");
-        let second = s.apply(&ops, false).unwrap();
-        assert!(crate::planning::memo_hits("engine-pins-plan") > hits);
-        assert_eq!(
-            serde_json::to_value(first).unwrap(),
-            serde_json::to_value(second).unwrap()
-        );
-        assert_eq!(serde_json::to_value(s.state()).unwrap(), before);
+        for n in 0..8 {
+            let ops = [crate::items::Op::set(
+                "sheet/title/drawn_by",
+                serde_json::json!(format!("Reviewer {n}")),
+            )];
+            let first = s.apply(&ops, false).unwrap();
+            let solves = SOLVES.get();
+            // Exercise the normal bounded-preparation sweep between preview and
+            // commit. The exact result must survive even after many distinct edits.
+            crate::planning::with_retained(s.analysis(), || {
+                for i in 0_u32..300 {
+                    crate::planning::memo(
+                        s.analysis(),
+                        "prune-probe",
+                        i.to_le_bytes().to_vec(),
+                        || i,
+                    );
+                }
+            });
+            let second = s.apply(&ops, false).unwrap();
+            assert_eq!(
+                SOLVES.get(),
+                solves,
+                "identical preview must not solve again"
+            );
+            assert_eq!(
+                serde_json::to_value(first).unwrap(),
+                serde_json::to_value(second).unwrap()
+            );
+            assert_eq!(serde_json::to_value(s.state()).unwrap(), before);
+        }
     }
     #[test]
     fn pinned_plan_memo_separates_ordinary_planner_policies() {

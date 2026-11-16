@@ -203,8 +203,9 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
             .map(|(_, values)| values)
             .unwrap_or_else(|| Rc::new(RefCell::new(BTreeMap::new())));
         if values.borrow().len() > 256 {
-            // Exact canonical paper choices are expensive and shared by annotation
-            // edits. Keep at most four while dropping the larger per-trial preparation.
+            // Keep at most four paper choices/bounded result-cache containers,
+            // dropping larger per-trial preparation. Each pin container owns at
+            // most four exact results, independently of preparation eviction.
             let mut values = values.borrow_mut();
             values.retain(|(name, _), _| matches!(*name, "selected-paper" | "engine-pins-plan"));
             while values.len() > 4 {
@@ -227,13 +228,6 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
     });
     let _scope = Scope(previous);
     crate::geometry_ids::with(analysis, run)
-}
-
-#[cfg(test)]
-thread_local! { static HITS: RefCell<BTreeMap<&'static str, usize>> = const { RefCell::new(BTreeMap::new()) }; }
-#[cfg(test)]
-pub(crate) fn memo_hits(name: &'static str) -> usize {
-    HITS.with(|h| *h.borrow().get(name).unwrap_or(&0))
 }
 
 struct Scope(Option<Active>);
@@ -291,8 +285,6 @@ pub(crate) fn memo<T: Clone + 'static>(
     let key = (name, spaced(key));
     if let Some(value) = values.borrow().get(&key) {
         // Invariant: Preparation keys include TypeId::of::<T>(); only T is stored for that key.
-        #[cfg(test)]
-        HITS.with(|hits| *hits.borrow_mut().entry(name).or_default() += 1);
         return value.downcast_ref::<T>().expect("preparation type").clone();
     }
     let value = prepare();
