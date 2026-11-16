@@ -602,8 +602,13 @@ fn ftc08_isometric_pin_keeps_the_clear_hole_schedule() {
     let Some(dir) = corpus::dir() else { return };
     let (_, analysis) =
         draftwright::model::analyse_native(&dir.join("nist/nist_ftc_08_asme1_rc.stp")).unwrap();
-    let base = draftwright::model::plan_recovered(&analysis, &Spec::default()).unwrap();
-    let spec: Spec = serde_json::from_value(json!({"views":{"iso":{"place":{
+    // The exact 26.8786839 paper-mm relation reproduces the original metric sheet.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let base = draftwright::model::plan_recovered(&analysis, &metric).unwrap();
+    let spec: Spec = serde_json::from_value(json!({"units":"mm","views":{"iso":{"place":{
         "relative_to":"front", "side":"right", "align":"end",
         "gap":26.878683920197176, "pinned":true
     }}}}))

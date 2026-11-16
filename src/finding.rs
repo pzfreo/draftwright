@@ -175,6 +175,7 @@ catalogue! {
     datum_origin_unusable => Advisory, Information, Code, "The datum cannot define this origin; the documented fallback is used.";
     datum_symbol_overlap => Readability, FixBeforePrinting, Code, "Datum symbols overlap other annotations.";
     datum_undeclared => Decision, FixBeforePrinting, Code, "A control references a datum the user must declare.";
+    declared_units => Advisory, Information, Code, "Printed units default to the part's declared inch length unit; the Spec retains the omitted preference.";
     derived_view_identifier_reused => Readability, FixBeforePrinting, Code, "A reused view identifier makes references ambiguous.";
     detail_caption_clearance => Readability, Tidy, Code, "The detail caption is too close to other ink.";
     detail_unplaceable => Readability, Tidy, Code, "A detail has no room; its dimensions remain on the parent view.";

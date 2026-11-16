@@ -1035,7 +1035,7 @@ fn oblique_radius_exceptions_join_an_equal_fillet_leader(file: &str) {
             format!(
                 "{}× R{}",
                 leader.measurements.len(),
-                draftwright::dims::fmt(leader.value)
+                p.sheet.units.format(leader.value)
             )
         );
         assert!(

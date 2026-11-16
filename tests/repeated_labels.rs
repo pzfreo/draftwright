@@ -92,6 +92,7 @@ fn every_repeated_label_on_the_quality_parts_has_a_verdict() {
     )
     .unwrap();
 
+    // The exact known-label ledger was captured in mm.
     // Four parts at a time: each plan is independent.
     let next = std::sync::atomic::AtomicUsize::new(0);
     let found: BTreeMap<Key, Vec<String>> = std::thread::scope(|s| {
@@ -104,9 +105,15 @@ fn every_repeated_label_on_the_quality_parts_has_a_verdict() {
                         let Some(part) = parts.get(i) else {
                             return found;
                         };
-                        let plan =
-                            api::plan_from(&dir.join(part), Features::Native, &Spec::default())
-                                .unwrap_or_else(|e| panic!("{part}: {e:?}"));
+                        let plan = api::plan_from(
+                            &dir.join(part),
+                            Features::Native,
+                            &Spec {
+                                units: draftwright::units::Units::Mm,
+                                ..Spec::default()
+                            },
+                        )
+                        .unwrap_or_else(|e| panic!("{part}: {e:?}"));
                         found.extend(repeats(part, &plan));
                     }
                 })

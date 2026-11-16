@@ -417,9 +417,14 @@ fn inch_authored_pmi_prints_as_millimetres() {
         .collect();
     stems.sort();
     assert!(stems.iter().any(|s| s.starts_with("nist_stc_09")));
+    // The purpose is conversion of inch-authored PMI into explicit millimetres.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     for stem in &stems {
         let (_, a) = analysed(stem);
-        let plan = cache::default_plan(&a, false);
+        let plan = model::plan(&a, &metric).unwrap();
         let labels = plan
             .dimensions
             .iter()
@@ -446,7 +451,7 @@ fn inch_authored_pmi_prints_as_millimetres() {
         }
     }
     let (_, a) = analysed("nist_stc_09_asme1_ap242-e4");
-    let plan = cache::default_plan(&a, false);
+    let plan = model::plan(&a, &metric).unwrap();
     let linear: Vec<&str> = plan
         .dimensions
         .iter()

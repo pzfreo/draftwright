@@ -387,7 +387,7 @@ fn not_drawable(plan: &Plan) -> usize {
 
 fn overcrowded() -> Spec {
     serde_json::from_value(json!({
-        "sheet": {"size": "A4", "scale": "10:1"}, "hole_table": "never"
+        "units": "mm", "sheet": {"size": "A4", "scale": "10:1"}, "hole_table": "never"
     }))
     .unwrap()
 }

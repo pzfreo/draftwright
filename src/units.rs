@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Units {
+    /// An omitted Spec preference. Resolved from Analysis before planning; never printed.
+    #[serde(skip)]
+    Auto,
     #[default]
     #[serde(rename = "mm")]
     Mm,
@@ -10,18 +13,21 @@ pub enum Units {
     In,
 }
 impl Units {
+    pub fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
     pub fn is_mm(&self) -> bool {
-        *self == Self::Mm
+        matches!(self, Self::Mm | Self::Auto)
     }
     pub fn symbol(self) -> &'static str {
         match self {
-            Self::Mm => "mm",
+            Self::Mm | Self::Auto => "mm",
             Self::In => "in",
         }
     }
     pub fn millimetres(self) -> f64 {
         match self {
-            Self::Mm => 1.,
+            Self::Mm | Self::Auto => 1.,
             Self::In => 25.4,
         }
     }
@@ -32,7 +38,7 @@ impl Units {
         self.format_places(mm, None)
     }
     pub fn format_places(self, mm: f64, places: Option<u8>) -> String {
-        if self == Self::Mm {
+        if self.is_mm() {
             return places.map_or_else(
                 || crate::nominal::format(mm),
                 |p| crate::dims::precision::format(mm, p),
@@ -115,12 +121,76 @@ impl crate::model::Spec {
         *self.scales().last().expect("nonempty scale ladder")
     }
 }
+impl crate::model::Plan {
+    /// Effective preferences for consumers of a finished plan, without authoring
+    /// an automatic default into its embedded Spec.
+    pub(crate) fn resolved_spec(&self) -> std::borrow::Cow<'_, crate::model::Spec> {
+        if self.spec.units.is_auto() {
+            let mut spec = self.spec.clone();
+            spec.units = self.sheet.units;
+            std::borrow::Cow::Owned(spec)
+        } else {
+            std::borrow::Cow::Borrowed(&self.spec)
+        }
+    }
+}
 pub fn scales(units: Units) -> &'static [f64] {
     if units == Units::In {
         &crate::layout::INCH_SCALES
     } else {
         &crate::layout::SCALES
     }
+}
+
+/// Plan with resolved defaults, then retain the author's omitted preference just
+/// as automatic sheet sizes and scales remain absent from the embedded Spec.
+pub(crate) fn effective<'a>(
+    analysis: &crate::model::Analysis,
+    spec: &'a crate::model::Spec,
+) -> std::borrow::Cow<'a, crate::model::Spec> {
+    if !spec.units.is_auto() {
+        return std::borrow::Cow::Borrowed(spec);
+    }
+    let mut resolved = spec.clone();
+    resolved.units = if analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch) {
+        Units::In
+    } else {
+        Units::Mm
+    };
+    std::borrow::Cow::Owned(resolved)
+}
+
+/// Publish the effective sheet while retaining the authored preference.
+pub(crate) fn with_declared_default(
+    analysis: &crate::model::Analysis,
+    spec: &crate::model::Spec,
+    plan: fn(
+        &crate::model::Analysis,
+        &crate::model::Spec,
+    ) -> Result<crate::model::Plan, crate::model::Invalid>,
+) -> Result<crate::model::Plan, crate::model::Invalid> {
+    let effective = effective(analysis, spec);
+    Ok(record_default(analysis, plan(analysis, &effective)?))
+}
+
+pub(crate) fn record_default(
+    analysis: &crate::model::Analysis,
+    mut planned: crate::model::Plan,
+) -> crate::model::Plan {
+    planned.spec.units = Units::Auto;
+    if analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch)
+        && !planned.problems.iter().any(|p| p.code == "declared_units")
+    {
+        planned.problems.push(crate::model::Problem {
+            id: "p:declared_units:sheet".into(),
+            code: "declared_units".into(),
+            severity: "info".into(),
+            message: "The part's shape-representation contexts declare inches. With no Spec units preference, printed lengths use decimal inches; paper follows the drawing's paper preferences, defaulting to ANSI.".into(),
+            subjects: vec!["sheet".into()],
+            ..Default::default()
+        });
+    }
+    planned
 }
 
 impl Units {
@@ -318,7 +388,9 @@ pub(crate) fn inch_design(lengths: &[f64]) -> bool {
 
 pub(crate) fn advise(analysis: &crate::model::Analysis, plan: &mut crate::model::Plan) {
     plan.problems.retain(|p| p.code != "inch_design_detected");
-    if !plan.spec.units.is_mm() {
+    if !plan.sheet.units.is_mm()
+        || analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch)
+    {
         return;
     }
     let mut lengths: Vec<_> = (0..3)
@@ -351,6 +423,9 @@ pub(crate) fn advise(analysis: &crate::model::Analysis, plan: &mut crate::model:
 }
 
 #[cfg(test)]
+mod declared_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
@@ -361,14 +436,31 @@ mod tests {
 
     #[test]
     fn reference_ink_cache_is_partitioned_by_units_and_paper() {
-        let mm = Spec::default();
+        let (_, a) = model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/parts/mounting_plate.step"),
+        )
+        .unwrap();
+        let mm = Spec {
+            units: Units::Mm,
+            ..Spec::default()
+        };
         let inch: Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
         let arch: Spec =
             serde_json::from_value(json!({"units":"in","sheet":{"paper":"arch"}})).unwrap();
         let iso: Spec = serde_json::from_value(json!({"sheet":{"paper":"iso"}})).unwrap();
-        assert_ne!(model::established_key(&mm), model::established_key(&inch));
-        assert_ne!(model::established_key(&inch), model::established_key(&arch));
-        assert_eq!(model::established_key(&mm), model::established_key(&iso));
+        assert_ne!(
+            model::established_key(&a, &mm),
+            model::established_key(&a, &inch)
+        );
+        assert_ne!(
+            model::established_key(&a, &inch),
+            model::established_key(&a, &arch)
+        );
+        assert_eq!(
+            model::established_key(&a, &mm),
+            model::established_key(&a, &iso)
+        );
     }
 
     #[test]

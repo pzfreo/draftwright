@@ -58,6 +58,8 @@ pub(super) fn wants(
     Vec<Problem>,
     BTreeMap<String, pmi_dimensions::Note>,
 ) {
+    let effective = crate::units::effective(a, s);
+    let s = effective.as_ref();
     let presentations: Vec<_> = s
         .dimensions
         .iter()
@@ -899,7 +901,7 @@ fn dimension_marks(
         .filter(|d| d.placed.is_some() && !d.reference && include(d))
         .map(|d| crate::lint::Mark {
             precision: None,
-            units: p.spec.units,
+            units: p.sheet.units,
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -977,7 +979,7 @@ fn dimension_marks(
         let k = AXES.iter().position(|v| v == axis).unwrap();
         marks.push(crate::lint::Mark {
             precision: None,
-            units: p.spec.units,
+            units: p.sheet.units,
             name: format!("origin/{axis}"),
             view: None,
             text: String::new(),
@@ -1022,7 +1024,7 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
                         .next()
                         .and_then(|n| n.parse::<f64>().ok())
                         .is_some_and(|n| n.signum() == value.signum())
-                        && crate::lint::holes::states_in(s, value.abs(), p.spec.units)
+                        && crate::lint::holes::states_in(s, value.abs(), p.sheet.units)
                 }) {
                     continue;
                 }

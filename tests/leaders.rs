@@ -286,11 +286,14 @@ fn callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders(
     let report = std::env::var_os("LEADERS_REPORT").is_some();
     let mut found: BTreeSet<(String, String, String)> = BTreeSet::new();
     let mut callouts = 0;
+    // The complete known-leader ledger was captured on metric ISO drawings.
     for (name, analysis) in &parts {
         let plan = model::plan(
             analysis,
-            &serde_json::from_value(serde_json::json!({"sheet":{"preferred_max_size":"A0"}}))
-                .unwrap(),
+            &serde_json::from_value(
+                serde_json::json!({"units":"mm","sheet":{"preferred_max_size":"A0"}}),
+            )
+            .unwrap(),
         )
         .unwrap();
         for (id, set) in crossings(&plan, analysis) {

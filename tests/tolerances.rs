@@ -89,7 +89,9 @@ fn ftc06_prints_the_authored_bands_as_draftwright_does() {
     // (0.02, 0.1, on="depth"); pattern 7 .tolerance(0.03, on="bore.diameter"), pattern 8
     // .tolerance(0.1, on="grid_pitch.length.row"); of(hole 10).fit("H7") (its 2× pair); bosses
     // 11 h6 (of four), 15 and 16 g6, 17 h6 and 18 h7.
+    // These authored bands and captured label differences are metric.
     let s = spec(json!({
+        "units": "mm",
         "dimensions": {
             "d:envelope/width.length": { "tolerance": "±0.02" },
             "d:envelope/height.length": { "tolerance": "±0" },

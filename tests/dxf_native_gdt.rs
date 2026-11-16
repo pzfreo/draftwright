@@ -854,10 +854,11 @@ fn nist_and_pmi_fixtures_write_each_frame_as_one_positional_tolerance() {
     // 2, datums 1 to 3), each read off the NIST fixtures: a position frame with a diameter
     // zone, Ⓜ and three datums; flatness with no datums; profile of a surface; perpendicularity.
     for expected in [
-        "{\\Fgdt;j}%%v{\\Fgdt;n}1.016{\\Fgdt;m}%%v%%vA%%vB%%vC",
+        // FTC-07 and STC-09 declare inches: .040 and .010 are the same zones.
+        "{\\Fgdt;j}%%v{\\Fgdt;n}.040{\\Fgdt;m}%%v%%vA%%vB%%vC",
         "{\\Fgdt;c}%%v0.2%%v%%v%%v%%v",
         "{\\Fgdt;d}%%v1.5%%v%%vA%%vB%%vC",
-        "{\\Fgdt;b}%%v{\\Fgdt;n}0.254%%v%%vA%%v%%v",
+        "{\\Fgdt;b}%%v{\\Fgdt;n}.010%%v%%vA%%v%%v",
     ] {
         assert!(
             written.iter().any(|w| w.as_str() == expected),
@@ -878,16 +879,18 @@ fn stacked_independent_position_frames_share_their_cad_box_edge() {
         .join("tests/fixtures/pmi/step/nist_ftc_07_asme1_ap242-e2.stp.gz");
     let (part, a) = cache::native(&file);
     let plan = cache::default_plan(&a, true);
+    let upper_size = format!("⌀{}", plan.sheet.units.magnitude(1.143));
+    let lower_size = format!("⌀{}Ⓜ", plan.sheet.units.magnitude(1.016));
     // The two controls on the same holes are independent requirements: retain a
     // position symbol in each row, rather than silently making a composite symbol cell.
     let upper = plan
         .gdt
         .iter()
         .find(|g| {
-            g.cells == ["⌖", "⌀1.143", "A", "B", "C"]
+            g.cells == ["⌖", upper_size.as_str(), "A", "B", "C"]
                 && plan.gdt.iter().any(|other| {
                     other.faces == g.faces
-                        && other.cells == ["⌖", "⌀1.016Ⓜ", "A", "B", "C"]
+                        && other.cells == ["⌖", lower_size.as_str(), "A", "B", "C"]
                         && other.placed.as_ref().is_some_and(|p| p.lines.is_empty())
                 })
         })
@@ -895,7 +898,7 @@ fn stacked_independent_position_frames_share_their_cad_box_edge() {
     let lower = plan
         .gdt
         .iter()
-        .find(|g| g.faces == upper.faces && g.cells == ["⌖", "⌀1.016Ⓜ", "A", "B", "C"])
+        .find(|g| g.faces == upper.faces && g.cells == ["⌖", lower_size.as_str(), "A", "B", "C"])
         .unwrap();
     let bounds = |g: &draftwright::dims::gdt::PlannedGdt| {
         let p = g.placed.as_ref().unwrap();

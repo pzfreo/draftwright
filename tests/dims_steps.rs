@@ -554,12 +554,17 @@ fn m10127_through_step_and_ladder_match_draftwrights_sheet() {
 /// `known_dimensions.json`).
 #[test]
 fn ftc06_shoulders_and_heights_match_draftwrights_sheet() {
+    // Preserve the exact captured metric labels and their placement recipe.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     let Some(corpus) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
     let a = sheet_part(&corpus, "ftc06");
-    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let plan = model::plan(&a, &metric).unwrap();
     let f = facts::load("ftc06");
     let positions = items(&plan, &["step_position"]);
     assert_eq!(
@@ -623,7 +628,7 @@ fn ftc06_shoulders_and_heights_match_draftwrights_sheet() {
     assert_eq!(heights.len(), 5, "{heights:?}");
     for owner in [&slab.id, &overall.id] {
         let spec = model::edit(
-            &Spec::default(),
+            &metric,
             &serde_json::json!([draftwright::items::Op::set(
                 format!("dimensions/{}/omit", draftwright::items::key(owner)),
                 serde_json::json!(true),

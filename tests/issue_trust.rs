@@ -913,7 +913,7 @@ fn every_recognised_feature_is_dimensioned_or_reported() {
             .into_iter()
             .map(|a| Mark {
                 precision: None,
-                units: Default::default(),
+                units: plan.sheet.units,
                 name: a.name,
                 view: a.view,
                 text: a
@@ -950,9 +950,10 @@ fn every_recognised_feature_is_dimensioned_or_reported() {
                         .claims
                         .iter()
                         .any(|c| c.feature == id && c.parameter == "thickness.length")
-                        && lint::holes::states(
+                        && lint::holes::states_in(
                             &m.text,
-                            lint::plates::read(&analysis, f).unwrap().thickness()
+                            lint::plates::read(&analysis, f).unwrap().thickness(),
+                            plan.sheet.units,
                         )),
                 "{name}: {} has no proven printed thickness",
                 o.id

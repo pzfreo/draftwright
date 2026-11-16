@@ -78,7 +78,7 @@ pub fn report(analysis: &Analysis, plan: &mut Plan) {
         .filter(|d| d.placed.is_some())
         .map(|d| crate::lint::Mark {
             precision: None,
-            units: plan.spec.units,
+            units: plan.sheet.units,
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),

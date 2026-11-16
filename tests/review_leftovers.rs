@@ -91,8 +91,12 @@ fn edited_dimensions_do_not_add_extension_crossings_through_the_part() {
     let Some(dir) = corpus::dir() else { return };
     let (part, analysis) =
         model::analyse_native(&dir.join("nist/nist_ftc_06_asme1_rd.stp")).unwrap();
-    let base = model::plan(&analysis, &Spec::default()).unwrap();
-    let mut spec = Spec::default();
+    // These exact 25.4 / 3×72.39 targets and tolerance widths are metric recipes.
+    let mut spec = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let base = model::plan(&analysis, &spec).unwrap();
     for (i, d) in base
         .dimensions
         .iter()

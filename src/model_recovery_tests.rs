@@ -203,10 +203,15 @@ fn new_recess_locations_clear_established_pmi_ink() {
     std::fs::write(&path, step).unwrap();
     let a = analyse_native(&path).unwrap().1;
     crate::planning::with(&a, || {
-        let before = established_drawing(&a, &Spec::default()).unwrap();
-        let spec: Spec =
-            serde_json::from_value(serde_json::json!({"sheet":{"size":"A1","scale":"1:5"}}))
-                .unwrap();
+        let metric = Spec {
+            units: crate::units::Units::Mm,
+            ..Spec::default()
+        };
+        let before = established_drawing(&a, &metric).unwrap();
+        let spec: Spec = serde_json::from_value(
+            serde_json::json!({"units":"mm","sheet":{"size":"A1","scale":"1:5"}}),
+        )
+        .unwrap();
         let trial = plan_escalated_with(&a, &spec, true, None, false).unwrap();
         let hard = |p: &Plan| -> BTreeSet<_> {
             p.problems

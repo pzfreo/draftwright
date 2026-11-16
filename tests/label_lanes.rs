@@ -128,6 +128,15 @@ fn short_native_dimensions_keep_their_text_on_their_span() {
 
 #[test]
 fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
+    stc09_slot_corridors(draftwright::units::Units::Auto);
+}
+
+#[test]
+fn stc09_metric_slot_length_stays_beside_its_peer_and_gdt_corridors() {
+    stc09_slot_corridors(draftwright::units::Units::Mm);
+}
+
+fn stc09_slot_corridors(units: draftwright::units::Units) {
     use std::io::Read as _;
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let bytes =
@@ -145,7 +154,14 @@ fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
     // Its slots 1 and 2 are congruent, so one slot callout would state them: slot 2 is split
     // from the callout, so slot 1 keeps the length that is slot 3's peer here.
     corpus::split_slot(&mut a, "f:slot:f98");
-    let p = cache::default_plan(&a, true);
+    let p = draftwright::model::plan_recovered(
+        &a,
+        &draftwright::model::Spec {
+            units,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let placed = |id: &str| {
         p.dimensions
             .iter()
@@ -226,7 +242,11 @@ fn precise_labels_keep_their_span_after_the_final_inventory_settles() {
             }
         }
     }
-    let mut spec = Spec::default();
+    // The recorded precision values are metric.
+    let mut spec = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     spec.sheet.size = Some("A1".into()); // Keep the complete inventory for precision checks.
     let Some(p) = plan_with("nist/nist_ftc_08_asme1_rc.stp", &spec) else {
         return;

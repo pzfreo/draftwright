@@ -512,10 +512,24 @@ three decimal places (within 0.001 mm recognition noise). At least 85% of four o
 distinct positive sizes must match, including three matching sizes that are non-integral
 mm. This allows occasional off-grid sizes such as metric holes. It is evidence, not a
 unit declaration: mixed or irregular designs can be missed, and coincidence remains
-possible. It never switches units automatically. Its fix sets `units: "in"` and
+possible. This grid check never switches units automatically and never fires for a
+declared-inch part, including one explicitly drawn in mm. Its fix sets `units: "in"` and
 `sheet/paper: "ansi"`, removing incompatible ISO/ARCH named size preferences.
 
-`units` is `"mm"` (the default) or `"in"`. Geometry, measurements, locations,
+`units` is `"mm"` or `"in"`. An explicit Spec preference always wins. When omitted,
+the default is decimal inches only if the part's own shape-representation contexts
+declare inches; otherwise it is mm (including declared mm, cm and m, and absent,
+invalid or conflicting declarations). Analysis records `declared_length_unit`, read
+through quiddity/haecceity, rather than searching for any INCH entity in the file.
+Assembly selections and pack products use each product's own contexts; a whole
+assembly with conflicting units has no agreed declaration. Plain representation
+relationships are followed conservatively by the reader.
+
+The information-tier `declared_units` finding explains an automatic inch choice.
+The Plan's sheet records the resolved units; the embedded Spec keeps `units` absent,
+so editor and MCP replanning continue to use the source default. With no explicit
+paper family or size preference, inch drawings use ANSI paper under the usual paper
+rule. Geometry, measurements, locations,
 view offsets and paper coordinates remain in millimetres. Only printed lengths convert.
 Decimal inches omit the leading zero below one (`.500`, `-.500`) and default to
 three places, retaining trailing zeros. `precision` selects places in the drawing's

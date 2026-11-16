@@ -1425,6 +1425,21 @@ fn first_clear_opening_lane(
     None
 }
 
+// The same transverse-witness rules apply to a settled linear obstacle as to
+// a peer being planned. Text, heads, shared spans and dimension-line crossings
+// remain protected.
+fn linear_conflict(p: &Placed, q: &Placed, settled: bool) -> bool {
+    (settled && opening_lanes_too_close(p, q))
+        || text_conflict(p, q)
+        || super::placement::ink_through(p, super::contacts::clear_box(q.label_box))
+        || super::placement::ink_through(q, super::contacts::clear_box(p.label_box))
+        || p.lines
+            .get(2)
+            .zip(q.lines.get(2))
+            .is_some_and(|(a, b)| super::leaders::segments_cross(*a, *b))
+        || super::placement::linear_pair_contact(p, q, false)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn place(
     analysis: &Analysis,
@@ -1440,6 +1455,7 @@ pub(super) fn place(
     cache: &super::footprints::Cache,
     yield_callouts: bool,
     final_inventory: bool,
+    preferred_size: Option<(&str, f64)>,
 ) -> BTreeSet<String> {
     let mut moved = BTreeSet::new();
     // Extra recess footprints can force radius retries. Retain the established routes on
@@ -1500,10 +1516,41 @@ pub(super) fn place(
     // Linear retries are decided first, against the exterior ink, so a callout's own interior
     // move (which depends on its label's length) never decides whether a peer linear
     // dimension goes inside: a tolerance or fit edit on the callout leaves them as they were.
-    let order: Vec<usize> = (0..items.len())
+    let mut order: Vec<usize> = (0..items.len())
         .filter(|&i| matches!(items[i].shape, Shape::Linear { .. }))
         .chain((0..items.len()).filter(|&i| !matches!(items[i].shape, Shape::Linear { .. })))
         .collect();
+    if final_inventory && spec.units == crate::units::Units::In {
+        // Reserve the hardest remote size first. Its shorter peer can then
+        // choose a proven neighbouring lane, rather than settling before the
+        // long witnesses have claimed their only clear band.
+        let reach = |i: usize| {
+            placed[i].as_ref().map_or(0., |p| {
+                p.lines
+                    .iter()
+                    .take(2)
+                    .map(|[a, b]| (a[0] - b[0]).hypot(a[1] - b[1]))
+                    .fold(0., f64::max)
+            })
+        };
+        let slots: Vec<_> = order
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| {
+                reach(**i) > 8. * lane_pitch()
+                    && items[**i]
+                        .measurements
+                        .iter()
+                        .any(|m| m.parameter == "slot_length.length")
+            })
+            .map(|(n, _)| n)
+            .collect();
+        let mut sizes: Vec<_> = slots.iter().map(|n| order[*n]).collect();
+        sizes.sort_by(|a, b| reach(*b).total_cmp(&reach(*a)));
+        for (n, i) in slots.into_iter().zip(sizes) {
+            order[n] = i;
+        }
+    }
     let movable_callout = |i: usize, j: usize| {
         let opening_row = !final_inventory
             || items[i].measurements.iter().any(|m| {
@@ -1551,7 +1598,29 @@ pub(super) fn place(
         let (Some(name), Some(old)) = (chosen[i], placed[i].as_ref()) else {
             continue;
         };
-        if matches!(items[i].shape, Shape::Linear { .. })
+        // Chaining a size to a datum leg is useful only while it remains near
+        // its own feature on paper. Large inch presentations can put that
+        // outside chain beyond eight lanes; let the existing physical proof
+        // search the blank interior instead, without moving its datum leg.
+        let long_witness = |p: &Placed| {
+            p.lines
+                .iter()
+                .take(2)
+                .any(|[a, b]| (a[0] - b[0]).hypot(a[1] - b[1]) > 8. * lane_pitch())
+        };
+        let remote_slot = final_inventory
+            && spec.units == crate::units::Units::In
+            && items[i]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "slot_length.length")
+            && (long_witness(old)
+                || sides[i]
+                    .and_then(|side| super::placement::place(&frames[name], &items[i], side, 0))
+                    .as_ref()
+                    .is_some_and(long_witness));
+        if !remote_slot
+            && matches!(items[i].shape, Shape::Linear { .. })
             && placed.iter().enumerate().any(|(j, q)| {
                 i != j
                     && chosen[j] == chosen[i]
@@ -1628,6 +1697,7 @@ pub(super) fn place(
             }
             Shape::Linear { .. }
                 if through_notch(&items[i])
+                    || remote_slot
                     || !page.fits(old, name)
                     || old.lines.iter().take(2).any(|s| extensions.count(*s) != 0)
                     || obstacles
@@ -1640,16 +1710,25 @@ pub(super) fn place(
             {
                 let mut candidates = sides[i]
                     .map(|side| {
-                        let mut out = super::placement::interior_lanes(frame, &items[i], side);
-                        if through_notch(&items[i]) {
+                        let mut out =
+                            super::placement::interior_lanes(frame, &items[i], side, remote_slot);
+                        if through_notch(&items[i]) || remote_slot {
                             let other = match side {
                                 Side::Above => Side::Below,
                                 Side::Below => Side::Above,
                                 Side::Left => Side::Right,
                                 Side::Right => Side::Left,
                             };
-                            out.extend(super::placement::interior_lanes(frame, &items[i], other));
-                            for side in [side, other] {
+                            out.extend(super::placement::interior_lanes(
+                                frame,
+                                &items[i],
+                                other,
+                                remote_slot,
+                            ));
+                            for side in [side, other]
+                                .into_iter()
+                                .filter(|_| through_notch(&items[i]))
+                            {
                                 if final_inventory {
                                     out.extend(super::placement::opening_lanes(
                                         frame, &items[i], side,
@@ -1665,10 +1744,10 @@ pub(super) fn place(
                     .unwrap_or_default();
                 // Preserve a proven original lane; the new local stations and
                 // physical reference pairs are fallbacks for blocked routes.
-                if !through_notch(&items[i]) {
+                if !through_notch(&items[i]) && !remote_slot {
                     baseline_candidates = candidates.len().min(8);
                 }
-                if !slot_layout && !through_notch(&items[i]) {
+                if !slot_layout && !through_notch(&items[i]) && !remote_slot {
                     candidates.truncate(baseline_candidates);
                 }
                 let references: Vec<_> = if through_notch(&items[i]) {
@@ -1704,6 +1783,7 @@ pub(super) fn place(
                                 frame,
                                 &alternative,
                                 side,
+                                false,
                             ));
                             if through_notch(&items[i]) {
                                 if final_inventory {
@@ -1806,7 +1886,16 @@ pub(super) fn place(
             }
         };
         let clear = |p: &Placed| {
-            page.fits_interior(p, name)
+            (!remote_slot
+                || p.lines
+                    .iter()
+                    .take(2)
+                    .zip(&p.arrows)
+                    .all(|([a, b], [tip, _])| {
+                        let k = usize::from(p.rotation == 0.);
+                        (a[k] - tip[k]) * (b[k] - tip[k]) <= 1e-6
+                    }))
+                && page.fits_interior(p, name)
                 && (!through_notch(&items[i])
                     || page.area(name).is_none_or(|b| {
                         super::placement::ink_points(p)
@@ -1819,26 +1908,13 @@ pub(super) fn place(
                     j != i
                         && !movable[j]
                         && q.as_ref().is_some_and(|q| {
-                            if through_notch(&items[i])
+                            if (through_notch(&items[i]) || remote_slot)
                                 && matches!(items[i].shape, Shape::Linear { .. })
                                 && matches!(items[j].shape, Shape::Linear { .. })
                             {
                                 // Ordinary linear dimensions share and cross witness
                                 // lines under the same rules used in exterior lanes.
-                                (final_inventory && opening_lanes_too_close(p, q))
-                                    || text_conflict(p, q)
-                                    || super::placement::ink_through(
-                                        p,
-                                        super::contacts::clear_box(q.label_box),
-                                    )
-                                    || super::placement::ink_through(
-                                        q,
-                                        super::contacts::clear_box(p.label_box),
-                                    )
-                                    || p.lines.get(2).zip(q.lines.get(2)).is_some_and(|(a, b)| {
-                                        super::leaders::segments_cross(*a, *b)
-                                    })
-                                    || super::placement::linear_pair_contact(p, q, false)
+                                linear_conflict(p, q, final_inventory)
                             } else {
                                 conflict(p, q)
                                     || (final_inventory
@@ -1849,10 +1925,15 @@ pub(super) fn place(
                             }
                         })
                 })
-                && !obstacles
-                    .iter()
-                    .filter_map(|d| d.placed.as_ref())
-                    .any(|q| conflict(p, q))
+                && !obstacles.iter().any(|d| {
+                    d.placed.as_ref().is_some_and(|q| {
+                        if remote_slot && d.kind == "linear" {
+                            linear_conflict(p, q, true)
+                        } else {
+                            conflict(p, q)
+                        }
+                    })
+                })
                 && furniture_clear(p, &items[i])
                 && p.lines
                     .iter()
@@ -1914,7 +1995,70 @@ pub(super) fn place(
                 .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| a.2.total_cmp(&b.2))
         };
-        let route_order = |a: &Placed, b: &Placed| rank_order(&route_rank(a), &route_rank(b));
+        let peer_reach = |p: &Placed| {
+            if !remote_slot {
+                return 0.;
+            }
+            let k = usize::from(p.rotation == 0.);
+            if let Some((id, target)) = preferred_size
+                && id == items[i].id
+            {
+                return (p.arrows[0][0][k] - target).abs();
+            }
+            let along = 1 - k;
+            let ends = |p: &Placed| {
+                let (a, b) = (p.arrows[0][0][along], p.arrows[1][0][along]);
+                (a.min(b), a.max(b))
+            };
+            let (lo, hi) = ends(p);
+            placed
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| {
+                    *j != i
+                        && chosen[*j] == chosen[i]
+                        && items[*j]
+                            .measurements
+                            .iter()
+                            .any(|m| m.parameter == "slot_length.length")
+                })
+                .filter_map(|(_, q)| q.as_ref())
+                .filter(|q| q.arrows.len() == 2 && q.lines.len() >= 3 && q.rotation == p.rotation)
+                .filter(|q| {
+                    let (a, b) = ends(q);
+                    b.min(hi) > a.max(lo)
+                })
+                .map(|q| {
+                    let at = q.arrows[0][0][k];
+                    let outline = frame.outline();
+                    let target = if at > outline[k] && at < outline[k + 2] {
+                        at
+                    } else {
+                        0.5 * (q.lines[0][0][k] + q.lines[1][0][k])
+                    };
+                    (target - p.arrows[0][0][k]).abs()
+                })
+                .min_by(f64::total_cmp)
+                .map_or(0., |gap| (gap - 2. * lane_pitch()).max(0.))
+        };
+        let changes_side = |p: &Placed| {
+            if !remote_slot {
+                return false;
+            }
+            let Shape::Linear { a, b, .. } = items[i].shape else {
+                return false;
+            };
+            let k = usize::from(p.rotation == 0.);
+            let centre = 0.5 * (frame.page(a)[k] + frame.page(b)[k]);
+            let positive = matches!(sides[i], Some(Side::Above | Side::Right));
+            (p.arrows[0][0][k] > centre) != positive
+        };
+        let route_order = |a: &Placed, b: &Placed| {
+            peer_reach(a)
+                .total_cmp(&peer_reach(b))
+                .then_with(|| changes_side(a).cmp(&changes_side(b)))
+                .then_with(|| rank_order(&route_rank(a), &route_rank(b)))
+        };
         if ordered_opening {
             if let Some(p) = first_clear_opening_lane(
                 &candidates,
@@ -1958,15 +2102,20 @@ pub(super) fn place(
             })
             .filter_map(|(fallback, p)| {
                 let mut choices = Vec::new();
-                if slot_layout
-                    && items[i]
-                        .measurements
-                        .iter()
-                        .any(|m| m.parameter == "slot_width.length")
-                    && proof.blank(v, p.label_box)
+                if remote_slot
+                    || (slot_layout
+                        && items[i]
+                            .measurements
+                            .iter()
+                            .any(|m| m.parameter == "slot_width.length")
+                        && proof.blank(v, p.label_box))
                 {
-                    // Keep compact witness gaps within two paper millimetres.
-                    for extra in [0.25, 0.5, 1.] {
+                    // Round-end tangency can need extra paper clearance. Keep
+                    // the smallest proven gap and never skip another feature.
+                    for extra in [0.25, 0.5, 1., 1.5, 2.]
+                        .into_iter()
+                        .filter(|extra| remote_slot || *extra <= 1.)
+                    {
                         let mut q = p.clone();
                         let mut clear = true;
                         for line in q.lines.iter_mut().take(2) {
@@ -1994,7 +2143,30 @@ pub(super) fn place(
                 }
                 // For a fixed physical route, use the smallest valid gap.
                 // Removing more witness ink must not improve its route score.
-                let found = if choices.is_empty() {
+                let found = if remote_slot {
+                    // A location tower's witnesses may cross an otherwise blank
+                    // lane. Slide only this size's text within its measured span;
+                    // every candidate retains the same physical/ink proofs.
+                    let peers: Vec<_> = placed
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, _)| *j != i)
+                        .filter_map(|(_, p)| p.as_ref())
+                        .chain(obstacles.iter().filter_map(|d| d.placed.as_ref()))
+                        .collect();
+                    std::iter::once(p).chain(choices).find_map(|p| {
+                        std::iter::once(p.clone())
+                            .chain(
+                                super::label_lanes::alternatives_placed(
+                                    &p,
+                                    page.drawable(),
+                                    &peers,
+                                )
+                                .take(16),
+                            )
+                            .find(clear)
+                    })
+                } else if choices.is_empty() {
                     clear(&p).then_some(p)
                 } else {
                     choices.insert(0, p);
@@ -2261,6 +2433,7 @@ fn finish_openings_with(
         &cache,
         yield_callouts,
         true,
+        None,
     );
     let proofs = callout_proofs(analysis, &plan.views);
     // Outside text needs the usual one millimetre past its arrowhead, not
@@ -2449,6 +2622,227 @@ fn finish_openings_with(
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
     super::callout_routes::refresh(analysis, plan, &all, &cache, &changed, &codes);
+}
+
+/// Shorten remote slot-size witnesses against the finished ink. Retain every
+/// view and requirement, and retry only displaced leaders as one checked trial;
+/// an early retry can reflow the whole external location tower.
+pub(super) fn finish_slot_sizes(analysis: &Analysis, spec: &Spec, plan: &mut crate::model::Plan) {
+    if spec.units != crate::units::Units::In || !crate::nominal::authored_pmi(analysis) {
+        return;
+    }
+    let size = |d: &PlannedDimension| {
+        d.kind == "linear"
+            && d.state == crate::items::State::Shown
+            && d.measurements
+                .iter()
+                .any(|m| m.parameter == "slot_length.length")
+            && spec.dimensions.get(&d.id).is_none_or(|d| d.place.is_none())
+    };
+    let reach = |p: &Placed| {
+        p.lines
+            .iter()
+            .take(2)
+            .map(|[a, b]| (a[0] - b[0]).hypot(a[1] - b[1]))
+            .fold(0., f64::max)
+    };
+    if !plan
+        .dimensions
+        .iter()
+        .filter(|d| size(d))
+        .filter_map(|d| d.placed.as_ref())
+        .any(|p| reach(p) > 8. * lane_pitch())
+    {
+        return;
+    }
+    let wants = super::pmi_policy::wants(analysis, spec).0;
+    let indices: Vec<_> = plan
+        .dimensions
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| size(d))
+        .filter_map(|(i, d)| wants.iter().position(|w| w.id == d.id).map(|w| (i, w)))
+        .collect();
+    let items: Vec<_> = indices
+        .iter()
+        .map(|(i, w)| {
+            let mut w = wants[*w].clone();
+            w.terms.clone_from(&plan.dimensions[*i].terms);
+            w.measurements.clone_from(&plan.dimensions[*i].measurements);
+            if let Some(shape) = super::slots::length_reference(&w, analysis) {
+                w.shape = shape;
+            }
+            w
+        })
+        .collect();
+    let original: Vec<_> = indices
+        .iter()
+        .map(|(i, _)| plan.dimensions[*i].placed.clone())
+        .collect();
+    let chosen: Vec<_> = indices
+        .iter()
+        .map(|(i, _)| {
+            super::NAMES
+                .iter()
+                .copied()
+                .find(|name| plan.dimensions[*i].view == format!("v:{name}"))
+        })
+        .collect();
+    let frames: BTreeMap<_, _> = plan
+        .views
+        .iter()
+        .filter_map(|v| {
+            let name = v.id.strip_prefix("v:")?;
+            super::NAMES
+                .contains(&name)
+                .then(|| (name, Frame::new(analysis, v)))
+        })
+        .collect();
+    let (sides, _) = super::placement::lanes(
+        analysis,
+        &frames,
+        items.iter().zip(chosen.iter().copied()),
+        &vec![None; items.len()],
+    );
+    let mut fixed = super::callout_routes::furniture(plan);
+    fixed.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
+    fixed.extend(
+        plan.dimensions
+            .iter()
+            .enumerate()
+            .filter(|(i, d)| {
+                d.state == crate::items::State::Shown && !indices.iter().any(|(j, _)| i == j)
+            })
+            .map(|(_, d)| d.clone()),
+    );
+    // Reserve the labels now; atomically re-route displaced leaders below.
+    for d in &mut fixed {
+        if d.kind == "callout"
+            && let Some(p) = &mut d.placed
+        {
+            p.lines.clear();
+            p.arrows.clear();
+        }
+    }
+    let cache = super::footprints::Cache::default();
+    let page = Page::new(analysis, &plan.sheet, &plan.views);
+    let primary = original
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| p.as_ref().map(|p| (i, reach(p))))
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i);
+    let mut preferences = vec![None];
+    if items.len() > 1
+        && let Some(i) = primary
+        && let (Some(name), Some(p)) = (chosen[i], original[i].as_ref())
+        && let Shape::Linear { a, b, .. } = items[i].shape
+    {
+        let k = usize::from(p.rotation == 0.);
+        let f = &frames[name];
+        let station = 0.5 * (f.page(a)[k] + f.page(b)[k]);
+        // Bounded joint retries: one greedy lane can enclose an existing leader.
+        for offset in [-3., 3., -4., 4., -2., 2.] {
+            preferences.push(Some((
+                items[i].id.as_str(),
+                station + offset * lane_pitch(),
+            )));
+        }
+    }
+    for preference in preferences {
+        let mut placed = original.clone();
+        let mut changed = BTreeSet::new();
+        for _ in 0..2 {
+            changed.extend(place(
+                analysis,
+                spec,
+                &plan.views,
+                &frames,
+                &items,
+                &chosen,
+                &sides,
+                &mut placed,
+                &page,
+                &fixed,
+                &cache,
+                false,
+                true,
+                preference,
+            ));
+        }
+        if changed.is_empty() {
+            continue;
+        }
+        // Paper locality is a requirement of this retry, not a ranking trade.
+        if placed
+            .iter()
+            .flatten()
+            .any(|p| reach(p) > 8. * lane_pitch())
+        {
+            continue;
+        }
+        let mut local = true;
+        for i in 0..items.len() {
+            for j in i + 1..items.len() {
+                if chosen[i] != chosen[j] {
+                    continue;
+                }
+                if let (Some(a), Some(b)) = (&placed[i], &placed[j])
+                    && a.rotation == b.rotation
+                {
+                    let k = usize::from(a.rotation == 0.);
+                    let along = 1 - k;
+                    let span = |p: &Placed| {
+                        let (a, b) = (p.arrows[0][0][along], p.arrows[1][0][along]);
+                        (a.min(b), a.max(b))
+                    };
+                    let ((lo, hi), (x, y)) = (span(a), span(b));
+                    if hi.min(y) > lo.max(x)
+                        && (a.arrows[0][0][k] - b.arrows[0][0][k]).abs() > 2. * lane_pitch() + 1e-6
+                    {
+                        local = false;
+                    }
+                }
+            }
+        }
+        if !local {
+            continue;
+        }
+        let mut trial = plan.clone();
+        for ((i, _), p) in indices.iter().zip(placed) {
+            if changed.contains(&plan.dimensions[*i].id) {
+                trial.dimensions[*i].placed = p;
+                trial.dimensions[*i].region = Some(super::CandidateRegion::Interior);
+            }
+        }
+        let before = super::recheck_cached(analysis, plan, &cache);
+        let after = super::recheck_cached(analysis, &trial, &cache);
+        let codes = before
+            .iter()
+            .chain(&after)
+            .map(|p| p.code.clone())
+            .collect();
+        let mut all = trial.dimensions.clone();
+        all.extend(trial.gdt.iter().filter_map(super::gdt::proxy));
+        super::callout_routes::refresh(analysis, &mut trial, &all, &cache, &changed, &codes);
+        super::contacts::report(analysis, &mut trial);
+        let affected = trial
+            .problems
+            .iter()
+            .filter(|p| p.subjects.iter().any(|id| changed.contains(id)))
+            .flat_map(|p| p.subjects.iter().cloned())
+            .collect();
+        super::callout_routes::finish_slot_contacts(analysis, spec, &mut trial, &affected, plan);
+        super::contacts::report(analysis, &mut trial);
+        if super::callout_routes::no_regression(&plan.problems, &trial.problems)
+            && crate::model::finished_sheets_fit(analysis, &trial)
+        {
+            trial.record_dimension_labels();
+            trial.record_callout_offsets();
+            *plan = trial;
+            return;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2980,6 +3374,7 @@ mod tests {
             &super::super::footprints::Cache::default(),
             false,
             false,
+            None,
         );
         assert!(moved.contains("d:test/location.length.x"));
         let p = placed[0].as_ref().unwrap();
@@ -3037,6 +3432,7 @@ mod tests {
             Some(&proofs["v:plan"]),
             false,
             0.0,
+            false,
         );
         assert!(!routes.is_empty());
         let next = &routes[0];
@@ -3131,6 +3527,7 @@ mod tests {
             Some(&proofs["v:plan"]),
             false,
             0.0,
+            false,
         );
         assert!(!routes.is_empty(), "the hole floor has room for the label");
         let p = &routes[0];

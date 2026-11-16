@@ -850,7 +850,7 @@ fn nominal_reference(
     if !crate::dims::has_new_native_recess_dimensions(analysis) {
         return None;
     }
-    let reference_key = crate::model::established_key(spec);
+    let reference_key = crate::model::established_key(analysis, spec);
     crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
         analysis,
         "established-drawing",
@@ -895,7 +895,7 @@ fn settled_nominal_reference(
     {
         return None;
     }
-    let legacy_key = crate::model::established_key(spec);
+    let legacy_key = crate::model::established_key(analysis, spec);
     let legacy = crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
         analysis,
         "established-drawing",
@@ -1054,7 +1054,7 @@ fn settled_nominal_reference(
             })
         })
     })?;
-    let legacy_key = crate::model::established_key(spec);
+    let legacy_key = crate::model::established_key(analysis, spec);
     let legacy = crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
         analysis,
         "established-drawing",
@@ -3092,7 +3092,7 @@ pub(super) fn seed_established(
         .iter()
         .flat_map(|w| &w.measurements)
         .any(|m| m.feature.starts_with("f:section_recess:"));
-    let key = crate::model::established_key(spec);
+    let key = crate::model::established_key(analysis, spec);
     let nominal = nominal_reference(analysis, spec, items);
     let is_nominal = nominal.is_some();
     let Some(reference) = nominal.or_else(|| {
@@ -3258,7 +3258,7 @@ pub(super) fn refine(
     if analysis.edge_ink.is_none() {
         return BTreeMap::new();
     }
-    let reference_key = crate::model::established_key(spec);
+    let reference_key = crate::model::established_key(analysis, spec);
     // The reference is immutable for this key within the Analysis scope.
     let has_reference =
         crate::planning::lookup::<Result<crate::model::Plan, crate::model::Invalid>>(
@@ -3386,7 +3386,7 @@ fn refine_uncached(
         })
     };
     let centre_run = |p: &Placed| centre_lines(&p.lines);
-    let reference_key = crate::model::established_key(spec);
+    let reference_key = crate::model::established_key(analysis, spec);
     let established_reference = crate::planning::lookup::<
         Result<crate::model::Plan, crate::model::Invalid>,
     >(analysis, "established-drawing", &reference_key)
@@ -5056,6 +5056,15 @@ pub(super) fn extension_contacts(
 ) -> (usize, usize) {
     // Invariant: The counter returns None only for a supplied bound; this call supplies none.
     extension_contacts_bounded(extensions, lines, label, None).expect("an unbounded count")
+}
+
+/// Exact filled arrow flare clearance from physical witness strokes.
+pub(super) fn head_extension_contacts(
+    extensions: &[(usize, [P2; 2])],
+    arrows: &[[P2; 2]],
+) -> usize {
+    let index = ExtensionIndex::new(extensions.to_vec());
+    arrows.iter().map(|a| index.head_contacts(&head(*a))).sum()
 }
 
 /// Contacts only accumulate. Stop a candidate once it cannot pass the existing gates;
@@ -7567,6 +7576,7 @@ pub(super) fn settled_routes(
     proof: Option<&super::interior::Proof>,
     contact_repair: bool,
     bend_radius: f64,
+    cohort_repair: bool,
 ) -> Vec<Placed> {
     let Some(v) = views.iter().find(|v| v.id == d.view) else {
         return Vec::new();
@@ -7771,6 +7781,61 @@ pub(super) fn settled_routes(
                 }
             }
         }
+        if contact_repair && sheet.units == crate::units::Units::In {
+            // A counted radius owns distant occurrences as well as the eight
+            // sites nearest the held tip. Try their exact proven radial rays;
+            // an angular sweep can miss a narrow clear corridor altogether.
+            // At most 64 arcs and five middle-half stations use a bounded reach grid.
+            for arc in radius.iter().flatten().take(64) {
+                if arc.tips.is_empty() {
+                    continue;
+                }
+                for i in [
+                    arc.tips.len() / 2,
+                    arc.tips.len() / 4,
+                    3 * arc.tips.len() / 4,
+                    0,
+                    arc.tips.len() - 1,
+                ] {
+                    let tip = arc.tips[i];
+                    let u = arc.radial_direction(tip);
+                    let n = u[0].hypot(u[1]);
+                    if n <= 1e-12 {
+                        continue;
+                    }
+                    for deviation in [-15_f64, 0., 15.] {
+                        let angle = deviation.to_radians();
+                        let u = [
+                            u[0] * angle.cos() - u[1] * angle.sin(),
+                            u[0] * angle.sin() + u[1] * angle.cos(),
+                        ];
+                        for sign in [-1., 1.] {
+                            for reach in SWEEP_REACH.into_iter().chain([12., 13., 14.]) {
+                                let elbow = [
+                                    tip[0] + sign * reach * u[0] / n,
+                                    tip[1] + sign * reach * u[1] / n,
+                                ];
+                                for right in [false, true] {
+                                    for shoulder in [SHOULDER, 2., 0.75] {
+                                        let end = [
+                                            elbow[0] + if right { shoulder } else { -shoulder },
+                                            elbow[1],
+                                        ];
+                                        if let Some(c) = measure_at_bounds(
+                                            &exterior, tip, elbow, end, right, &page,
+                                        ) && !boxes_overlap(c.label_box, job.outline)
+                                            && c.hard == 0
+                                        {
+                                            candidates.push(c);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // Radius evidence is independent of the old router's sites. A cheaper or
         // crossing-free route may not violate the shared #153 drawing rule.
         candidates.retain(|c| {
@@ -7791,6 +7856,25 @@ pub(super) fn settled_routes(
         }
         candidates
     };
+    if contact_repair && sheet.units == crate::units::Units::In && old.lines.len() == 2 {
+        let right = old.lines[1][1][0] >= shaft[1][0];
+        if let Some(held) = measure_at(
+            &job,
+            shaft[0],
+            shaft[1],
+            old.lines[1][1],
+            right,
+            &fixed,
+            &page,
+        ) && radius
+            .as_ref()
+            .is_none_or(|arcs| arcs.iter().any(|a| a.accepts([held.tip, held.elbow])))
+        {
+            // A transported physical corridor is a seed, not an exemption:
+            // the same final ink, witness, outline and feature proofs below apply.
+            candidates.push(held);
+        }
+    }
     if source_frame {
         // Reuse the initial router's bounded edge columns and one-millimetre
         // stations. A face-centred source leader may need to leave a wide
@@ -7799,12 +7883,47 @@ pub(super) fn settled_routes(
         candidates.extend(clean.into_iter().chain(crossing).chain(obstructed));
     }
     let old_extensions = fixed.extension_index.contacts(&old.lines, old.label_box);
+    let old_heads = fixed
+        .extension_index
+        .head_contacts(&head(arrow(shaft[0], shaft[1])));
     let resolved = analysis.edge_ink.as_ref().and_then(|ink| {
         let key = serde_json::to_vec(v).expect("view serializes");
         crate::planning::memo(analysis, "settled-route-visibility", key, || {
             resolved_route_ink(analysis, ink, v, true).map(std::rc::Rc::new)
         })
     });
+    // Final clearance is against every visible projection on this sheet.
+    // The own-view model alone misses a neighbouring view beside a short label.
+    let page_visible = if contact_repair
+        && sheet.units == crate::units::Units::In
+        && !crate::nominal::authored_pmi(analysis)
+    {
+        analysis.edge_ink.as_ref().map(|ink| {
+            let key =
+                serde_json::to_vec(&(sheet.number, views)).expect("visible projections serialize");
+            crate::planning::memo(analysis, "settled-page-visible", key, || {
+                std::rc::Rc::new(
+                    views
+                        .iter()
+                        .filter(|q| q.sheet == sheet.number)
+                        .map(|q| {
+                            if let Some(resolved) = resolved_route_ink(analysis, ink, q, true) {
+                                (resolved.visible, Vec::new())
+                            } else {
+                                // Ordinary native analyses need not contain resolved HLR.
+                                // Their projected edges and curved silhouettes are the
+                                // documented conservative superset of the printed ink.
+                                let (lines, uncertain) = view_ink(analysis, ink, q);
+                                (SegmentIndex::new(lines), uncertain)
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+        })
+    } else {
+        None
+    };
     let old_lines = [
         old.lines[0],
         old.lines.get(1).copied().unwrap_or([shaft[1], shaft[1]]),
@@ -7815,6 +7934,7 @@ pub(super) fn settled_routes(
     // Rigid source frames need the same bounded narrow-corridor
     // refinements even outside the slot-only witness retry families.
     let compact_shoulders = source_frame
+        || (contact_repair && sheet.units == crate::units::Units::In)
         || super::placement::pmi_witness_retry(analysis)
         || peers.iter().any(|q| {
             (q.view == d.view
@@ -7828,6 +7948,12 @@ pub(super) fn settled_routes(
     let admissible = |c: &Candidate| {
         let extensions = fixed.extension_index.contacts(&c.segments(), c.label_box);
         c.hard == 0
+            && (!contact_repair
+                || sheet.units != crate::units::Units::In
+                || fixed
+                    .extension_index
+                    .head_contacts(&head(arrow(c.tip, c.elbow)))
+                    <= old_heads)
             && extensions.0 <= old_extensions.0
             && extensions.1 <= old_extensions.1
             && c.text == 0
@@ -7835,6 +7961,27 @@ pub(super) fn settled_routes(
             && c.furniture == 0
             && c.beside == 0
             && c.grazing == 0
+            && page_visible.as_ref().is_none_or(|page| {
+                page.iter().all(|(ink, uncertain)| {
+                    let chord = views
+                        .iter()
+                        .filter(|v| v.sheet == sheet.number)
+                        .map(|v| {
+                            v.scale
+                                * (crate::model::projected_ink::TOLERANCE
+                                    + crate::model::projected_ink::GRID)
+                        })
+                        .fold(0., f64::max);
+                    let pad = 1.001 + chord;
+                    let label = grow(c.label_box, pad);
+                    let elbow = grow([c.elbow[0], c.elbow[1], c.elbow[0], c.elbow[1]], pad);
+                    !ink.crosses_box(label)
+                        && !ink.crosses_box(elbow)
+                        && uncertain
+                            .iter()
+                            .all(|b| !boxes_meet(*b, label) && !boxes_meet(*b, elbow))
+                })
+            })
             && (!compact_shoulders
                 || resolved.as_ref().is_none_or(|r| {
                     let pad = 1. + 1e-6;
@@ -7887,6 +8034,29 @@ pub(super) fn settled_routes(
                 local.push(c);
             }
         };
+        if cohort_repair && source_frame && sheet.units == crate::units::Units::In {
+            let u = [shaft[1][0] - shaft[0][0], shaft[1][1] - shaft[0][1]];
+            let n = u[0].hypot(u[1]);
+            for length in [3., 4., 5., 6., 8., 10.] {
+                if length > n {
+                    continue;
+                }
+                let elbow = [
+                    shaft[0][0] + length * u[0] / n,
+                    shaft[0][1] + length * u[1] / n,
+                ];
+                for shoulder in [8., 12., 16., 24., 32., 48., 64.] {
+                    retain(
+                        shaft[0],
+                        elbow,
+                        [
+                            elbow[0] + if right { shoulder } else { -shoulder },
+                            elbow[1],
+                        ],
+                    );
+                }
+            }
+        }
         if radius.is_none() {
             for step in 1..=8 {
                 for delta in [
@@ -7975,6 +8145,11 @@ pub(super) fn settled_routes(
     // furniture or per-kind audit that the numerical route score cannot see.
     if !compact_shoulders {
         return candidates.into_iter().map(|c| c.placed()).collect();
+    }
+    if contact_repair && sheet.units == crate::units::Units::In {
+        // Do not spend the entire bounded local prefix on bend translations
+        // before its shorter, clear shoulder refinements can be inspected.
+        local.sort_by(|a, b| length(&a.segments()).total_cmp(&length(&b.segments())));
     }
     local
         .into_iter()
@@ -8377,6 +8552,7 @@ mod tests {
             proof.get(&view.id).map(|p| p.as_ref()),
             false,
             0.0,
+            false,
         );
         assert!(
             !alternatives.is_empty(),

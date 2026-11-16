@@ -103,7 +103,7 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             let units = if m.parameter.contains("angle") {
                 crate::units::Units::Mm
             } else {
-                spec.units
+                plan.sheet.units
             };
             let printed = units.format(m.value);
             // Symbolic thread designations and table references can replace a nominal.
@@ -124,7 +124,7 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
                 problems.insert((id.to_string(), measurement.clone()), crate::model::Problem {
                     id: format!("p:nominal_rounded:{id}:{measurement}"),
                     code: "nominal_rounded".into(), severity: "info".into(),
-                    message: if spec.units.is_mm() {
+                    message: if plan.sheet.units.is_mm() {
                         format!("The dimension {text:?} has modelled nominal {} but prints {printed} at the default three-place limit.", clean(m.value))
                     } else {
                         format!("The dimension {text:?}: modelled nominal {} mm prints {printed} in at the default three-place limit.", clean(m.value))
@@ -174,7 +174,7 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             check(&r.dimension, &measurements, &cells.join(" "));
         }
     }
-    if !plan.spec.units.is_mm() && !problems.is_empty() {
+    if !plan.sheet.units.is_mm() && !problems.is_empty() {
         let mut subjects = vec!["sheet".into()];
         let mut refs = Vec::new();
         let mut precision = plan.spec.precision.clone();

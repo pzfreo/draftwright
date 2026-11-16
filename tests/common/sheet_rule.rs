@@ -25,7 +25,8 @@ pub struct Tried {
 }
 
 pub fn sheet_index(size: &str) -> usize {
-    draftwright::layout::PAGES
+    draftwright::units::Paper::for_size(size)
+        .pages()
         .iter()
         .position(|p| p.0 == size)
         .unwrap_or_else(|| panic!("{size} is not a sheet"))
@@ -44,8 +45,13 @@ pub fn tried(basis: &str) -> Vec<Tried> {
         .1;
     let mut out = Vec::new();
     while let Some(i) = rest.find(" fill ") {
-        let head: Vec<&str> = rest[..i].rsplitn(3, ' ').collect();
-        let (scale, size) = (head[0], head[1]);
+        let head: Vec<&str> = rest[..i].rsplitn(4, ' ').collect();
+        let scale = head[0];
+        let size = if matches!(head.get(2), Some(&"ANSI" | &"ARCH")) {
+            format!("{} {}", head[2], head[1])
+        } else {
+            head[1].to_string()
+        };
         let tail = &rest[i + 6..];
         let pct = tail.find('%').unwrap();
         let fill = tail[..pct].parse::<f64>().unwrap() / 100.0;
@@ -79,28 +85,23 @@ fn in_band(f: f64) -> bool {
 /// Asserts *plan*'s automatic sheet follows the rule over its recorded candidates; *seed* is the
 /// first estimate's (sheet, scale). Returns the smallest fit.
 pub fn assert_follows(name: &str, plan: &Plan, seed: (&str, &str)) -> (String, String) {
+    let pages = draftwright::units::Paper::for_size(&plan.sheet.size).pages();
     if !plan.sheet_candidates.is_empty() {
         let maximum = plan
             .spec
             .sheet
             .preferred_max_size
             .as_deref()
-            .unwrap_or("A3");
-        let preferred = draftwright::layout::PAGES
-            .iter()
-            .position(|p| p.0 == maximum)
-            .unwrap();
+            .unwrap_or(pages[1].0);
+        let preferred = pages.iter().position(|p| p.0 == maximum).unwrap();
         let hard = plan.spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9) as usize;
         let count = (plan.spec.sheet.preferred_max_sheets.unwrap_or(2) as usize).min(hard);
-        let mut expected: Vec<_> = draftwright::layout::PAGES[..=preferred]
-            .iter()
-            .map(|p| (p.0, 1))
-            .collect();
+        let mut expected: Vec<_> = pages[..=preferred].iter().map(|p| (p.0, 1)).collect();
         expected.extend((2..=count).map(|n| (maximum, n)));
-        for p in &draftwright::layout::PAGES[preferred + 1..] {
+        for p in &pages[preferred + 1..] {
             expected.extend((1..=count).map(|n| (p.0, n)));
         }
-        expected.extend((count + 1..=hard).map(|n| ("A0", n)));
+        expected.extend((count + 1..=hard).map(|n| (pages[4].0, n)));
         assert!(plan.sheet_candidates.len() <= expected.len());
         for (candidate, request) in plan.sheet_candidates.iter().zip(&expected) {
             assert_eq!(
@@ -117,7 +118,7 @@ pub fn assert_follows(name: &str, plan: &Plan, seed: (&str, &str)) -> (String, S
             assert!(
                 scales
                     .iter()
-                    .all(|s| draftwright::layout::SCALES.contains(s)),
+                    .all(|s| draftwright::units::scales(plan.sheet.units).contains(s)),
                 "{name}: non-preferred scale"
             );
             assert!(
@@ -275,8 +276,11 @@ pub fn seed_of(plan: &Plan) -> (String, String) {
                 .and_then(|p| p.message.split_once("from ").map(|(_, from)| from))
         })
         .map(|from| {
-            let words: Vec<&str> = from.split_whitespace().collect();
-            (words[0].to_string(), words[2].to_string())
+            let (size, rest) = from.split_once(" at ").unwrap();
+            (
+                size.to_string(),
+                rest.split_whitespace().next().unwrap().to_string(),
+            )
         })
         .unwrap_or_else(|| (plan.sheet.size.clone(), plan.sheet.scale.clone()))
 }
@@ -289,15 +293,15 @@ pub fn assert_rule(name: &str, plan: &Plan) -> (String, String) {
 
 /// Soft preferences never replace the hard count limit or suppress their advisory.
 pub fn assert_preferences(plan: &Plan) {
-    let pages = ["A4", "A3", "A2", "A1", "A0"];
+    let pages = draftwright::units::Paper::for_size(&plan.sheet.size).pages();
     let preferred = plan
         .spec
         .sheet
         .preferred_max_size
         .as_deref()
-        .unwrap_or("A3");
-    let used = pages.iter().position(|p| *p == plan.sheet.size).unwrap();
-    let preference = pages.iter().position(|p| *p == preferred).unwrap();
+        .unwrap_or(pages[1].0);
+    let used = pages.iter().position(|p| p.0 == plan.sheet.size).unwrap();
+    let preference = pages.iter().position(|p| p.0 == preferred).unwrap();
     let count = 1 + plan.sheets.len();
     assert!(count <= plan.spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9) as usize);
     let exceeds =

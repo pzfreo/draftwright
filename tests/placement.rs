@@ -138,7 +138,12 @@ fn placement_problems_are_known() {
     // Per part and code: the problems' messages.
     let mut found: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for (name, analysis) in &parts {
-        let plan = model::plan(analysis, &Spec::default()).unwrap();
+        // Preserve the captured metric placement-problem ledger.
+        let metric = Spec {
+            units: draftwright::units::Units::Mm,
+            ..Spec::default()
+        };
+        let plan = model::plan(analysis, &metric).unwrap();
         for p in plan
             .problems
             .iter()
@@ -791,7 +796,7 @@ fn a_merge_the_spec_breaks_draws_both_in_their_own_lanes() {
             spec.dimensions.insert(
                 survivor.to_string(),
                 DimensionSpec {
-                    tolerance: Some("±0.05".into()),
+                    tolerance: Some(format!("±{}", full.sheet.units.magnitude(0.05))),
                     ..Default::default()
                 },
             );
