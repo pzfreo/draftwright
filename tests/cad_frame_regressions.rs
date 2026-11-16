@@ -21,7 +21,9 @@ fn accepted_cad_frame_layout(file: &str) {
         // was below the readable floor; recovery now keeps the measured fitting
         // E 1:1 candidate, preserving every carried requirement. These exact
         // lower counts retain its remaining source-PMI conflicts for review.
-        "nist_stc_09_asme1_ap242-e4.stp" => ("ANSI E", "1:1", [82, 30, 0, 1, 5, 1], [5, 27, 47]),
+        // 2026-11-16: the checked interior slot-size retry removes one
+        // dimension-line and one witness crossing, keeping all views/requirements.
+        "nist_stc_09_asme1_ap242-e4.stp" => ("ANSI E", "1:1", [80, 30, 0, 1, 5, 1], [5, 26, 46]),
         // 2026-11-14: below-band preference restores the approved A2 1:2.
         // 2026-11-14: repair clears 3 crossings and 4 feature contacts.
         // 2026-11-15, Paul accepted: on A2 1:2 the 4x 7.137 counterbore callout's leader crosses

@@ -1,14 +1,14 @@
 {
   "format": "draftwright.label-lanes/1",
-  "reason": "Declared-inch STC-09 uses reviewed, fitting ANSI E 1:1 instead of the exhausted C 1:12 seed. Replace the former metric A1 1:2 witness pin (67.070 paper mm) with its exact 102.140 paper mm geometry: model-space reach falls from 134.140 to 102.140 mm. The 14 mm lane-locality, bounds, content and quality assertions stay unchanged.",
+  "reason": "2026-11-16: physically proven interior slot-size witnesses retain ANSI E at 1:1 and all requirements. Correct centreline end references and witness direction, preserve the exterior-side preference, and retry displaced leaders within every original code/kind budget. The default witnesses fall from 102.140/102.140 to 10.650/5.890 paper mm; the separate split-slot metric and inch assertions both retain the strict 60 mm and 14 mm limits.",
   "stc09": {
     "part": "nist_stc_09_asme1_ap242-e4",
     "dimension": "d:f:slot:f102/slot_length.length",
     "sheet": "ANSI E",
     "scale": "1:1",
     "witness_lengths_um": [
-      102140,
-      102140
+      10650,
+      5890
     ]
   }
 }
