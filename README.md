@@ -159,6 +159,11 @@ The Spec is the steering surface: an agent inspects the drawing and findings, ch
 or edits by item ID, then renders and reviews again. Requirements belong in STEP; the Spec
 controls the drawing.
 
+Two agent skills ship in [`skills/`](skills/): **[draftwright-step](skills/draftwright-step/SKILL.md)**
+for any STEP file, as a basic drawing or with requirements written by Specify, and
+**[draftwright-build123d](skills/draftwright-build123d/SKILL.md)** for build123d scripts. For Claude
+Code, copy a folder to `.claude/skills/` in your project or to `~/.claude/skills/`.
+
 ## Documentation
 
 - [Engine guide](docs/engine.md): building, the full command line, what is and isn't supported,
