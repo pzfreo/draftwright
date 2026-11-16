@@ -25,9 +25,9 @@ def mapping(shape): return {'type': 'object', 'additionalProperties': shape}
 def outline():
     """An explicit top-level contract, independent of all nested Spec definitions."""
     return {**obj({
-        'schema': enum('draftwright.spec/1', 'draftwright.spec/2', 'draftwright.spec/3'),
+        'schema': enum('draftwright.spec/1', 'draftwright.spec/2', 'draftwright.spec/3', 'draftwright.spec/4'),
         'part': {'type': ['string', 'integer', 'null']},
-        'binding': {'type': ['object', 'null']}, 'sheet': {'type': 'object'}, 'balloons': {'type':'object'},
+        'binding': {'type': ['object', 'null']}, 'engine_pins': {'type': ['object', 'null']}, 'sheet': {'type': 'object'}, 'balloons': {'type':'object'},
         'iso_scale_factor': {'type': ['number', 'null']},
         'sheets': {'type': ['object', 'null']},
         **{k: {'type': 'object'} for k in ('views', 'dimensions', 'annotations',
@@ -41,6 +41,57 @@ def outline():
         **{k: {'type': 'array'} for k in ('notes', 'tables', 'gears', 'feature_declarations')},
         'units': enum('mm', 'in'),
     }), 'description': 'Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.'}
+
+
+def engine_pin_definitions():
+    """Engine placement vocabulary is on demand, never expanded into tools/list."""
+    point = arr(N, minItems=2, maxItems=2)
+    vector = arr(N, minItems=3, maxItems=3)
+    bounds = arr(N, minItems=4, maxItems=4)
+    segment = arr(point, minItems=2, maxItems=2)
+    paths = arr(arr(point, minItems=2))
+    arrows = arr(segment)
+    def route(kind, props, required=()):
+        return obj({'kind': {'const': kind}, **props}, ('kind', *required))
+    routes = {'oneOf': [
+        route('dimension', {'lines': paths, 'arrows': arrows, 'rotation': N,
+                            'bounds': nullable(bounds)}, ('lines', 'arrows')),
+        route('gdt', {'tip': point, 'lines': paths, 'arrows': arrows,
+                      'fills': arr(arr(point)), 'bounds': bounds,
+                      'transforms': arr(point), 'counted_after': I},
+              ('tip', 'lines', 'arrows', 'fills', 'bounds')),
+        route('blocks', {'offsets': arr(point)}, ('offsets',)),
+        route('marker', {'leader': nullable(segment), 'bounds': nullable(bounds)},
+              ('leader', 'bounds')),
+        route('note', {'at': arr(point), 'bounds': bounds}, ('at', 'bounds')),
+        route('heading', {'at': point, 'bounds': bounds}, ('at', 'bounds')),
+        route('grid', {'grid': ref('engine_pin_grid')}, ('grid',)),
+        route('native', {'initial': nullable(I), 'variant': I}),
+    ]}
+    annotation = obj({
+        'place': ref('place'), 'route': nullable(ref('engine_pin_route')),
+        'basis': nullable(obj({'axis': {**I, 'maximum': 2}, 'station': N}, ('axis', 'station'))),
+        'omit': B, 'absolute': B, 'region': nullable(enum('interior')), 'introduced': B,
+        'space': {**nullable(point), 'description': 'Reserved text footprint; changes release this placement for fresh layout.'},
+        'initial': nullable(I), 'variant': I,
+    }, ('place',))
+    view = obj({'at': point, 'direction': vector, 'up': vector,
+                'scale': {**N, 'exclusiveMinimum': 0}, 'area': bounds,
+                'lifted': B, 'measured': B, 'furniture_at': nullable(point),
+                'translations': arr(point)}, ('at', 'direction', 'up', 'scale', 'area'))
+    pins = obj({
+        'written_by': {'const': 'engine'}, 'source_sha256': S,
+        'sheet': obj({'units': enum('mm', 'in'), 'size': S, 'scale': S}, ('size', 'scale')),
+        'views': mapping(view), 'annotations': mapping(ref('engine_pin_annotation')),
+        'rebase': arr(S), 'origins': vector,
+        'geometry_sha256': {**nullable(S), 'description': 'Identity of the imported B-rep for verifying a PMI-only source revision.'},
+        'authored_places': {**mapping(ref('place')), 'description': 'Authored item placements at capture, used to release only changed item pins on a file edit.'},
+        'layout_sha256': {**nullable(S), 'description': 'Identity of authored composition intent, excluding text and requirements.'},
+    }, ('written_by', 'source_sha256', 'sheet', 'views', 'annotations'))
+    grid = obj({'x': arr(N), 'y': arr({'type': ['number', 'null']}), 'bounds': bounds,
+                'children': arr(ref('engine_pin_grid'))}, ('x', 'y', 'bounds'))
+    return {'engine_pin_route': routes, 'engine_pin_annotation': annotation,
+            'engine_pins': pins, 'engine_pin_grid': grid}
 
 
 def pictorial_fields():
@@ -135,7 +186,7 @@ def document():
         definitions[name]['properties']['fit'] = {'description': 'ISO 286 fit class. Prints independently of the supported numerical-deviation table; unavailable requested deviations warn without invented values.', **field}
     definitions['balloon_override'] = obj({'suppress': B, 'position': nullable(arr(N,minItems=2,maxItems=2))})
     definitions['balloon_settings'] = obj({'occurrences': B, 'items': mapping(ref('balloon_override'))})
-    props = {'schema': enum('draftwright.spec/1', 'draftwright.spec/2', 'draftwright.spec/3'),
+    props = {'schema': enum('draftwright.spec/1', 'draftwright.spec/2', 'draftwright.spec/3', 'draftwright.spec/4'),
              'part': {'description': 'Part identity from draftwright parts: persistent key (preferred) or numeric index. Acts like --part; conflicting command/request selectors are refused. A saved Analysis must already contain this part.', **nullable({'anyOf': [{**S, 'minLength': 1}, I]})},
              'binding': nullable(ref('binding')), 'sheet': ref('sheet'),
              'balloons': ref('balloon_settings'),
@@ -166,7 +217,10 @@ def document():
               'cast',
               None]}
     props['units'] = {**enum('mm', 'in'), 'description': 'Printed lengths: mm or decimal inches. When omitted, a declared-inch part defaults to inches (and ANSI paper absent paper preferences); otherwise mm. Explicit units always win. Model and paper geometry remain millimetres.'}
+    props['engine_pins'] = nullable(ref('engine_pins'))
+
     definitions['spec_read'] = obj(deepcopy(props))
+    definitions.update(engine_pin_definitions())
     return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
             'title': 'Draftwright Spec',
             'description': 'Author Spec structure. Absent fields use defaults. Geometry, references, engineering constraints and edit guidance are validated by the server. The get_spec spec value has the same shape, also named by #/$defs/spec_read.',

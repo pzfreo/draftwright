@@ -1712,6 +1712,14 @@ pub(super) fn settle(
     Some((side, next, area, before))
 }
 
+/// Derive a counted frame's current controlled-hole cohort from current STEP geometry/PMI.
+pub(crate) fn controlled_count(analysis: &Analysis, faces: &[usize]) -> Option<usize> {
+    let read = crate::bridge::holes::read(analysis);
+    let holes: Vec<&Hole> = read.iter().filter_map(|(_, h)| h.as_ref().ok()).collect();
+    let n = bore_owners(analysis, &holes, faces)?.len();
+    (n > 1).then_some(n)
+}
+
 /// Whether placement intent *p* keeps a glyph on its lowered attachment: it names a view other
 /// than *end_on* (where the glyph attaches), or a side, lane or position along a lowered strip.
 /// A bare pin, an offset, or a pin in *end_on* holds the attached ink instead.
@@ -2134,6 +2142,11 @@ fn beneath(old: &gdt::GdtPlaced, corner: P2) -> gdt::GdtPlaced {
     let d = [corner[0] - b[0], corner[1] - b[3]];
     let shift = |p: P2| [p[0] + d[0], p[1] + d[1]];
     let mut next = old.clone();
+    if d != [0., 0.]
+        && let Some((_, steps, _)) = &mut next.pose
+    {
+        steps.push(d);
+    }
     next.tip = corner;
     next.lines.clear();
     next.arrows.clear();

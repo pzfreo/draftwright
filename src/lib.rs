@@ -53,6 +53,7 @@ pub mod sections;
 pub mod session;
 pub mod sheet_fit;
 pub mod sheets;
+mod spec_document;
 pub mod spec_gdt;
 pub mod spec_notes;
 mod springs;
@@ -77,6 +78,8 @@ pub mod stateless;
 
 pub mod broken;
 mod decision_overrides;
+mod engine_pins;
+mod incremental;
 pub mod local_layout;
 mod nominal;
 mod notches;

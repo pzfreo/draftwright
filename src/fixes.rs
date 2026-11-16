@@ -10,6 +10,7 @@ pub use crate::remedy_scope::Scope;
 pub fn path_scope(path: &str) -> Scope {
     use Scope::*;
     const PATTERNS: &[(&str, Scope)] = &[
+        ("engine_pins/rebase", Local),
         ("balloons/items/**", Local),
         ("balloons/occurrences", Local),
         ("sheet/balloons", Local),
@@ -382,6 +383,7 @@ pub(crate) fn attach(analysis: &crate::model::Analysis, plan: &mut crate::model:
             .expect("fix inputs serialize"),
     )
     .into();
+    let key = crate::planning::spaced_digest(&key);
     if let Some(problems) = MEMO.get(&key) {
         plan.problems = problems;
         return;
@@ -467,7 +469,14 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
         for fix in &mut fixes {
             // Choosing the title-block tolerance changes no view placement. Keep
             // this offer local without turning automatic paper selection into a pin.
-            if !fix.ops.is_empty() && fix.ops.iter().all(|op| op.path == "sheet/title/tolerance") {
+            if !fix.ops.is_empty()
+                && fix.ops.iter().all(|op| {
+                    matches!(
+                        op.path.as_str(),
+                        "sheet/title/tolerance" | "engine_pins/rebase"
+                    )
+                })
+            {
                 continue;
             }
             if fix.scope() != Scope::Local {

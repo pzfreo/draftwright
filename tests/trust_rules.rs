@@ -153,10 +153,22 @@ fn a_document_of_an_unknown_version_is_refused() {
     older.schema = "draftwright.analysis/2".into();
     assert!(model::plan(&older, &Spec::default()).is_ok());
 
-    let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/4" })).unwrap();
-    let e = model::plan(&analysis, &spec).unwrap_err();
-    assert!(e.message.contains("draftwright.spec/4"), "{e}");
+    let e = serde_json::from_value::<Spec>(json!({ "schema": "draftwright.spec/5" })).unwrap_err();
+    assert!(e.to_string().contains("draftwright.spec/5"), "{e}");
+    let future = Spec {
+        schema: "draftwright.spec/5".into(),
+        ..Default::default()
+    };
+    let e = model::plan(&analysis, &future).unwrap_err();
+    assert!(e.message.contains("draftwright.spec/5"), "{e}");
     assert_eq!(e.choices, model::SPEC_SCHEMAS);
+    // Version 4 without engine pins has exactly current version 3 semantics.
+    let unpinned: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/4" })).unwrap();
+    assert_eq!(unpinned, Spec::default());
+    assert_eq!(
+        serde_json::to_value(model::plan(&analysis, &unpinned).unwrap()).unwrap(),
+        serde_json::to_value(model::plan(&analysis, &Spec::default()).unwrap()).unwrap()
+    );
     // Version 1 is read, through the migration.
     let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/1" })).unwrap();
     assert_eq!(
@@ -166,10 +178,11 @@ fn a_document_of_an_unknown_version_is_refused() {
     // Through the adapters' one entry point, it is the caller's to fix.
     let e = api::call(
         "plan",
-        &json!({ "step": fixture("parts/plate.step"), "spec": { "schema": "draftwright.spec/4" } }),
+        &json!({ "step": fixture("parts/plate.step"), "spec": { "schema": "draftwright.spec/5" } }),
     )
     .unwrap_err();
     assert_eq!(e.code, "invalid", "{e}");
+    assert!(e.message.contains("draftwright.spec/5"), "{e}");
 
     let mut json = recognition("plate");
     json["format"] = "draftwright.recognition/2".into();

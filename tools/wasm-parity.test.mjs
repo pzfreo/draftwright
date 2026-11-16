@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import init, { Engine, Pack, listParts, specOps, start } from '../crates/draftwright-wasm/pkg/draftwright_wasm.js';
 
@@ -72,6 +72,88 @@ function replayPlan(previous, delta) {
   }
   return plan;
 }
+
+for (const fixture of ['plate', 'prismatic']) test(`STEP PMI incremental exports preserve ${fixture} ink and preview transactionally`, () => {
+  const part = `tests/fixtures/parts/${fixture}.step`;
+  const name = `${fixture}.step`;
+  const step = `tests/fixtures/wasm/${fixture}-datum-a.step.gz`;
+  const beforeBytes = readFileSync(new URL(`../${part}`, import.meta.url));
+  const updated = gunzipSync(readFileSync(new URL(`../${step}`, import.meta.url)));
+  const engine = new Engine(name, beforeBytes);
+  const fixed = (before, after) => {
+    for (const key of ['size', 'scale', 'page', 'scale_factor', 'arrangement', 'title_block', 'projection_symbol']) {
+      assert.deepEqual(after.sheet[key], before.sheet[key], `sheet ${key}`);
+    }
+    assert.deepEqual(after.views, before.views);
+    for (const old of before.dimensions) {
+      const kept = after.dimensions.find(d => d.id === old.id);
+      assert.ok(kept, old.id);
+      assert.equal(kept.label, old.label, old.id);
+      assert.deepEqual(kept.placed, old.placed, old.id);
+    }
+  };
+  try {
+    const original = documents(engine, 'open');
+    const originalPlan = JSON.parse(original.plan);
+    const snapshot = engine.snapshot();
+    const preview = JSON.parse(engine.previewStepIncremental(name, updated));
+    assert.equal(engine.snapshot(), snapshot, 'preview must retain source and history');
+    const deltaPreview = engine.replaceStepIncremental(name, updated, false);
+    assert.equal(engine.snapshot(), snapshot);
+    const committed = engine.replaceStepIncremental(name, updated, true);
+    equalBytes(committed, deltaPreview, 'STEP preview and commit delta');
+    assert.deepEqual(JSON.parse(committed).moved ?? [], []);
+    const added = documents(engine, 'add datum A');
+    const addedPlan = JSON.parse(added.plan);
+    fixed(originalPlan, addedPlan);
+    assert.ok(addedPlan.sheet.fill > originalPlan.sheet.fill, 'new PMI ink must increase the reported fill');
+    assert.deepEqual(preview.plan, addedPlan);
+    assert.ok(addedPlan.gdt.some(g => g.cells.length === 1 && g.cells[0] === 'A' && g.placed));
+    // Prismatic is the existing cross-target byte-parity fixture. Plate's circular
+    // edge samples differ by one ULP across targets, so its exact checks stay within
+    // the browser (including round-trip ink, source, history and findings).
+    if (fixture === 'prismatic') {
+      const native = spawnSync(process.env.DRAFTWRIGHT_WASM_REFERENCE ?? 'target/release/examples/wasm_reference', [], {
+      cwd: root, input: JSON.stringify({ name, part, steps: [{ edit: 'add datum A', action: 'step_incremental', step }, { edit: 'analysis', action: 'analysis' }] }),
+      encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    assert.equal(native.status, 0, native.error?.message ?? native.stderr);
+    const expected = native.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(expected.length, 3);
+    assert.deepEqual(JSON.parse(engine.snapshot()).analysis, expected[2]);
+      for (const key of ['spec', 'plan', 'svg']) equalBytes(added[key], expected[1][key], `STEP add ${key}`);
+    }
+    engine.undo();
+    assert.equal(engine.plan(), original.plan);
+    const packet = JSON.parse(engine.replaceStepIncrementalFragments(name, updated));
+    assert.deepEqual(packet.delta.moved, []);
+    assert.ok(Object.keys(packet.fragments).length > 0);
+    assert.equal(engine.plan(), added.plan);
+    const savedSpec = engine.spec();
+    // A changed header has the same imported B-rep but a different source digest.
+    const revised = new TextEncoder().encode(decoder.decode(updated).replace(/FILE_NAME\('[^']*'/, "FILE_NAME('saved again'"));
+    const reopened = new Engine(name, revised);
+    try {
+      reopened.openSpec(savedSpec);
+      fixed(addedPlan, JSON.parse(reopened.plan()));
+      assert.equal(JSON.parse(reopened.plan()).sheet.fill, addedPlan.sheet.fill);
+      const retained = JSON.parse(reopened.plan());
+      assert.ok(!retained.problems.some(p => p.code === 'engine_pins_replanned'));
+      assert.ok(retained.spec.engine_pins);
+      assert.notEqual(retained.binding.source_sha256, addedPlan.binding.source_sha256);
+      assert.equal(retained.spec.engine_pins.source_sha256, retained.binding.source_sha256);
+      assert.deepEqual(retained.gdt.map(g => [g.id, g.view, g.placed]), addedPlan.gdt.map(g => [g.id, g.view, g.placed]));
+    } finally { reopened.free(); }
+    engine.replaceStepIncremental(name, beforeBytes, true);
+    fixed(originalPlan, JSON.parse(engine.plan()));
+    assert.equal(JSON.parse(engine.plan()).sheet.fill, originalPlan.sheet.fill);
+    assert.deepEqual(JSON.parse(engine.plan()).problems, originalPlan.problems);
+    const saved = documents(engine, 'saved');
+    const other = fixture === 'plate' ? 'prismatic' : 'plate';
+    invalid(() => engine.replaceStepIncremental('different.step', readFileSync(new URL(`../tests/fixtures/parts/${other}.step`, import.meta.url)), true), /geometry differs.*full plan/);
+    assert.deepEqual(documents(engine, 'saved'), saved);
+  } finally { engine.free(); }
+});
 
 for (const part of ['prismatic', 'polygonal', 'schemes']) {
   test(`${part}: WASM and native plan, spec and SVG bytes match throughout a session`, () => {

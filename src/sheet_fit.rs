@@ -1317,6 +1317,11 @@ fn pack_reserved_at(
     for g in &mut p.gdt {
         if let Some(q) = &mut g.placed {
             let shift = delta(&g.view)?;
+            if shift != [0., 0.]
+                && let Some((_, steps, _)) = &mut q.pose
+            {
+                steps.push(shift);
+            }
             move_point(&mut q.tip, shift);
             move_box(&mut q.label_box, shift);
             for pt in q
@@ -2217,6 +2222,9 @@ pub(crate) fn reserve_linear_corridors(
             continue;
         }
         if let Some(q) = &mut g.placed {
+            if let Some((_, steps, _)) = &mut q.pose {
+                steps.push(delta);
+            }
             for (k, offset) in delta.into_iter().enumerate() {
                 q.tip[k] += offset;
                 q.label_box[k] += offset;

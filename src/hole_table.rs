@@ -2547,7 +2547,9 @@ fn select_with(
             });
             base.views = crate::sheets::reference_views(&plan.spec);
         }
-        crate::model::plan_automatic(analysis, &base).ok()
+        crate::model::plan_automatic(analysis, &base)
+            .ok()
+            .map(std::sync::Arc::new)
     } else if plan.spec.hole_table == Setting::Auto
         && crate::dims::has_new_native_recess_dimensions(analysis)
         && plan.gdt.is_empty()
@@ -2560,7 +2562,9 @@ fn select_with(
         // New recess dimensions must not turn an established hole schedule
         // back into a ladder of locations and displace unrelated callouts.
         // Eligibility, authored/pinned items and installation are still checked.
-        crate::model::established_drawing(analysis, &plan.spec).ok()
+        crate::model::established_drawing(analysis, &plan.spec)
+            .ok()
+            .map(std::sync::Arc::new)
     } else {
         None
     };
@@ -2662,15 +2666,16 @@ fn select_with(
             })
             .count();
         let dense = n >= 6 && (crowded > 0 || locations.len() > 8 || conflicts > 0);
-        let wanted = match &canonical {
-            Some(base) if plan.spec.hole_table == Setting::Auto => {
-                base.hole_tables
-                    .iter()
-                    .any(|t| t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:")))
-                    || (plan.sheet.units == crate::units::Units::In && dense)
-            }
-            _ => dense,
-        };
+        let wanted = crate::engine_pins::wants_table(&view.id)
+            || match &canonical {
+                Some(base) if plan.spec.hole_table == Setting::Auto => {
+                    base.hole_tables.iter().any(|t| {
+                        t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:"))
+                    }) || (plan.sheet.units == crate::units::Units::In && dense)
+                }
+                _ => dense,
+            };
+
         if plan.spec.hole_table != Setting::Always && !wanted {
             continue;
         }
@@ -2678,7 +2683,13 @@ fn select_with(
         let Some(mut origin) = datum_corner(analysis, &axes) else {
             continue;
         };
-        if crate::dims::pmi_policy::controls_origins(analysis) || !plan.spec.origin.is_empty() {
+        let kept_origin = crate::engine_pins::origin_frame()
+            .filter(|_| crate::engine_pins::wants_table(&view.id));
+        if let Some(kept) = kept_origin {
+            origin = kept;
+        } else if crate::dims::pmi_policy::controls_origins(analysis)
+            || !plan.spec.origin.is_empty()
+        {
             origin = crate::dims::pmi_policy::origin_point(analysis, &plan.spec);
         }
         let mut rows = Vec::new();
@@ -3028,7 +3039,7 @@ fn select_with(
             id: format!("hole_schedule_{}", view.id.trim_start_matches("v:")), view: Some(view.id.clone()), origin: Some(origin), pcd, covered: Vec::new(),
             rows, default: plan.spec.hole_table == Setting::Auto, basis: {
                 let mut basis = format!("plan-time hole schedule: {n} holes, {crowded} crowded ordinates, {conflicts} leader crossings; local X/Y from the marked datum corner");
-                if crate::dims::pmi_policy::controls_origins(analysis) || !plan.spec.origin.is_empty() {
+                if !plan.spec.origin.is_empty() || (kept_origin.is_none_or(|origin| origin != analysis.envelope[0]) && crate::dims::pmi_policy::controls_origins(analysis)) {
                     basis += &format!("; origin: {}", crate::dims::pmi_policy::origin_description(analysis, &plan.spec));
                 }
                 basis
@@ -3443,17 +3454,24 @@ pub(crate) fn reflow_blocks(
     let cells = schedule_cells(t, sheet.units);
     let widths = schedule_widths(&cells);
     let (headers, body) = cells.split_at(2);
-    let (n, rows, [x0, y0]) = counts(fixed, 2, body.len(), sheet.page).find_map(|n| {
-        let rows = split(headers, body, n);
-        let size = split_size(&widths, rows[0].len(), n);
-        tables::place(size, sheet, obstacles, Corner::TopRight).map(|at| (n, rows, at))
-    })?;
+    let pins = crate::engine_pins::block_offsets(&t.id).filter(|p| !p.is_empty());
+    let (n, rows, [x0, y0]) = if let Some(pins) = &pins {
+        let n = pins.len();
+        (n, split(headers, body, n), pins[0])
+    } else {
+        counts(fixed, 2, body.len(), sheet.page).find_map(|n| {
+            let rows = split(headers, body, n);
+            let size = split_size(&widths, rows[0].len(), n);
+            tables::place(size, sheet, obstacles, Corner::TopRight).map(|at| (n, rows, at))
+        })?
+    };
     let blocks = rows
         .into_iter()
         .enumerate()
         .map(|(k, rows)| {
             let x = x0 + k as f64 * (widths.iter().sum::<f64>() + BLOCK_GAP);
-            let placed = tables::lay(&rows, &widths, [x, y0]);
+            let at = pins.as_ref().map_or([x, y0], |pins| pins[k]);
+            let placed = tables::lay(&rows, &widths, at);
             PlannedTable {
                 sheet: 1,
                 id: if n == 1 {
@@ -3520,15 +3538,20 @@ fn install_at_mode(
 ) -> bool {
     // Removing ladders must not withdraw the room already needed by a semantic frame or datum.
     // If this presentation cannot keep them in their bands, retain the complete original plan.
-    if plan.problems.iter().any(|p| {
-        matches!(
-            p.code.as_str(),
-            "annotation_off_sheet"
-                | "annotation_outside_area"
-                | "annotation_over_view"
-                | "annotation_line_over_view"
-        ) && plan.gdt.iter().any(|g| p.subjects.first() == Some(&g.id))
-    }) {
+    if !selection
+        .tables
+        .iter()
+        .any(|t| crate::engine_pins::block_offsets(&t.id).is_some())
+        && plan.problems.iter().any(|p| {
+            matches!(
+                p.code.as_str(),
+                "annotation_off_sheet"
+                    | "annotation_outside_area"
+                    | "annotation_over_view"
+                    | "annotation_line_over_view"
+            ) && plan.gdt.iter().any(|g| p.subjects.first() == Some(&g.id))
+        })
+    {
         return false;
     }
 
@@ -3768,6 +3791,14 @@ fn install_at_mode(
         // Beside the hole first, for every tag: no leader, so the tag must be plainly nearer
         // its own hole than any other scheduled hole, by rim gap and by centre distance.
         for (g, slot) in groups.iter().zip(&mut placed) {
+            if let Some((at, leader)) =
+                crate::engine_pins::marker_place(&format!("{}/tag/{}", t.id, g.tag))
+            {
+                *slot = Some((at, leader));
+                labels.push(boxed(g, at));
+                leaders.extend(leader);
+                continue;
+            }
             'near: for ring in 0..TAG_NEAR {
                 for k in 0..TAG_STEPS {
                     let at = around(g, 1.0 + ring as f64, k);
@@ -3890,20 +3921,24 @@ fn install_at_mode(
         // X/Y origin, drawn at the view's datum corner, with short coordinate axes.
         // Invariant: Schedule selection requires a resolved origin.
         let origin = frame.page(t.origin.unwrap());
-        let position = origin_mark(origin, plan.sheet.page, |at, bounds| {
-            labels
-                .iter()
-                .chain(fixed.iter())
-                .all(|b| !overlap(bounds, *b))
-                && curved.iter().all(|q| !overlap(bounds, *q))
-                && edge_segments
-                    .iter()
-                    .chain(&annotation_lines)
-                    .chain(&leaders)
-                    .all(|l| !crosses(*l, bounds))
-                && leaders.iter().all(|l| !segments_cross(*l, [origin, at]))
-                && labels.iter().all(|b| !crosses([origin, at], *b))
-        });
+        let position = crate::engine_pins::marker_place(&format!("{}/origin", t.id))
+            .map(|p| p.0)
+            .or_else(|| {
+                origin_mark(origin, plan.sheet.page, |at, bounds| {
+                    labels
+                        .iter()
+                        .chain(fixed.iter())
+                        .all(|b| !overlap(bounds, *b))
+                        && curved.iter().all(|q| !overlap(bounds, *q))
+                        && edge_segments
+                            .iter()
+                            .chain(&annotation_lines)
+                            .chain(&leaders)
+                            .all(|l| !crosses(*l, bounds))
+                        && leaders.iter().all(|l| !segments_cross(*l, [origin, at]))
+                        && labels.iter().all(|b| !crosses([origin, at], *b))
+                })
+            });
         let Some(at) = position else {
             return false;
         };

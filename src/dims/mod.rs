@@ -117,11 +117,13 @@ pub(crate) use leaders::{
 };
 pub(crate) use placement::collisions_cached as label_collisions;
 pub(crate) use placement::nearest_shared_witnesses;
+pub(crate) use placement::pin_bounds;
 mod gussets;
 pub(crate) mod levels;
 mod notches;
 mod oriented_slots;
 mod pads;
+pub(crate) mod pin_geometry;
 mod placement;
 pub(crate) use placement::displaced_linear_fields;
 mod plates;
@@ -1586,7 +1588,16 @@ pub(crate) fn idle_decision(analysis: &Analysis, spec: &Spec) -> IdleDecision {
         a.place = None;
     }
     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-    let key = serde_json::to_vec(&named).expect("planning inputs serialize");
+    let mut key = serde_json::to_vec(&named).expect("planning inputs serialize");
+    if crate::placement_intent::has_pins(&named) {
+        // Dimension/annotation pins were neutralised above. Surviving view pins
+        // can still consume the published reference, so state that input explicitly.
+        key.push(0xff);
+        key.extend(
+            serde_json::to_vec(&crate::planning::policy_key(analysis))
+                .expect("view policy serializes"),
+        );
+    }
     crate::planning::memo(analysis, "idle-view", key, || {
         let shown = crate::planning::isolated(analysis, || {
             with_compact(false, || {
@@ -2783,7 +2794,7 @@ pub(crate) fn plan_inventory(
         type Inventory = Result<(Planned, Vec<PlannedDimension>), Invalid>;
         static MEMO: crate::planning::BoundedMemo<Inventory> =
             crate::planning::BoundedMemo::new(64);
-        let digest: [u8; 32] = Sha256::digest(&key).into();
+        let digest = crate::planning::spaced_digest(&Sha256::digest(&key).into());
         if let Some(result) = MEMO.get(&digest) {
             return result;
         }
@@ -3180,7 +3191,13 @@ fn plan_inventory_ordered(
         }
     }
     // Table-owned measurements keep their IDs, but reserve no leader or ladder lane.
-    let keep: Vec<_> = wants.iter().map(|w| !excluded.contains(&w.id)).collect();
+    let incremental = crate::incremental::dimensions();
+    let keep: Vec<_> = wants
+        .iter()
+        .map(|w| {
+            !excluded.contains(&w.id) && incremental.as_ref().is_none_or(|p| p.ids.contains(&w.id))
+        })
+        .collect();
     let mut index = 0;
     wants.retain(|_| {
         let k = keep[index];
@@ -3403,6 +3420,22 @@ fn plan_inventory_ordered(
         }));
     }
     wording::apply(spec, &mut kept, &mut given)?;
+    if let Some(policy) = &incremental {
+        for (w, ..) in &mut kept {
+            if let Some(old) = policy.held.get(&w.id) {
+                if w.measurements != old.measurements {
+                    problems.extend(crate::incremental::basis_offers(
+                        analysis,
+                        &w.id,
+                        &w.measurements,
+                    ));
+                }
+                w.value = old.value;
+                w.terms.clone_from(&old.terms);
+                w.measurements.clone_from(&old.measurements);
+            }
+        }
+    }
     problems.extend(wording::check_covered(spec, &kept, &omitted));
     let labels: BTreeMap<&str, &[String]> = kept
         .iter()

@@ -8,7 +8,8 @@
       "enum": [
         "draftwright.spec/1",
         "draftwright.spec/2",
-        "draftwright.spec/3"
+        "draftwright.spec/3",
+        "draftwright.spec/4"
       ]
     },
     "part": {
@@ -225,6 +226,16 @@
         "in"
       ],
       "description": "Printed lengths: mm or decimal inches. When omitted, a declared-inch part defaults to inches (and ANSI paper absent paper preferences); otherwise mm. Explicit units always win. Model and paper geometry remain millimetres."
+    },
+    "engine_pins": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/engine_pins"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -1850,7 +1861,8 @@
           "enum": [
             "draftwright.spec/1",
             "draftwright.spec/2",
-            "draftwright.spec/3"
+            "draftwright.spec/3",
+            "draftwright.spec/4"
           ]
         },
         "part": {
@@ -2067,9 +2079,671 @@
             "in"
           ],
           "description": "Printed lengths: mm or decimal inches. When omitted, a declared-inch part defaults to inches (and ANSI paper absent paper preferences); otherwise mm. Explicit units always win. Model and paper geometry remain millimetres."
+        },
+        "engine_pins": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/engine_pins"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false
+    },
+    "engine_pin_route": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "dimension"
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "minItems": 2
+              }
+            },
+            "arrows": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "rotation": {
+              "type": "number"
+            },
+            "bounds": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "lines",
+            "arrows"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "gdt"
+            },
+            "tip": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "minItems": 2
+              }
+            },
+            "arrows": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "fills": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            },
+            "bounds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "transforms": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "counted_after": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "tip",
+            "lines",
+            "arrows",
+            "fills",
+            "bounds"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "blocks"
+            },
+            "offsets": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "offsets"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "marker"
+            },
+            "leader": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bounds": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "leader",
+            "bounds"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "note"
+            },
+            "at": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "bounds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "at",
+            "bounds"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "heading"
+            },
+            "at": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "bounds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "at",
+            "bounds"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "grid"
+            },
+            "grid": {
+              "$ref": "#/$defs/engine_pin_grid"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "grid"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "native"
+            },
+            "initial": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "variant": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "engine_pin_annotation": {
+      "type": "object",
+      "properties": {
+        "place": {
+          "$ref": "#/$defs/place"
+        },
+        "route": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/engine_pin_route"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "basis": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "axis": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2
+                },
+                "station": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "axis",
+                "station"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "omit": {
+          "type": "boolean"
+        },
+        "absolute": {
+          "type": "boolean"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "enum": [
+                "interior"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "introduced": {
+          "type": "boolean"
+        },
+        "space": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Reserved text footprint; changes release this placement for fresh layout."
+        },
+        "initial": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "variant": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "place"
+      ]
+    },
+    "engine_pins": {
+      "type": "object",
+      "properties": {
+        "written_by": {
+          "const": "engine"
+        },
+        "source_sha256": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "object",
+          "properties": {
+            "units": {
+              "enum": [
+                "mm",
+                "in"
+              ]
+            },
+            "size": {
+              "type": "string"
+            },
+            "scale": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "size",
+            "scale"
+          ]
+        },
+        "views": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "direction": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "up": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "scale": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "area": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "lifted": {
+                "type": "boolean"
+              },
+              "measured": {
+                "type": "boolean"
+              },
+              "furniture_at": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "translations": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "at",
+              "direction",
+              "up",
+              "scale",
+              "area"
+            ]
+          }
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/engine_pin_annotation"
+          }
+        },
+        "rebase": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "origins": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "geometry_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identity of the imported B-rep for verifying a PMI-only source revision."
+        },
+        "authored_places": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/place"
+          },
+          "description": "Authored item placements at capture, used to release only changed item pins on a file edit."
+        },
+        "layout_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identity of authored composition intent, excluding text and requirements."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "written_by",
+        "source_sha256",
+        "sheet",
+        "views",
+        "annotations"
+      ]
+    },
+    "engine_pin_grid": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "y": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "bounds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/engine_pin_grid"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "bounds"
+      ]
     }
   }
 }
