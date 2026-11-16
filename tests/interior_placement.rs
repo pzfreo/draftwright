@@ -2,6 +2,7 @@
 use crate::cache;
 
 use draftwright::model::{self, Analysis, Plan, Spec};
+use draftwright::units::Units;
 use serde_json::json;
 use std::path::Path;
 
@@ -296,15 +297,24 @@ fn a_hidden_edge_in_an_arrow_wing_refuses_the_old_interior_placement() {
 fn an_occluded_native_boss_diameter_uses_its_visible_profile() {
     let Some(root) = corpus::dir() else { return };
     let (part, a) = cache::native(&root.join("nist/nist_ftc_06_asme1_rd.stp"));
-    let p = cache::default_plan(&a, false);
-    let d = p
-        .dimensions
-        .iter()
-        .find(|d| d.id == "d:f:boss:f21/boss.diameter")
+    for (units, expected) in [(Units::Auto, "4× ø1.750"), (Units::Mm, "4× ø44.45")] {
+        let p = model::plan(
+            &a,
+            &Spec {
+                units,
+                ..Spec::default()
+            },
+        )
         .unwrap();
-    assert_eq!(d.view, "v:front");
-    assert_eq!(d.label, format!("4× ø{}", p.sheet.units.format(44.45)));
-    assert_eq!(d.measurements.len(), 4);
-    let drawing = model::render(&part, &a, &p, &font()).unwrap();
-    interior_ink::assert_clear(&drawing, d);
+        let d = p
+            .dimensions
+            .iter()
+            .find(|d| d.id == "d:f:boss:f21/boss.diameter")
+            .unwrap();
+        assert_eq!(d.view, "v:front");
+        assert_eq!(d.label, expected);
+        assert_eq!(d.measurements.len(), 4);
+        let drawing = model::render(&part, &a, &p, &font()).unwrap();
+        interior_ink::assert_clear(&drawing, d);
+    }
 }

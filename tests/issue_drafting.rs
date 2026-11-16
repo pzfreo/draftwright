@@ -23,6 +23,7 @@ use draftwright::model::{self, Analysis, DimensionSource, DimensionSpec, Plan, P
 use draftwright::output::{Claim, Drawing};
 use draftwright::text::Font;
 use draftwright::title_block;
+use draftwright::units::Units;
 use serde_json::json;
 
 fn fixture(path: &str) -> PathBuf {
@@ -193,6 +194,57 @@ fn printed(label: &str) -> Vec<String> {
     out
 }
 
+// FTC-06 is the inch-declared sampled sheet. Pin both its decimal-inch text
+// and the original metric text independently of the formatter under test.
+fn ftc06_measurement_text(value: f64, units: Units) -> &'static str {
+    let (_, mm, inch) = [
+        (10.541, "10.541", ".415"),
+        (15.88, "15.88", ".625"),
+        (12.7, "12.7", ".500"),
+        (7.1374, "7.137", ".281"),
+        (10.16, "10.16", ".400"),
+        (7.94, "7.94", ".313"),
+        (14.2875, "14.287", ".562"),
+        (20.64, "20.64", ".813"),
+        (14.29, "14.29", ".563"),
+        (6.35, "6.35", ".250"),
+        (3.175, "3.175", ".125"),
+    ]
+    .into_iter()
+    .find(|(expected, _, _)| (value - expected).abs() < 1e-8)
+    .unwrap_or_else(|| panic!("unexpected FTC-06 measurement {value}"));
+    match units {
+        Units::Mm => mm,
+        Units::In => inch,
+        Units::Auto => panic!("a planned sheet must have resolved units"),
+    }
+}
+
+fn ftc06_hole_text(id: &str, units: Units) -> &'static str {
+    let (mm, inch) = match id {
+        "d:f:hole_pattern:f47/bore.diameter" => (
+            "4× ⌀10.541 THRU ⌴ ⌀15.88\n↧ 12.7",
+            "4× ⌀.415 THRU ⌴ ⌀.625\n↧ .500",
+        ),
+        "d:f:hole_pattern:f65/bore.diameter" => (
+            "4× ⌀7.137 THRU ⌴ ⌀10.16\n↧ 7.94",
+            "4× ⌀.281 THRU ⌴ ⌀.400\n↧ .313",
+        ),
+        "d:f:hole:f59/bore.diameter" => (
+            "2× ⌀14.287 THRU ⌴ ⌀20.64\n↧ 14.29",
+            "2× ⌀.562 THRU ⌴ ⌀.813\n↧ .563",
+        ),
+        "d:f:hole:f106/bore.diameter" => ("2× ⌀6.35 ↧ 12.7", "2× ⌀.250 ↧ .500"),
+        _ => panic!("unexpected FTC-06 hole callout {id}"),
+    };
+    if units == Units::In {
+        inch
+    } else {
+        assert_eq!(units, Units::Mm);
+        mm
+    }
+}
+
 /// ISSUE-1142-a: a hole callout's claims cover everything its compound text prints. Every number
 /// it prints (the bore, its depth, the recesses, the countersink, a bolt circle) is the value of
 /// a measurement it claims, and every measurement it claims is printed; the drawn annotation
@@ -200,28 +252,52 @@ fn printed(label: &str) -> Vec<String> {
 #[test]
 fn a_hole_callout_claims_everything_it_prints() {
     let mut seen = 0;
-    for (name, _, plan) in planned() {
-        for d in plan.dimensions.iter().filter(|d| hole_callout(d)) {
-            seen += 1;
-            let numbers: BTreeSet<String> = printed(&d.label).into_iter().collect();
-            let claimed: BTreeSet<String> = d
-                .measurements
-                .iter()
-                .map(|m| {
-                    if m.parameter.contains("angle") {
-                        fmt(m.value)
-                    } else {
-                        plan.sheet.units.format(m.value)
-                    }
-                })
-                .collect();
-            assert_eq!(numbers, claimed, "{name}: {} prints {:?}", d.id, d.label);
-            assert_eq!(
-                d.label,
-                draftwright::callouts::label(&d.terms),
-                "{name}: {}",
-                d.id
-            );
+    for (name, analysis, default) in planned() {
+        let metric = (name == "ftc06").then(|| {
+            model::plan(
+                analysis,
+                &Spec {
+                    units: Units::Mm,
+                    ..Spec::default()
+                },
+            )
+            .unwrap()
+        });
+        for plan in std::iter::once(default).chain(metric.as_ref()) {
+            if name == "ftc06" {
+                assert_eq!(
+                    plan.dimensions.iter().filter(|d| hole_callout(d)).count(),
+                    4
+                );
+            }
+            for d in plan.dimensions.iter().filter(|d| hole_callout(d)) {
+                if std::ptr::eq(plan, default) {
+                    seen += 1;
+                }
+                if name == "ftc06" {
+                    assert_eq!(d.label, ftc06_hole_text(&d.id, plan.sheet.units));
+                }
+                let numbers: BTreeSet<String> = printed(&d.label).into_iter().collect();
+                let claimed: BTreeSet<String> = d
+                    .measurements
+                    .iter()
+                    .map(|m| {
+                        if name == "ftc06" {
+                            ftc06_measurement_text(m.value, plan.sheet.units).to_string()
+                        } else {
+                            assert_eq!(plan.sheet.units, Units::Mm);
+                            fmt(m.value)
+                        }
+                    })
+                    .collect();
+                assert_eq!(numbers, claimed, "{name}: {} prints {:?}", d.id, d.label);
+                assert_eq!(
+                    d.label,
+                    draftwright::callouts::label(&d.terms),
+                    "{name}: {}",
+                    d.id
+                );
+            }
         }
     }
     assert!(seen > 10, "{seen} hole callouts");
@@ -996,38 +1072,79 @@ fn an_angle_is_never_drawn_as_a_length() {
 /// `dimensions_not_ported` (src/dims/edges.rs plans fillets and chamfers only).
 #[test]
 fn fillets_share_a_callout_only_when_their_radii_are_equal() {
-    for (name, analysis, plan) in planned() {
-        let radius = |id: &str| {
-            analysis
-                .features
-                .iter()
-                .find(|f| f.id == id)
-                .unwrap()
-                .parameters["radius"]
-                .as_f64()
-                .unwrap()
-        };
-        for d in plan
-            .dimensions
-            .iter()
-            .filter(|d| d.id.contains("/fillet.radius"))
-        {
-            let printed = d.label.rsplit('R').next().unwrap();
-            for m in &d.measurements {
+    for (name, analysis, default) in planned() {
+        let metric = (name == "ftc06").then(|| {
+            model::plan(
+                analysis,
+                &Spec {
+                    units: Units::Mm,
+                    ..Spec::default()
+                },
+            )
+            .unwrap()
+        });
+        for plan in std::iter::once(default).chain(metric.as_ref()) {
+            if name == "ftc06" {
                 assert_eq!(
-                    plan.sheet.units.format(radius(&m.feature)),
-                    printed,
+                    plan.dimensions
+                        .iter()
+                        .filter(|d| d.id.contains("/fillet.radius"))
+                        .count(),
+                    2
+                );
+            }
+            let radius = |id: &str| {
+                analysis
+                    .features
+                    .iter()
+                    .find(|f| f.id == id)
+                    .unwrap()
+                    .parameters["radius"]
+                    .as_f64()
+                    .unwrap()
+            };
+            for d in plan
+                .dimensions
+                .iter()
+                .filter(|d| d.id.contains("/fillet.radius"))
+            {
+                if name == "ftc06" {
+                    let (mm, inch) = match d.id.as_str() {
+                        "d:f:fillet:f103/fillet.radius" => ("8× R3.175", "8× R.125"),
+                        "d:f:fillet:f92/fillet.radius" => ("2× R12.7", "2× R.500"),
+                        _ => panic!("unexpected FTC-06 fillet {}", d.id),
+                    };
+                    assert_eq!(
+                        d.label,
+                        if plan.sheet.units == Units::In {
+                            inch
+                        } else {
+                            mm
+                        }
+                    );
+                }
+                let printed = d.label.rsplit('R').next().unwrap();
+                for m in &d.measurements {
+                    if name == "ftc06" {
+                        assert_eq!(
+                            ftc06_measurement_text(radius(&m.feature), plan.sheet.units),
+                            printed,
+                            "{name}: {}",
+                            d.id
+                        );
+                    } else {
+                        assert_eq!(plan.sheet.units, Units::Mm);
+                        assert_eq!(fmt(radius(&m.feature)), printed, "{name}: {}", d.id);
+                    }
+                }
+                let count = d.measurements.len();
+                assert!(
+                    (count == 1 && !d.label.contains('×'))
+                        || d.label.starts_with(&format!("{count}× ")),
                     "{name}: {}",
                     d.id
                 );
             }
-            let count = d.measurements.len();
-            assert!(
-                (count == 1 && !d.label.contains('×'))
-                    || d.label.starts_with(&format!("{count}× ")),
-                "{name}: {}",
-                d.id
-            );
         }
     }
     let plan = &planned().iter().find(|p| p.0 == "prismatic").unwrap().2;

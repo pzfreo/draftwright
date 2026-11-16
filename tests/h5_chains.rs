@@ -7,6 +7,7 @@ mod corpus;
 use draftwright::lint::{self, Mark};
 use draftwright::model::{self, Analysis, Plan, Spec};
 use draftwright::output::Claim;
+use draftwright::units::Units;
 use serde_json::json;
 
 fn native(file: &str) -> Analysis {
@@ -113,22 +114,27 @@ fn grm03_has_an_overall_and_baseline_without_plate_thickness() {
 #[test]
 fn ctc05_states_its_od_and_across_flats_once() {
     let a = native("nist/nist_ctc_05_asme1_rd.stp");
-    let p = model::plan(&a, &Spec::default()).unwrap();
-    assert!(
-        !p.dimensions
-            .iter()
-            .any(|d| d.id == "d:envelope/depth.length" || d.id == "d:envelope/width.length")
-    );
-    assert!(
-        p.dimensions
-            .iter()
-            .any(|d| d.label == format!("ø{}", p.sheet.units.format(558.8)))
-    );
-    assert!(
-        p.dimensions
-            .iter()
-            .any(|d| d.label == format!("{} A/F", p.sheet.units.format(527.05)))
-    );
+    // Independent literal inch text and the original explicit-mm contract.
+    for (units, diameter, flats) in [
+        (Units::Auto, "ø22.000", "20.750 A/F"),
+        (Units::Mm, "ø558.8", "527.05 A/F"),
+    ] {
+        let p = model::plan(
+            &a,
+            &Spec {
+                units,
+                ..Spec::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            !p.dimensions
+                .iter()
+                .any(|d| d.id == "d:envelope/depth.length" || d.id == "d:envelope/width.length")
+        );
+        assert!(p.dimensions.iter().any(|d| d.label == diameter));
+        assert!(p.dimensions.iter().any(|d| d.label == flats));
+    }
 }
 #[test]
 fn slot_chain_keeps_overall_and_functional_length_without_closure() {
@@ -273,14 +279,23 @@ fn lint_detects_duplicate_claims_and_closed_turned_chains() {
 #[test]
 fn wall_witness_avoids_the_hole_centreline() {
     let a = native("nist/nist_ftc_07_asme1_rd.stp");
-    let p = model::plan(&a, &Spec::default()).unwrap();
-    let d = p
-        .dimensions
-        .iter()
-        .find(|d| d.id == "d:f:plate:f83/thickness.length")
+    for (units, expected) in [(Units::Auto, "2× .366"), (Units::Mm, "2× 9.297")] {
+        let p = model::plan(
+            &a,
+            &Spec {
+                units,
+                ..Spec::default()
+            },
+        )
         .unwrap();
-    assert_eq!(d.label, format!("2× {}", p.sheet.units.format(9.297)));
-    assert_eq!(d.view, "v:plan");
+        let d = p
+            .dimensions
+            .iter()
+            .find(|d| d.id == "d:f:plate:f83/thickness.length")
+            .unwrap();
+        assert_eq!(d.label, expected);
+        assert_eq!(d.view, "v:plan");
+    }
 }
 #[test]
 fn consolidated_flush_boss_height_is_not_reported_missing() {
@@ -460,11 +475,18 @@ fn shoulders_on_slot_walls_are_references_when_the_slot_is_stated() {
         "(23.144)"
     );
     // The same rule on z ladders (FTC-09's slots, FTC-10's 12.5 + 50 = 62.5).
-    let p = model::plan(&native("nist/nist_ftc_09_asme1_rd.stp"), &references()).unwrap();
-    assert_eq!(
-        label(&p, "d:step_level/step_height.length.f81"),
-        format!("({})", p.sheet.units.format(41.275))
-    );
+    let a = native("nist/nist_ftc_09_asme1_rd.stp");
+    for (units, expected) in [(Units::Auto, "(1.625)"), (Units::Mm, "(41.275)")] {
+        let p = model::plan(
+            &a,
+            &Spec {
+                units,
+                ..references()
+            },
+        )
+        .unwrap();
+        assert_eq!(label(&p, "d:step_level/step_height.length.f81"), expected);
+    }
     let p = model::plan(&native("nist/nist_ftc_10_asme1_rb.stp"), &references()).unwrap();
     assert_eq!(label(&p, "d:step_level/step_height.length.f163"), "(62.5)");
 }

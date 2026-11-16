@@ -1229,33 +1229,42 @@ fn ftc09_slot_callout_leader_crosses_no_other_feature() {
         return;
     };
     let (part, a) = cache::native(&corpus.join("nist/nist_ftc_09_asme1_rd.stp"));
-    let plan = cache::default_plan(&a, true);
-    let expected = format!(
-        "2× SLOT {} × {}",
-        plan.sheet.units.format(6.35),
-        plan.sheet.units.format(25.4)
-    );
-    let callout = plan
-        .dimensions
-        .iter()
-        .find(|d| d.label == expected)
-        .expect("the slot callout");
-    drawn(&plan, callout);
-    let crossings: Vec<_> = plan
-        .problems
-        .iter()
-        .filter(|p| p.code == "leader_through_feature" && p.subjects.first() == Some(&callout.id))
-        .collect();
-    assert!(crossings.is_empty(), "{crossings:#?}");
-    // Its tip lands on a slot's full-round end, which the lint reads as round although
-    // quiddity records the end radius rounded (R3.18 on a 6.35 wide slot).
-    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
-    let drawing = model::render(&part, &a, &plan, &font).unwrap();
-    let mismatched: Vec<_> = draftwright::lint::lint(&a, &drawing)
-        .into_iter()
-        .filter(|i| i.code == "slot_leader_target_mismatch")
-        .collect();
-    assert!(mismatched.is_empty(), "{mismatched:#?}");
+    for (units, expected) in [
+        (draftwright::units::Units::Auto, "2× SLOT .250 × 1.000"),
+        (draftwright::units::Units::Mm, "2× SLOT 6.35 × 25.4"),
+    ] {
+        let plan = model::plan_recovered(
+            &a,
+            &Spec {
+                units,
+                ..Spec::default()
+            },
+        )
+        .unwrap();
+        let callout = plan
+            .dimensions
+            .iter()
+            .find(|d| d.label == expected)
+            .expect("the slot callout");
+        drawn(&plan, callout);
+        let crossings: Vec<_> = plan
+            .problems
+            .iter()
+            .filter(|p| {
+                p.code == "leader_through_feature" && p.subjects.first() == Some(&callout.id)
+            })
+            .collect();
+        assert!(crossings.is_empty(), "{crossings:#?}");
+        // Its tip lands on a slot's full-round end, which the lint reads as round although
+        // quiddity records the end radius rounded (R3.18 on a 6.35 wide slot).
+        let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+        let drawing = model::render(&part, &a, &plan, &font).unwrap();
+        let mismatched: Vec<_> = draftwright::lint::lint(&a, &drawing)
+            .into_iter()
+            .filter(|i| i.code == "slot_leader_target_mismatch")
+            .collect();
+        assert!(mismatched.is_empty(), "{mismatched:#?}");
+    }
 }
 
 /// FTC-08's long slot is a closed rectangular recess with floor rounds, which quiddity 0.5.0
