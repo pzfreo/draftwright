@@ -141,7 +141,8 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `dimensions_not_ported` | incomplete | tidy | An unimplemented dimension grammar is a drafting-quality hint for this feature. |
 | `duplicate_measurement` | advisory | tidy | The same measurement is repeated on the drawing. |
 | `edges_not_drawn` | incomplete | fix_before_printing (information when severity=info) | Failed projection left model edges absent from the drawing. |
-| `engine_pins_replanned` | advisory | information | Stale or incompatible engine placement pins were released and the drawing was re-planned. |
+| `engine_pins_partly_retained` | decision | tidy | Missing or changed annotation pins were released while surviving placements were retained. |
+| `engine_pins_replanned` | decision | tidy | Stale or incompatible engine placement pins were released and the drawing was re-planned. |
 | `extension_off_centreline` | readability | fix_before_printing | An extension line lies just beside a centre line, so it reads as locating that centre. |
 | `extension_through_feature` | advisory | tidy | Extension lines crossing geometry are normal drafting practice. |
 | `feature_count_mismatch` | incomplete | fix_before_printing (information when severity=info) | The drawn evidence does not correctly state the required source information. |

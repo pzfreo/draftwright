@@ -798,11 +798,11 @@ pub(crate) fn apply_loading(plan: &mut Plan, analysis: &Analysis) {
         }
     });
 }
-fn finding(plan: &mut Plan, refs: Vec<String>, message: &str) {
+fn finding(plan: &mut Plan, code: &str, severity: &str, refs: Vec<String>, message: &str) {
     plan.problems.push(Problem {
-        id: "p:engine_pins_replanned".into(),
-        code: "engine_pins_replanned".into(),
-        severity: "info".into(),
+        id: format!("p:{code}"),
+        code: code.into(),
+        severity: severity.into(),
         message: message.into(),
         refs,
         ..Default::default()
@@ -810,6 +810,12 @@ fn finding(plan: &mut Plan, refs: Vec<String>, message: &str) {
     plan.status = crate::completeness::status(&plan.problems);
 }
 pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Invalid> {
+    let key = serde_json::to_vec(&(spec, recovered)).expect("pinned plan inputs serialize");
+    crate::planning::memo(a, "engine-pins-plan", key, || {
+        plan_uncached(a, spec, recovered)
+    })
+}
+fn plan_uncached(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, Invalid> {
     let pins = spec.engine_pins.as_ref().expect("engine pins present");
     let mut base = spec.clone();
     base.engine_pins = None;
@@ -859,8 +865,10 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
         let mut result = run(&base)?;
         finding(
             &mut result,
+            "engine_pins_replanned",
+            "warning",
             vec!["engine_pins".into()],
-            "The STEP revision or requested layout changed; the kept layout was re-planned and stale engine pins were dropped.",
+            "The STEP geometry or requested layout changed. The previous layout cannot be retained: stale engine pins were dropped and the drawing was fully re-planned. Review the new placements before printing.",
         );
         return Ok(result);
     }
@@ -895,40 +903,45 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
     );
     reference.spec = base.clone();
     reference.spec.engine_pins = Some(Box::new(filtered.clone()));
-    // Reuse the ordinary planner's published-pin mechanism. No requirement content is read from pins.
-    let mut result = with_pins(filtered.clone(), || {
-        crate::incremental::plan(a, &reference, &base)
-    })?;
-    let new_ink: BTreeSet<_> = result
+    let new_ink: BTreeSet<String> = reference
         .dimensions
         .iter()
         .map(|d| &d.id)
-        .chain(result.gdt.iter().map(|g| &g.id))
-        .chain(result.notes.iter().map(|n| &n.id))
-        .chain(result.tables.iter().map(|t| &t.id))
+        .chain(reference.gdt.iter().map(|g| &g.id))
+        .chain(reference.notes.iter().map(|n| &n.id))
+        .chain(reference.tables.iter().map(|t| &t.id))
         .filter(|id| !pins.annotations.contains_key(*id) || dropped.contains(id))
+        .cloned()
         .collect();
-    if !revised
-        && result
-            .problems
-            .iter()
-            .any(|p| p.severity != "info" && p.subjects.iter().any(|id| new_ink.contains(id)))
-    {
-        let mut full = run(&base)?;
-        finding(
-            &mut full,
-            vec!["engine_pins".into()],
-            "The content edit could not fit cleanly in the kept layout; full apply re-planned it and released engine pins.",
-        );
-        return Ok(full);
-    }
+    // A title/material edit already has its final pinned solve. Only newly placed
+    // ink needs the published-reference solve to reserve retained annotations.
+    let mut result = if new_ink.is_empty() {
+        reference.clone()
+    } else {
+        with_pins(filtered.clone(), || {
+            crate::incremental::plan(a, &reference, &base)
+        })?
+    };
+    let constrained = new_ink
+        .into_iter()
+        .filter(|id| {
+            result
+                .problems
+                .iter()
+                .any(|p| p.severity != "info" && p.subjects.iter().any(|s| s == id))
+        })
+        .collect();
+    crate::incremental::constrain(&mut result, constrained);
+    crate::incremental::recheck(a, &mut result);
     result.spec = spec.clone();
     persist(a, &mut result, Some(&reference));
-    if !dropped.is_empty() || revised {
+    if !dropped.is_empty() {
         finding(
             &mut result,
+            "engine_pins_partly_retained",
+            "warning",
             dropped,
-            "The STEP revision or item inventory changed. Missing item pins were dropped; existing stable item pins were honoured and current PMI was re-planned in the retained layout.",
+            "The kept layout was partly retained: missing or changed item pins were dropped. Existing stable item placements and dimension bases were kept; inspect the affected items.",
         );
     }
     Ok(result)
@@ -1231,5 +1244,27 @@ mod memo_tests {
         }
         assert!(!reader_digest().is_some());
         assert_eq!(memo.get(&key), Some(10));
+    }
+    #[test]
+    fn repeated_pinned_title_preview_hits_retained_plan_memo() {
+        let bytes = include_bytes!("../tests/fixtures/parts/plate.step");
+        let (part, a) = model::analyse_native_bytes("plate", bytes).unwrap();
+        let mut s = crate::session::Session::new(part, a, Spec::default()).unwrap();
+        s.apply_incremental(&[], true).unwrap();
+        assert!(s.spec().engine_pins.is_some());
+        let ops = [crate::items::Op::set(
+            "sheet/title/drawn_by",
+            serde_json::json!("Reviewer"),
+        )];
+        let before = serde_json::to_value(s.state()).unwrap();
+        let first = s.apply(&ops, false).unwrap();
+        let hits = crate::planning::memo_hits("engine-pins-plan");
+        let second = s.apply(&ops, false).unwrap();
+        assert!(crate::planning::memo_hits("engine-pins-plan") > hits);
+        assert_eq!(
+            serde_json::to_value(first).unwrap(),
+            serde_json::to_value(second).unwrap()
+        );
+        assert_eq!(serde_json::to_value(s.state()).unwrap(), before);
     }
 }

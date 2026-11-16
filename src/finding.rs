@@ -191,7 +191,8 @@ catalogue! {
     dimensions_not_ported => Incomplete, Tidy, Feature, "An unimplemented dimension grammar is a drafting-quality hint for this feature.";
     duplicate_measurement => Advisory, Tidy, Code, "The same measurement is repeated on the drawing.";
     edges_not_drawn => Incomplete, Requirement, Code, "Failed projection left model edges absent from the drawing.";
-    engine_pins_replanned => Advisory, Information, Code, "Stale or incompatible engine placement pins were released and the drawing was re-planned.";
+    engine_pins_partly_retained => Decision, Tidy, Code, "Missing or changed annotation pins were released while surviving placements were retained.";
+    engine_pins_replanned => Decision, Tidy, Code, "Stale or incompatible engine placement pins were released and the drawing was re-planned.";
     extension_off_centreline => Readability, FixBeforePrinting, Code, "An extension line lies just beside a centre line, so it reads as locating that centre.";
     extension_through_feature => Advisory, Tidy, Code, "Extension lines crossing geometry are normal drafting practice.";
     feature_count_mismatch => Incomplete, Requirement, Code, "The drawn evidence does not correctly state the required source information.";
