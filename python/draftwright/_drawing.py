@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from . import _native
+from ._build123d import check_version
 
 
 def _unsupported(name):
@@ -97,6 +98,7 @@ def make_drawing(
         return _native.render(os.fsdecode(os.fspath(step_file)), output, spec_json, scale, source_path)
 
     # No CAD-kernel import is paid by path users, importers or console commands.
+    check_version()
     from build123d import Shape, export_step
     if not isinstance(step_file, Shape):
         raise TypeError("step_file must be a STEP path or a build123d Shape")

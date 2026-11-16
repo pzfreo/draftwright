@@ -2,12 +2,19 @@
 use serde_json::Value;
 
 fn refuse(path: &str) -> String {
-    format!(
-        "{path} is a requirement: use Part.material(), general_tolerance(), process(), datum(), hole()/holes(), or face(); Drawing.update/spec only sets layout"
-    )
+    let call = match path {
+        "notes" => "Part.note()",
+        "sheet/default_finish" => "Part.default_finish()",
+        "angle" => "Part.angle()",
+        _ => "Part.material(), general_tolerance(), process(), datum(), hole()/holes(), or face()",
+    };
+    format!("{path} is a requirement: use {call}; Drawing.update/spec only sets layout")
 }
 
 fn requirements(v: &Value) -> Result<(), String> {
+    if v.get("angle").is_some() || v.get("angles").is_some() {
+        return Err(refuse("angle"));
+    }
     for key in ["process", "envelope_tolerance", "faces", "notes", "gears"] {
         if v.get(key).is_some() {
             return Err(refuse(key));

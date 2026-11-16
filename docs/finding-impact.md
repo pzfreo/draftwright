@@ -190,6 +190,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `interior_void` | advisory | information | A factual inventory of an internal cavity; its faces do not establish a hole opening. |
 | `iso_layout_overflow` | readability | tidy | The requested isometric scale exceeds its reserved layout area. |
 | `iso_projection_empty` | incomplete | fix_before_printing (information when severity=info) | The requested isometric view has no projected geometry. |
+| `knurl_tooth_count` | advisory | information | The stated knurl tooth count differs from its diameter and pitch. |
 | `label_centerline_overlap` | readability | fix_before_printing | A centreline crosses label ink. |
 | `label_crowded` | readability | tidy | Text lies within 0.5 mm of another label or of foreign line-work; it stays legible but reads as touching. |
 | `label_section_furniture_overlap` | readability | fix_before_printing | Section furniture touches label ink, or annotation ink runs through a section mark. |

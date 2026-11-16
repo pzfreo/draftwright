@@ -240,6 +240,7 @@ catalogue! {
     interior_void => Advisory, Information, Feature, "A factual inventory of an internal cavity; its faces do not establish a hole opening.";
     iso_layout_overflow => Readability, Tidy, Code, "The requested isometric scale exceeds its reserved layout area.";
     iso_projection_empty => Incomplete, Requirement, Code, "The requested isometric view has no projected geometry.";
+    knurl_tooth_count => Advisory, Information, Requirement, "The stated knurl tooth count differs from its diameter and pitch.";
     label_centerline_overlap => Readability, FixBeforePrinting, Code, "A centreline crosses label ink.";
     label_crowded => Readability, Tidy, Code, "Text lies within 0.5 mm of another label or of foreign line-work; it stays legible but reads as touching.";
     label_section_furniture_overlap => Readability, FixBeforePrinting, Code, "Section furniture touches label ink, or annotation ink runs through a section mark.";

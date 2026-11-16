@@ -4488,6 +4488,9 @@ fn caller_threads(
                 ),
                 ("nominal".into(), crate::pmi::Field::Length(nominal)),
             ]);
+            if let Some(value) = fields.get("minimum full thread") {
+                requirement.fields.push(("length".into(), value.clone()));
+            }
             authored(&requirement, candidates, analysis)
                 .map(|(owner, aspect)| (owner, aspect, None))
         })

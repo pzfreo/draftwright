@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 
 from . import _native
+from ._build123d import check_version
 
 _LETTERS = "A B C CD D E EF F FG G H JS J K M N P R S T U V X Y Z ZA ZB ZC".split()
 _FIT = re.compile(r"^(?:" + "|".join(_LETTERS + [s.lower() for s in _LETTERS])
@@ -120,9 +121,24 @@ class CylinderRef(FaceRef):
         self._part._pmi.fit(self._targets, _number(diameter), str(fit))
         return self
 
-    def thread(self, size):
-        """State an ISO metric thread; defaults to 6H internally, 6g externally."""
+    def thread(self, size, depth=None):
+        """ISO metric thread; depth is minimum full-thread depth in mm for holes.
+
+        Omitted depth uses the full hole. External length comes from the cylinder.
+        Classes default to 6H internally, 6g externally.
+        """
         extent = None
+        if depth is not None:
+            if not self.internal:
+                raise ValueError("external thread takes no depth; its length comes from the cylinder")
+            if isinstance(depth, (str, bool)) or not isinstance(depth, (int, float)) or not math.isfinite(depth) or depth <= 0:
+                raise ValueError("thread depth must be a finite positive number in mm")
+            from OCP.BRepAdaptor import BRepAdaptor_Surface
+            for i in self._targets:
+                surface = BRepAdaptor_Surface(self._part._faces[i].wrapped)
+                if depth > surface.LastVParameter() - surface.FirstVParameter() + _TOL:
+                    raise ValueError("thread depth exceeds the hole's depth")
+            extent = _number(depth)
         if not self.internal:
             if len(self._targets) != 1:
                 raise ValueError("external thread requires one continuous cylindrical face")
@@ -133,13 +149,17 @@ class CylinderRef(FaceRef):
         self._part._pmi.thread(self._targets, str(size), not self.internal, extent, diameters)
         return self
 
-    def knurl(self, pitch, pattern="straight", *, teeth, helix_angle=None):
+    def knurl(self, pitch, pattern="straight", *, teeth=None, helix_angle=None):
         """A straight or diamond knurl on an external cylinder; linear pitch in mm."""
         if self.internal:
             raise ValueError("knurl requires an external cylinder, not a hole")
         if len(self._targets) != 1:
             raise ValueError("knurl requires one continuous cylindrical face")
         _, diameter, _ = self._part._cylinders(self._targets, "knurl")
+        if isinstance(pitch, bool) or not isinstance(pitch, (int, float)) or not math.isfinite(pitch) or pitch <= 0:
+            raise ValueError("knurl pitch must be a finite positive number in mm")
+        if teeth is None:
+            teeth = round(math.pi * diameter / pitch)
         if pattern == "straight" and helix_angle is not None:
             raise ValueError("a straight knurl takes no helix_angle")
         if not isinstance(teeth, int) or isinstance(teeth, bool) or teeth <= 0:
@@ -229,6 +249,7 @@ class Part:
     """
 
     def __init__(self, shape, name=None, *, number=None, title=None):
+        check_version()
         self.shape = shape
         self.name = str(name if name is not None else getattr(shape, "label", "") or "part").strip()
         if not self.name:
@@ -255,6 +276,18 @@ class Part:
 
     def general_tolerance(self, value):
         self._pmi.general_tolerance(str(value))
+        return self
+
+    def note(self, text):
+        """Append a general note, preserving call order in the notes block."""
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("note text must be a nonempty string")
+        self._pmi.note(text)
+        return self
+
+    def default_finish(self, ra):
+        """Part-wide surface texture Ra in µm, unless otherwise specified."""
+        self._pmi.finish([], _finish(ra))
         return self
 
     # ---- faces -----------------------------------------------------------
@@ -333,6 +366,27 @@ class Part:
         # An undirected size has one identity even when its ends are selected in reverse.
         a, b = sorted((a, b))
         return DistanceRef(self, a, b, nominal)
+
+    def angle(self, first, second):
+        """State the measured angle between two planar faces in a principal view.
+
+        The existing PMI renderer selects the rays using each face's bounds.
+        """
+        groups = []
+        for obj in (first, second):
+            if isinstance(obj, _Ref):
+                if obj._part is not self:
+                    raise ValueError("angle reference belongs to another Part")
+                indices = obj.faces
+            else:
+                indices = sorted({i for g in self._find(obj, "angle") for i in g})
+            if len(indices) != 1 or self._faces[indices[0]].geom_type.name != "PLANE":
+                raise ValueError("angle requires one planar face at each end")
+            groups.append(indices)
+        groups.sort()
+        geometry = self._geometry()
+        geometry.angle(self._pmi, *groups)
+        return self
 
     def _hole(self, obj, label, single):
         groups = self._find(obj, "hole")

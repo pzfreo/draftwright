@@ -93,6 +93,29 @@ impl Pmi {
             standard: None,
         }];
     }
+    fn note(&mut self, text: String) -> PyResult<()> {
+        if text.trim().is_empty() {
+            return Err(raised("note text must not be blank"));
+        }
+        let index = self
+            .model
+            .attributes
+            .iter()
+            .filter(|a| a.name == "semantic text" && a.on.is_none())
+            .count()
+            + 1;
+        self.model.attributes.push(AttributeSet {
+            name: "semantic text".into(),
+            on: None,
+            items: vec![
+                ("general note".into(), AttributeValue::Text(text)),
+                ("note index".into(), AttributeValue::Integer(index as i64)),
+            ],
+            description: None,
+            general_property: None,
+        });
+        Ok(())
+    }
     fn process(&mut self, text: String) -> PyResult<()> {
         let canonical = match text.as_str() {
             "cnc-milled" | "cnc-turned" => "machined",
@@ -186,12 +209,16 @@ impl Pmi {
                 .trim();
             let mut v = length(raw)?;
             v.unit = LengthUnit::Micrometre;
-            let f = this.feature(faces)?;
+            let f = if faces.is_empty() {
+                None
+            } else {
+                Some(this.feature(faces)?)
+            };
             this.model
                 .surface_textures
-                .retain(|texture| texture.on != Some(f));
+                .retain(|texture| texture.on != f);
             this.model.surface_textures.push(SurfaceTexture {
-                on: Some(f),
+                on: f,
                 material_removal: MaterialRemoval::AnyProcessAllowed,
                 parameters: vec![SurfaceTextureParameter {
                     characteristic: "Ra".into(),
@@ -396,10 +423,8 @@ impl Pmi {
             let pitch = length(pitch)?;
             let diameter = length(diameter)?;
             let expected = std::f64::consts::PI * diameter.mm() / pitch.mm();
-            if teeth == 0 || !expected.is_finite() || (expected - f64::from(teeth)).abs() > 1.0 {
-                return Err(raised(
-                    "knurl teeth must agree with pi * diameter / pitch (within one tooth)",
-                ));
+            if teeth == 0 || !expected.is_finite() || pitch.mm() <= 0.0 {
+                return Err(raised("knurl pitch and teeth must be positive and finite"));
             }
             let helix_angle = helix_angle
                 .map(|s| -> PyResult<Angle> {
@@ -530,7 +555,7 @@ impl Pmi {
                     raised("external thread needs its cylinder length")
                 })?)?)
             } else {
-                None
+                extent.map(value).transpose()?
             };
             let canonical = format!(
                 "M{major} x {}",
@@ -567,7 +592,12 @@ impl Pmi {
             });
             let mut items = vec![("pitch".into(), AttributeValue::Measure(pitch))];
             if let Some(extent) = extent {
-                items.push(("thread length".into(), AttributeValue::Measure(extent)));
+                let name = if external {
+                    "thread length"
+                } else {
+                    "minimum full thread"
+                };
+                items.push((name.into(), AttributeValue::Measure(extent)));
             }
             this.model.attributes.push(AttributeSet {
                 name: "thread manufacturing".into(),
@@ -664,6 +694,61 @@ impl Geometry {
         let model = self.bound(pmi)?;
         serde_json::to_string(&draftwright::pmi::from_model(&self.part, &model).map_err(raised)?)
             .map_err(raised)
+    }
+    fn angle(&self, pmi: &mut Pmi, first: Vec<usize>, second: Vec<usize>) -> PyResult<()> {
+        // Measure with the renderer's own plane/ray selection, in a tentative model.
+        // Rejected references leave both features and dimensions untouched.
+        let mut candidate = pmi.clone();
+        let from = candidate.feature(first)?;
+        let to = candidate.feature(second)?;
+        let kind = DimensionKind::Location {
+            from,
+            to,
+            kind: LocationKind::Other("angle".into()),
+            path: None,
+            directed: false,
+            angle: Some(AngleSelection::Equal),
+        };
+        candidate.model.dimensions.retain(|d| d.kind != kind);
+        candidate.model.dimensions.push(Dimension {
+            kind,
+            nominal: None,
+            tolerance: DimTolerance::None,
+            qualifier: None,
+            modifiers: vec![],
+            principle: None,
+        });
+        let report =
+            draftwright::pmi::from_model(&self.part, &self.bound(&candidate)?).map_err(raised)?;
+        let geometry = report
+            .records
+            .get(candidate.model.dimensions.len() - 1)
+            .and_then(|r| r.geometry.as_ref())
+            .ok_or_else(|| raised("angle requires two distinct planar faces"))?;
+        let angle = geometry
+            .angle
+            .as_ref()
+            .ok_or_else(|| raised(geometry.reasons.join("; ")))?;
+        if angle.principal().is_none() {
+            return Err(raised("angle requires coplanar rays in a principal view"));
+        }
+        let degrees = angle
+            .degrees()
+            .ok_or_else(|| raised("angle reference rays must not be parallel"))?;
+        candidate
+            .model
+            .dimensions
+            .last_mut()
+            .expect("new angle")
+            .nominal = Some(Value {
+            quantity: Quantity::Angle(Angle {
+                value: Decimal::parse(&degrees.to_string()).map_err(raised)?,
+                unit: AngleUnit::Degree,
+            }),
+            decimal_places: None,
+        });
+        *pmi = candidate;
+        Ok(())
     }
     fn render(
         &self,
@@ -762,6 +847,117 @@ fn face_mapping(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_calls_use_existing_ap242_semantic_fields() {
+        let mut p = Pmi::new(8);
+        p.note("DEBURR".into()).unwrap();
+        p.note("HARDEN".into()).unwrap();
+        assert_eq!(p.model.attributes[0].name, "semantic text");
+        assert_eq!(p.model.attributes[0].on, None);
+        assert_eq!(
+            p.model.attributes[0].items[0],
+            ("general note".into(), AttributeValue::Text("DEBURR".into()))
+        );
+        assert_eq!(
+            p.model.attributes[1].items[1],
+            ("note index".into(), AttributeValue::Integer(2))
+        );
+        p.finish(vec![], "Ra 3.2").unwrap();
+        p.finish(vec![0], "Ra 0.8").unwrap();
+        p.finish(vec![], "Ra 1.6").unwrap();
+        assert_eq!(p.model.surface_textures.len(), 2);
+        let default = p
+            .model
+            .surface_textures
+            .iter()
+            .find(|t| t.on.is_none())
+            .unwrap();
+        assert_eq!(default.parameters[0].value.unit, LengthUnit::Micrometre);
+        assert_eq!(default.parameters[0].value.value.to_f64(), 1.6);
+        p.thread(vec![1], "M6".into(), false, Some("12"), vec!["5".into()])
+            .unwrap();
+        let thread = &p.model.threads[0];
+        let extent = p
+            .model
+            .attributes
+            .iter()
+            .find(|a| a.name == "thread manufacturing")
+            .unwrap();
+        assert_eq!(extent.on, Some(NoteOwner::Feature(thread.feature)));
+        assert_eq!(
+            extent.items[1],
+            (
+                "minimum full thread".into(),
+                AttributeValue::Measure(value("12").unwrap())
+            )
+        );
+        p.knurl(vec![2], "straight", "0.8", "10", 2, None).unwrap();
+        assert_eq!(p.model.knurls[0].number_of_teeth, Some(Count(2)));
+        p.model.validate().unwrap();
+    }
+
+    #[test]
+    fn notes_default_and_thread_extent_round_trip_through_the_ap242_reader() {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/turned_knurl/plain_shaft_thread.step"
+        ))
+        .unwrap();
+        let part = haecceity::read_step(&bytes).unwrap();
+        let wall = part
+            .faces
+            .iter()
+            .position(|face| matches!(face.surface, haecceity::geom::Surface::Cylinder { .. }))
+            .unwrap();
+        let mut p = Pmi::new(part.faces.len());
+        p.note("DEBURR".into()).unwrap();
+        p.note("NO LACQUER".into()).unwrap();
+        p.finish(vec![], "Ra 3.2").unwrap();
+        p.thread(
+            vec![wall],
+            "M10".into(),
+            true,
+            Some("12"),
+            vec!["10".into()],
+        )
+        .unwrap();
+        let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+        let doc = haecceity::p21::Document::parse(bytes).unwrap();
+        let (edit, _) = write(
+            &doc,
+            &defs,
+            &[(PartId(0), p.model.clone())],
+            Mode::Replace,
+            write::PresentationPolicy::RemovePresentation,
+        )
+        .unwrap();
+        let written = doc.apply(&edit).unwrap().bytes;
+        let defs = haecceity::step::read_part_definitions(&written).unwrap();
+        let doc = haecceity::p21::Document::parse(written).unwrap();
+        let read = read(&doc, &defs).unwrap();
+        assert_eq!(read.parts[0].surface_textures, p.model.surface_textures);
+        let notes = |model: &PartPmi| {
+            model
+                .attributes
+                .iter()
+                .filter(|a| a.name == "semantic text")
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(notes(&read.parts[0]), notes(&p.model));
+        let attributes = &read.parts[0].attributes;
+        let thread = &read.parts[0].threads[0];
+        let extent = attributes
+            .iter()
+            .find(|a| a.name == "thread manufacturing")
+            .unwrap();
+        assert_eq!(extent.on, Some(NoteOwner::Feature(thread.feature)));
+        assert!(extent.items.contains(&(
+            "thread length".into(),
+            AttributeValue::Measure(value("12").unwrap())
+        )));
+    }
 
     fn rejected_without_edits(pmi: &mut Pmi, edit: impl FnOnce(&mut Pmi) -> PyResult<()>) {
         let before = pmi.model.clone();

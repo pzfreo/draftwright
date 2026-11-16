@@ -340,7 +340,7 @@ class RequirementKinds(unittest.TestCase):
                    lambda: ref.parallelism(0.1, "A"), lambda: ref.cylindricity(-0.1),
                    lambda: ref.knurl(0.8, "diagonal", teeth=39),
                    lambda: ref.knurl(0.8, "diamond", teeth=39),
-                   lambda: ref.knurl(0.8, teeth=2), lambda: ref.knurl(0, teeth=39),
+                   lambda: ref.knurl(0.8, teeth=0), lambda: ref.knurl(0, teeth=39),
                    lambda: ref.knurl(0.8, "diamond", teeth=39, helix_angle=100),
                    lambda: ref.diameter(), lambda: ref.diameter(plus_minus=-0.1),
                    lambda: ref.diameter(plus_minus=math.inf),
