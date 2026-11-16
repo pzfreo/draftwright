@@ -18,6 +18,10 @@ uv run --with draftwright --prerelease=allow --with build123d script.py
 build123d 0.10 or later is required; 0.10.0 and 0.13.0 are tested, on Python 3.12.
 With 0.10, also install `ocp-gordon<0.3`.
 
+`from build123d import *` also defines a `Part`; importing draftwright's `Part` after
+it replaces build123d's. The examples here do that deliberately. In a script that
+needs both, use `import draftwright as dw` and `dw.Part`.
+
 All three steps use this bracket:
 
 ```python
