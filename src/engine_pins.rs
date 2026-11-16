@@ -982,31 +982,55 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
     let mut new_sheet = after.sheet.clone();
     old_sheet.title.clear();
     new_sheet.title.clear();
-    let layout = ops.iter().any(|op| {
-        let p = op["path"].as_str().unwrap_or("").trim_matches('/');
-        [
-            "views",
-            "sheets",
-            "hole_table",
-            "units",
-            "dimension_source",
-            "dimension_schemes",
-            "origin",
-            "iso_scale_factor",
-        ]
-        .iter()
-        .any(|root| p == *root || p.starts_with(&format!("{root}/")))
-            || (p == "sheet" && old_sheet != new_sheet)
-            || (p.starts_with("sheet/")
-                && !p.starts_with("sheet/title/")
-                && !["sheet/title", "sheet/zones"].contains(&p))
-    });
+    // Whole-field/set_spec operations have the same scope as individual paths.
+    // Zones and title wording redraw furniture without changing composition.
+    old_sheet.zones.clone_from(&new_sheet.zones);
+    let composition_changed = old_sheet != new_sheet
+        || before.views != after.views
+        || before.sheets != after.sheets
+        || before.units != after.units
+        || before.part != after.part
+        || before.origin != after.origin
+        || before.iso_scale_factor != after.iso_scale_factor
+        || before.dimension_source != after.dimension_source
+        || before.dimension_schemes != after.dimension_schemes
+        || before.hole_table != after.hole_table;
+    let layout = composition_changed
+        || ops.iter().any(|op| {
+            let p = op["path"].as_str().unwrap_or("").trim_matches('/');
+            [
+                "views",
+                "sheets",
+                "hole_table",
+                "units",
+                "dimension_source",
+                "dimension_schemes",
+                "origin",
+                "iso_scale_factor",
+            ]
+            .iter()
+            .any(|root| p == *root || p.starts_with(&format!("{root}/")))
+                || (p == "sheet" && old_sheet != new_sheet)
+                || (p.starts_with("sheet/")
+                    && !p.starts_with("sheet/title/")
+                    && !["sheet/title", "sheet/zones"].contains(&p))
+        });
     if layout {
         after.engine_pins = None;
         after.schema = model::SPEC_SCHEMA.into();
         return;
     }
     if let Some(pins) = &mut after.engine_pins {
+        for id in before.dimensions.keys().chain(after.dimensions.keys()) {
+            if before.dimensions.get(id) != after.dimensions.get(id) {
+                pins.annotations.remove(id);
+            }
+        }
+        for id in before.annotations.keys().chain(after.annotations.keys()) {
+            if before.annotations.get(id) != after.annotations.get(id) {
+                pins.annotations.remove(id);
+            }
+        }
         if before.precision != after.precision {
             pins.annotations.retain(|_, p| p.route.is_some() || p.omit);
         }

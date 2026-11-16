@@ -1753,3 +1753,36 @@ fn oversized_content_in_full_apply_warns_without_reshuffling() {
             .any(|p| p.code == "engine_pins_replanned")
     );
 }
+
+#[test]
+fn whole_dimension_map_edits_release_only_the_changed_items_pin() {
+    let (mut s, _) = pinned_bracket();
+    let before = s.plan().clone();
+    let id = before
+        .dimensions
+        .iter()
+        .find(|d| d.placed.is_some())
+        .unwrap()
+        .id
+        .clone();
+    let mut spec = s.spec().clone();
+    spec.dimensions.entry(id.clone()).or_default().place =
+        Some(serde_json::from_value(json!({"offset":[1000.,1000.],"pinned":true})).unwrap());
+    s.set_spec(&spec).unwrap();
+    assert!(s.spec().engine_pins.is_some());
+    let changed = s.plan().dimensions.iter().find(|d| d.id == id).unwrap();
+    let previous = before.dimensions.iter().find(|d| d.id == id).unwrap();
+    assert_ne!(
+        previous.placed, changed.placed,
+        "whole-map edits must honour authored placement"
+    );
+    let mut retained = before;
+    retained.dimensions.retain(|d| d.id != id);
+    fixed(&retained, s.plan());
+    assert!(
+        s.state()
+            .problems
+            .iter()
+            .any(|p| p.code == "incremental_placement_constrained" && p.subjects.contains(&id))
+    );
+}
