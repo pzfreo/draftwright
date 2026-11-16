@@ -7576,6 +7576,7 @@ pub(super) fn settled_routes(
     proof: Option<&super::interior::Proof>,
     contact_repair: bool,
     bend_radius: f64,
+    cohort_repair: bool,
 ) -> Vec<Placed> {
     let Some(v) = views.iter().find(|v| v.id == d.view) else {
         return Vec::new();
@@ -8033,6 +8034,29 @@ pub(super) fn settled_routes(
                 local.push(c);
             }
         };
+        if cohort_repair && source_frame && sheet.units == crate::units::Units::In {
+            let u = [shaft[1][0] - shaft[0][0], shaft[1][1] - shaft[0][1]];
+            let n = u[0].hypot(u[1]);
+            for length in [3., 4., 5., 6., 8., 10.] {
+                if length > n {
+                    continue;
+                }
+                let elbow = [
+                    shaft[0][0] + length * u[0] / n,
+                    shaft[0][1] + length * u[1] / n,
+                ];
+                for shoulder in [8., 12., 16., 24., 32., 48., 64.] {
+                    retain(
+                        shaft[0],
+                        elbow,
+                        [
+                            elbow[0] + if right { shoulder } else { -shoulder },
+                            elbow[1],
+                        ],
+                    );
+                }
+            }
+        }
         if radius.is_none() {
             for step in 1..=8 {
                 for delta in [
@@ -8528,6 +8552,7 @@ mod tests {
             proof.get(&view.id).map(|p| p.as_ref()),
             false,
             0.0,
+            false,
         );
         assert!(
             !alternatives.is_empty(),

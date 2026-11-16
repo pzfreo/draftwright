@@ -3897,6 +3897,7 @@ fn plan_inventory_ordered(
             cache,
             true,
             false,
+            None,
         )
     } else {
         BTreeSet::new()
@@ -4126,6 +4127,7 @@ fn plan_inventory_ordered(
             cache,
             false,
             false,
+            None,
         )
     } else {
         BTreeSet::new()
@@ -4281,6 +4283,7 @@ fn plan_inventory_ordered(
         cache,
         false,
         false,
+        None,
     ));
     let refined = leaders::refine(
         analysis,
@@ -5739,27 +5742,25 @@ fn local_placement_candidate(
                 } else {
                     [0.0, 0.0]
                 };
-                let mut offsets: Vec<_> = [1., 2., 3., 4.]
-                    .into_iter()
-                    .flat_map(|step| {
+                let grid = [1., 2., 3., 4.].into_iter().flat_map(|step| {
+                    [
+                        [0., 1.],
+                        [0., -1.],
+                        [1., 0.],
+                        [-1., 0.],
+                        [1., 1.],
+                        [-1., 1.],
+                        [1., -1.],
+                        [-1., -1.],
+                    ]
+                    .map(|[dx, dy]| {
                         [
-                            [0., 1.],
-                            [0., -1.],
-                            [1., 0.],
-                            [-1., 0.],
-                            [1., 1.],
-                            [-1., 1.],
-                            [1., -1.],
-                            [-1., -1.],
+                            base[0] + step * lane_pitch() * dx,
+                            base[1] + step * lane_pitch() * dy,
                         ]
-                        .map(|[dx, dy]| {
-                            [
-                                base[0] + step * lane_pitch() * dx,
-                                base[1] + step * lane_pitch() * dy,
-                            ]
-                        })
                     })
-                    .collect();
+                });
+                let mut witnesses = Vec::new();
                 if inch && d.kind == "linear" && held.lines.len() >= 3 {
                     // An outside ladder can be hundreds of paper mm from its
                     // own witnesses. Also inspect short approaches beside those
@@ -5770,11 +5771,11 @@ fn local_placement_candidate(
                             let mut offset = [0., 0.];
                             offset[normal] =
                                 station[0][normal] + step * lane_pitch() - held.lines[2][0][normal];
-                            offsets.push(offset);
+                            witnesses.push(offset);
                         }
                     }
                 }
-                for offset in offsets {
+                for offset in grid.chain(witnesses) {
                     let held = Some((held, d.terms.as_slice()));
                     let placed = if d.kind == "callout" {
                         leaders::offset_intent(frame, &want, offset, held)

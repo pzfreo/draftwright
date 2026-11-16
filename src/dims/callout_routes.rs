@@ -556,6 +556,7 @@ pub(crate) fn prefer_interior(
                 Some(proof.as_ref()),
                 false,
                 0.0,
+                false,
             );
             let id = d.id.clone();
             let found = placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &id);
@@ -714,11 +715,12 @@ pub(crate) fn finish_inch_contacts(analysis: &Analysis, plan: &mut Plan) {
     finish_new_contacts(analysis, &spec, plan, &ids, &reference);
     super::settle_source_pattern_columns(analysis, plan);
     crate::hole_table::refresh_marks(analysis, plan);
+    super::interior::finish_slot_sizes(analysis, &spec, plan);
     super::contacts::report(analysis, plan);
 }
 
 pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
-    finish_with(analysis, spec, plan, false, None);
+    finish_with(analysis, spec, plan, false, None, false);
 }
 
 /// Repair independent frames after their neighbours have attached as units.
@@ -745,7 +747,7 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
         super::contacts::report(analysis, plan);
         let reference = plan.clone();
         let ids = plan.gdt.iter().map(|g| g.id.clone()).collect();
-        finish_with(analysis, spec, plan, true, Some((&ids, &reference)));
+        finish_with(analysis, spec, plan, true, Some((&ids, &reference)), false);
         // The frame repairs can free an escape for an independent bore.
         // Retry that existing bounded route against the finished attached ink.
         let ids = plan
@@ -758,7 +760,7 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
             .collect::<BTreeSet<_>>();
         if !ids.is_empty() {
             let reference = plan.clone();
-            finish_with(analysis, spec, plan, false, Some((&ids, &reference)));
+            finish_with(analysis, spec, plan, false, Some((&ids, &reference)), false);
         }
         super::hole_marks::attach_cylinders(analysis, spec, plan);
         super::contacts::report(analysis, plan);
@@ -768,7 +770,7 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
             *plan = reference;
         }
     } else {
-        finish_with(analysis, spec, plan, true, None);
+        finish_with(analysis, spec, plan, true, None, false);
     }
 }
 
@@ -822,7 +824,19 @@ pub(crate) fn finish_new_contacts(
     ids: &BTreeSet<String>,
     reference: &Plan,
 ) {
-    finish_with(analysis, spec, plan, false, Some((ids, reference)));
+    finish_with(analysis, spec, plan, false, Some((ids, reference)), false);
+}
+
+/// Slot witnesses are installed atomically with their displaced leaders. A
+/// route may not spend a crossing-kind or crowding budget the old item lacked.
+pub(super) fn finish_slot_contacts(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut Plan,
+    ids: &BTreeSet<String>,
+    reference: &Plan,
+) {
+    finish_with(analysis, spec, plan, false, Some((ids, reference)), true);
 }
 
 fn finish_with(
@@ -831,6 +845,7 @@ fn finish_with(
     plan: &mut Plan,
     only_frames: bool,
     new_contacts: Option<(&BTreeSet<String>, &Plan)>,
+    preserve_contacts: bool,
 ) {
     let pmi_retry = placement::pmi_witness_retry(analysis);
     let shorten = new_contacts.is_some()
@@ -1200,6 +1215,7 @@ fn finish_with(
                             .map_or(0.0, |g| {
                                 gdt::ring_radius(&g.modifiers) + super::contacts::TEXT_CLEAR
                             }),
+                        preserve_contacts,
                     )
                 };
                 if before_extension.0 > 0 {
@@ -1334,6 +1350,8 @@ fn finish_with(
                 let mut grown_views = None;
                 let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
                     candidates.len()
+                } else if preserve_contacts {
+                    128
                 } else {
                     40
                 };
@@ -1400,6 +1418,17 @@ fn finish_with(
                             &id,
                             new_contacts.is_some(),
                         ));
+                    }
+                    if preserve_contacts && let Some((_, reference)) = new_contacts {
+                        let original: Vec<_> = reference
+                            .problems
+                            .iter()
+                            .filter(|p| p.subjects.contains(&id))
+                            .cloned()
+                            .collect();
+                        if !no_regression(&original, &after) {
+                            continue;
+                        }
                     }
                     let next_extension = extension_budget(&next);
                     let improved = if new_contacts.is_some() || across_ids.contains(&id) {

@@ -380,6 +380,39 @@ fn end_radius_want(
     }
 }
 
+/// A slot's length extrema lie on its centreline. The legacy outside-strip
+/// witness may start at an imaginary rectangle corner beside a rounded end;
+/// that origin must not be carried through the end arc by an interior retry.
+/// The caller proves the complete candidate against the actual projected ink.
+pub(super) fn length_reference(w: &Want, analysis: &crate::model::Analysis) -> Option<Shape> {
+    let [m] = w.measurements.as_slice() else {
+        return None;
+    };
+    if m.parameter != "slot_length.length" {
+        return None;
+    }
+    let frame = QFrame(crate::bridge::holes::frame(analysis));
+    let s = analysis
+        .features
+        .iter()
+        .find(|f| f.id == m.feature)
+        .and_then(|f| read(f, &frame).ok())?;
+    let Shape::Linear { axis, order, .. } = w.shape else {
+        return None;
+    };
+    if axis != s.long || (m.value - s.length).abs() > 1e-6 {
+        return None;
+    }
+    Some(Shape::Linear {
+        a: s.at(s.ends[0], s.centre),
+        b: s.at(s.ends[1], s.centre),
+        axis,
+        order,
+        a_edge: false,
+        b_edge: false,
+    })
+}
+
 /// Other physical witness stations for a slot width. Both end references state
 /// the same straight-side separation; layout must prove the chosen ink clear.
 pub(super) fn width_references(w: &Want, analysis: &crate::model::Analysis) -> Vec<Shape> {

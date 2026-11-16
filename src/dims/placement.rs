@@ -1899,7 +1899,7 @@ fn place_linear(
     )
 }
 
-pub(super) fn interior_lanes(frame: &Frame, w: &Want, side: Side) -> Vec<Placed> {
+pub(super) fn interior_lanes(frame: &Frame, w: &Want, side: Side, refine: bool) -> Vec<Placed> {
     let o = frame.outline();
     let (edge, inward) = match side {
         Side::Below => (o[1], 1.0),
@@ -1907,12 +1907,63 @@ pub(super) fn interior_lanes(frame: &Frame, w: &Want, side: Side) -> Vec<Placed>
         Side::Left => (o[0], 1.0),
         Side::Right => (o[2], -1.0),
     };
-    let mut candidates: Vec<_> = (1..=8)
+    let direction = |station: f64| {
+        if refine
+            && let Shape::Linear {
+                a,
+                b,
+                a_edge: false,
+                b_edge: false,
+                ..
+            } = w.shape
+        {
+            let k = usize::from(matches!(side, Side::Above | Side::Below));
+            let (a, b) = (frame.page(a)[k], frame.page(b)[k]);
+            if station < a.min(b) {
+                return -1.;
+            }
+            if station > a.max(b) {
+                return 1.;
+            }
+        }
+        inward
+    };
+    let mut candidates: Vec<_> = (1..=if refine { 16 } else { 8 })
         .filter_map(|lane| {
             let station = edge + inward * lane as f64 * lane_pitch();
-            place_linear_at(frame, &w.shape, &w.terms, side, (station, inward))
+            place_linear_at(
+                frame,
+                &w.shape,
+                &w.terms,
+                side,
+                (station, direction(station)),
+            )
         })
         .collect();
+    if refine {
+        candidates.extend((0..16).filter_map(|lane| {
+            let station = edge + inward * (lane as f64 + 0.5) * lane_pitch();
+            place_linear_at(
+                frame,
+                &w.shape,
+                &w.terms,
+                side,
+                (station, direction(station)),
+            )
+        }));
+    }
+    if refine {
+        candidates.extend((0..32).filter_map(|lane| {
+            let station = edge + inward * (lane as f64 * 0.5 + 0.25) * lane_pitch();
+            place_linear_at(
+                frame,
+                &w.shape,
+                &w.terms,
+                side,
+                (station, direction(station)),
+            )
+        }));
+    }
     // The view's regular lane grid can miss the narrow clear band beside a
     // feature. Try a fixed number of compact offsets from its own witnesses.
     if let Shape::Linear {

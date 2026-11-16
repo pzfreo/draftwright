@@ -128,6 +128,15 @@ fn short_native_dimensions_keep_their_text_on_their_span() {
 
 #[test]
 fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
+    stc09_slot_corridors(draftwright::units::Units::Auto);
+}
+
+#[test]
+fn stc09_metric_slot_length_stays_beside_its_peer_and_gdt_corridors() {
+    stc09_slot_corridors(draftwright::units::Units::Mm);
+}
+
+fn stc09_slot_corridors(units: draftwright::units::Units) {
     use std::io::Read as _;
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let bytes =
@@ -145,13 +154,10 @@ fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
     // Its slots 1 and 2 are congruent, so one slot callout would state them: slot 2 is split
     // from the callout, so slot 1 keeps the length that is slot 3's peer here.
     corpus::split_slot(&mut a, "f:slot:f98");
-    // This split-slot regression pins the metric 60-paper-mm witness budget
-    // and the recorded 63.5 mm label/FCB corridor below. Keep that specimen in
-    // mm; declared-inch recovery and ANSI locality have separate acceptance checks.
     let p = draftwright::model::plan_recovered(
         &a,
         &draftwright::model::Spec {
-            units: draftwright::units::Units::Mm,
+            units,
             ..Default::default()
         },
     )
