@@ -143,14 +143,14 @@ the matching Part call, so each fact has one home.
 Each dimension and callout has an id, and `place` moves it. The ids appear in the
 `subjects` of `dwg.problems`; for a hole callout it is `"d:" + p.feature_id(hole) +
 "/bore.diameter"`. In step 3 the `⌀16 H7` leader crosses a `⌀5` hole
-(`leader_through_feature`). Asking for the side above the plan view clears it:
+(`leader_through_feature`). Asking for the side below the plan view clears it:
 
 ```python
 callout = "d:" + p.feature_id(bearing) + "/bore.diameter"
-dwg.update({"dimensions": {callout: {"place": {"view": "plan", "side": "above"}}}})
+dwg.update({"dimensions": {callout: {"place": {"view": "plan", "side": "below"}}}})
 ```
 
-![The H7 callout and its position frame moved above the plan view](images/build123d-callout-above.png)
+![The H7 callout and its position frame moved below the plan view](images/build123d-callout-below.png)
 
 `side` keeps the engine choosing a clear spot on that side. `lane` and `along` fix
 the position, and `{"pinned": True, "offset": [dx, dy]}` sets the bend in paper mm
@@ -166,7 +166,8 @@ for each made part, as one PDF plus a CSV/JSON bill of materials. From a STEP fi
 ```python
 from draftwright import Pack
 
-pack = Pack("gramil-assembly.step", title="Gramil", number="GRM-00")
+pack = Pack("gramil-assembly.step", title="Gramil", number="GRM-00",
+            horizontal_axis="x")
 pdf, csv = pack.render("gramil", formats=("pdf", "csv"))
 ```
 
@@ -174,7 +175,9 @@ pdf, csv = pack.render("gramil", formats=("pdf", "csv"))
 
 That is the first page of the gramil's nine-page pack: balloons and a parts list
 with made and bought parts (the screws and washer are recognised as bought), then
-a drawing for each made part.
+a drawing for each made part. `horizontal_axis="x"` keeps the model's X axis across
+the sheet, so the gauge is drawn standing up as it was modelled; without it, the
+longest axis runs across the sheet.
 
 From build123d, pass a `Compound` whose children are labelled with the `Part`
 names, and the Parts that carry requirements:
