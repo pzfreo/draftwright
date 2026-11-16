@@ -859,6 +859,80 @@ mod tests {
     use super::*;
 
     #[test]
+    fn caller_pmi_replays_engine_pins_across_byte_revisions_and_content_edits() {
+        use draftwright::{model, pmi, session::Session};
+        let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
+        let (part, mut analysis) = model::analyse_native_bytes("plate", bytes).unwrap();
+        let mut p = Pmi::new(part.faces.len());
+        p.note("FIRST PYTHON NOTE".into()).unwrap();
+        p.finish(vec![], "Ra 3.2").unwrap();
+        analysis.pmi = Some(pmi::Reading::Read(
+            pmi::from_model(&part, &p.model).unwrap(),
+        ));
+        let mut session = Session::new(part, analysis.clone(), model::Spec::default()).unwrap();
+        session.apply_incremental(&[], true).unwrap();
+        let revision = [bytes.as_slice(), b"\n"].concat();
+        let (revised_part, mut revised_analysis) =
+            model::analyse_native_bytes("plate", &revision).unwrap();
+        revised_analysis.pmi = Some(pmi::Reading::Read(
+            pmi::from_model(&revised_part, &p.model).unwrap(),
+        ));
+        let retained = model::plan_incremental_source(
+            session.part(),
+            session.plan(),
+            &revised_part,
+            &revised_analysis,
+            session.spec(),
+        )
+        .unwrap();
+        assert!(
+            retained
+                .spec
+                .engine_pins
+                .as_ref()
+                .unwrap()
+                .geometry_sha256
+                .is_some()
+        );
+        assert_ne!(
+            retained.binding.source_sha256,
+            analysis.binding.source_sha256
+        );
+        for edited in [false, true, true] {
+            if edited && p.model.attributes.len() == 1 {
+                p.note("ADDED PYTHON NOTE".into()).unwrap();
+                p.finish(vec![], "Ra 1.6").unwrap();
+            }
+            let (plan, files) = draftwright::api::render_model(
+                session.part(),
+                &analysis,
+                &p.model,
+                &retained.spec,
+                &["svg"],
+                draftwright::api::DPI,
+            )
+            .unwrap();
+            assert!(plan.spec.engine_pins.is_some());
+            assert!(
+                !plan.problems.iter().any(|p| matches!(
+                    p.code.as_str(),
+                    "engine_pins_replanned" | "pmi_not_lowered" | "pmi_not_rendered"
+                )),
+                "{:?}",
+                plan.problems
+            );
+            assert_eq!(
+                serde_json::to_value(&plan.views).unwrap(),
+                serde_json::to_value(&retained.views).unwrap()
+            );
+            let svg = String::from_utf8(files[0].1.clone()).unwrap();
+            assert!(svg.contains("FIRST PYTHON NOTE"));
+            assert_eq!(svg.contains("ADDED PYTHON NOTE"), edited);
+            assert!(svg.contains(if edited { "1.6" } else { "3.2" }));
+        }
+    }
+
+    #[test]
     fn new_calls_use_existing_ap242_semantic_fields() {
         let mut p = Pmi::new(8);
         p.note("DEBURR".into()).unwrap();

@@ -909,6 +909,9 @@ pub fn build_bytes_with_pmi(
                 .expect("made groups analysed")
                 .and_then(|(part, analysis)| {
                     spec.inherit_title(&mut drawing_spec, &analysis, Some(&row.bom));
+                    let _geometry = pmi
+                        .contains_key(&keys[row.part_indices[0]])
+                        .then(|| crate::engine_pins::prepare_read(&part, &analysis, &drawing_spec));
                     let plan = crate::api::plan_analysed(&analysis, &drawing_spec)?;
                     Ok(Prepared {
                         part,
@@ -1322,6 +1325,76 @@ impl Pack {
 mod tests {
     use super::*;
     use haecceity::pmi;
+
+    #[test]
+    fn caller_pmi_pack_replays_engine_pins_across_byte_revisions() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/assembly/assembly_pin_pmi.step.gz");
+        let bytes = model::read_step_file(&path).unwrap();
+        let file = haecceity::step::StepFile::read(&bytes).unwrap();
+        let doc = haecceity::p21::Document::parse(bytes.clone()).unwrap();
+        let model = pmi::read(&doc, &file.parts).unwrap().parts.remove(1);
+        let (part, analysis) = model::analyse_native_part(&path, Some(1)).unwrap();
+        let analysis = crate::api::with_model(&part, &analysis, &model).unwrap();
+        let reference = std::sync::Arc::new(model::analyse_native_part(&path, Some(1)).unwrap().0);
+        let mut session = crate::session::Session::new(part, analysis, Spec::default()).unwrap();
+        session.apply_incremental(&[], true).unwrap();
+        let mut drawing = session.spec().clone();
+        drawing.engine_pins.as_mut().unwrap().geometry_sha256 =
+            Some(crate::engine_pins::geometry(session.part()).unwrap());
+        let mut spec = PackSpec::default();
+        spec.ga.include = Some(false);
+        spec.parts.insert(
+            "pin".into(),
+            PartSpec {
+                supply: Some(Supply::Make),
+                drawing: Some(drawing),
+                ..Default::default()
+            },
+        );
+        spec.parts.insert(
+            "plate".into(),
+            PartSpec {
+                supply: Some(Supply::Buy),
+                ..Default::default()
+            },
+        );
+        let inputs = BTreeMap::from([("pin".into(), ProductPmi { model, reference })]);
+        let revision = [bytes.as_slice(), b"\n"].concat();
+        let pack = build_bytes_with_pmi("assembly.step", &revision, &spec, &inputs).unwrap();
+        let row = pack.report.rows.iter().find(|r| r.key == "pin").unwrap();
+        assert!(row.error.is_none(), "{:?}", row.error);
+        assert!(
+            !row.problems.iter().any(|p| matches!(
+                p.code.as_str(),
+                "engine_pins_replanned" | "pmi_not_lowered" | "pmi_not_rendered"
+            )),
+            "{:?}",
+            row.problems
+        );
+        assert!(!row.sheets.is_empty());
+        let actual = &pack.drawings[row.sheets[0] - 1];
+        let gdt = |drawing: &Drawing| {
+            drawing
+                .annotations
+                .iter()
+                .filter(|a| a.name.starts_with("pmi"))
+                .map(|a| {
+                    (
+                        a.name.clone(),
+                        a.view.clone(),
+                        a.runs
+                            .iter()
+                            .map(|&i| drawing.text[i].text.clone())
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = gdt(session.drawing());
+        assert!(!expected.is_empty());
+        assert_eq!(gdt(actual), expected);
+    }
 
     #[test]
     fn caller_pmi_pack_annotations_match_the_single_part_pipeline() {
