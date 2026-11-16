@@ -1501,6 +1501,58 @@ fn ga_gramil_sources_list_and_numbering() {
     let step = fixture("gramil.step.gz");
     let pack = pack::build(&step, &Default::default()).unwrap();
     check_ga(&pack, &step);
+    let shank = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.name == "GRM-01 shank")
+        .unwrap();
+    let front = pack.drawings[shank.sheets[0] - 1]
+        .sheet
+        .views
+        .iter()
+        .find(|v| v.name == "v:front")
+        .unwrap();
+    assert!(
+        front.bbox[3] - front.bbox[1] > front.bbox[2] - front.bbox[0],
+        "the shank sheet stands upright"
+    );
+    let source =
+        draftwright::haecceity::read_step(&draftwright::model::read_step_file(&step).unwrap())
+            .unwrap()
+            .bounds();
+    let size: [f64; 3] = std::array::from_fn(|i| source.max[i] - source.min[i]);
+    assert!(
+        size[2] > size[0] && size[2] > size[1],
+        "standing Z-long fixture"
+    );
+    let ga = pack.report.general_assembly.as_ref().unwrap();
+    assert_eq!(ga.frame, draftwright::haecceity::step::IDENTITY);
+    assert_eq!(ga.envelope, size);
+    let front = ga.views.iter().find(|v| v.id == "v:front").unwrap();
+    let camera = draftwright::haecceity::hlr::View::new(front.direction, front.up).unwrap();
+    assert_eq!(camera.x, [1., 0., 0.]);
+    assert_eq!(front.up, [0., 0., 1.]);
+    for (axis, frame, envelope) in [
+        ("x", draftwright::haecceity::step::IDENTITY, size),
+        (
+            "y",
+            [[0., 1., 0., 0.], [-1., 0., 0., 0.], [0., 0., 1., 0.]],
+            [size[1], size[0], size[2]],
+        ),
+        (
+            "z",
+            [[0., 0., 1., 0.], [0., 1., 0., 0.], [-1., 0., 0., 0.]],
+            [size[2], size[1], size[0]],
+        ),
+    ] {
+        let spec: PackSpec =
+            serde_json::from_value(json!({"ga":{"horizontal_axis":axis}})).unwrap();
+        let explicit = pack::build(&step, &spec).unwrap();
+        let ga = explicit.report.general_assembly.as_ref().unwrap();
+        assert_eq!(ga.frame, frame, "explicit {axis}");
+        assert_eq!(ga.envelope, envelope, "explicit {axis}");
+    }
 }
 
 #[test]
@@ -1602,7 +1654,7 @@ fn ga_reference_sizes_projection_and_generic_title() {
     };
     assert_eq!(camera(front).x, camera(plan).x);
     assert!((front.at[0] - plan.at[0]).abs() < 1e-8);
-    assert!(ga.envelope[0] >= ga.envelope[1] && ga.envelope[0] >= ga.envelope[2]);
+    assert_eq!(ga.envelope, [42., 30., 22.]);
     assert!(
         pack.report
             .rows

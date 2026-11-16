@@ -15,8 +15,8 @@ class Pack:
 
     Product labels match Part.name. Parts supply caller-owned in-memory PMI;
     other products draw from geometry. Supplied Parts are stated as made.
-    horizontal_axis is x, y or z (the source axis across the GA); None chooses
-    the longest axis, as ga.horizontal_axis in the pack Spec does.
+    horizontal_axis is x, y or z (the source axis across the GA); None keeps
+    source X horizontal and Z up, as ga.horizontal_axis in the pack Spec does.
     After render, findings includes pack findings and every part sheet problem
     with its part name and original severity, plus row errors with severity error.
     Rows retain their problems too.

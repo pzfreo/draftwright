@@ -360,7 +360,7 @@ See the [code-to-tier table](finding-impact.md), including its explicit severity
 
 ## Assembly drawing packs (`Pack`, 0.6.0-alpha.3)
 
-`Pack(assembly, parts=[...], title=..., number=..., horizontal_axis="x")` renders the Rust pack pipeline:
+`Pack(assembly, parts=[...], title=..., number=..., horizontal_axis=None)` renders the Rust pack pipeline:
 a GA followed by made-part sheets, with one PDF, CSV and JSON report. `assembly`
 is a build123d Compound whose leaf children are located shapes with product
 labels matching `Part.name`. Repeated instances can share one product label and
@@ -426,7 +426,7 @@ Supplied Parts
 are stated as made and do not produce `pack_make_guess`. Findings never block
 completed output. `horizontal_axis` accepts `"x"`, `"y"`, `"z"` or `None`; it is
 the source assembly axis read across the GA, identical to `ga.horizontal_axis`.
-Omitted/`None` chooses the longest axis.
+Omitted/`None` keeps the model's orientation: source X across the sheet, Z up.
 
 The Python wrapper caches assembly geometry in memory after its first render and
 transfers each Part's

@@ -39,7 +39,7 @@ pub struct BalloonSpec {
 pub struct GaSpec {
     /// None: include only when there is more than one group.
     pub include: Option<bool>,
-    /// Source axis x/y/z to read horizontally; absent chooses the longest.
+    /// Source axis x/y/z to read horizontally; absent keeps source X horizontal and Z up.
     pub horizontal_axis: Option<String>,
     /// Recover indistinguishable items with a full section and, if needed, a detail.
     pub sections: Option<bool>,
