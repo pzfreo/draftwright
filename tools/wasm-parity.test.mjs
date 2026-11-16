@@ -137,7 +137,12 @@ for (const fixture of ['plate', 'prismatic']) test(`STEP PMI incremental exports
       reopened.openSpec(savedSpec);
       fixed(addedPlan, JSON.parse(reopened.plan()));
       assert.equal(JSON.parse(reopened.plan()).sheet.fill, addedPlan.sheet.fill);
-      assert.ok(JSON.parse(reopened.plan()).problems.some(p => p.code === 'engine_pins_replanned'));
+      const retained = JSON.parse(reopened.plan());
+      assert.ok(!retained.problems.some(p => p.code === 'engine_pins_replanned'));
+      assert.ok(retained.spec.engine_pins);
+      assert.notEqual(retained.binding.source_sha256, addedPlan.binding.source_sha256);
+      assert.equal(retained.spec.engine_pins.source_sha256, retained.binding.source_sha256);
+      assert.deepEqual(retained.gdt.map(g => [g.id, g.view, g.placed]), addedPlan.gdt.map(g => [g.id, g.view, g.placed]));
     } finally { reopened.free(); }
     engine.replaceStepIncremental(name, beforeBytes, true);
     fixed(originalPlan, JSON.parse(engine.plan()));
