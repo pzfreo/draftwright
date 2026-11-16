@@ -322,6 +322,7 @@ pub fn render_model(
         ));
     }
     let analysis = with_model(part, analysis, pmi)?;
+    let _geometry = crate::engine_pins::prepare_read(part, &analysis, spec);
     let mut plan = planned(&analysis, spec)?;
     let font = Font::new(MONO.to_vec()).expect("bundled font");
     let drawings = model::render_sheets(part, &analysis, &plan, &font)

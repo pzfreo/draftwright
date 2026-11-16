@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 
 from . import _native
+from ._build123d import check_version
 
 _LETTERS = "A B C CD D E EF F FG G H JS J K M N P R S T U V X Y Z ZA ZB ZC".split()
 _FIT = re.compile(r"^(?:" + "|".join(_LETTERS + [s.lower() for s in _LETTERS])
@@ -120,9 +121,48 @@ class CylinderRef(FaceRef):
         self._part._pmi.fit(self._targets, _number(diameter), str(fit))
         return self
 
-    def thread(self, size):
-        """State an ISO metric thread; defaults to 6H internally, 6g externally."""
+    @property
+    def _thread_depth_groups(self):
+        return (self._targets,)
+
+    def thread(self, size, depth=None):
+        """ISO metric thread; depth is minimum full-thread depth in mm for holes.
+
+        Omitted depth uses the full hole. External length comes from the cylinder.
+        Classes default to 6H internally, 6g externally.
+        """
         extent = None
+        if depth is not None:
+            if not self.internal:
+                raise ValueError("external thread takes no depth; its length comes from the cylinder")
+            if isinstance(depth, (str, bool)) or not isinstance(depth, (int, float)) or not math.isfinite(depth) or depth <= 0:
+                raise ValueError("thread depth must be a finite positive number in mm")
+            from OCP.BRepAdaptor import BRepAdaptor_Surface
+            for indices in self._thread_depth_groups:
+                axes = []
+                for i in indices:
+                    face = self._part._faces[i]
+                    origin, direction = _axis(face)
+                    surface = BRepAdaptor_Surface(face.wrapped)
+                    for axis, stations in axes:
+                        point, along = axis
+                        dot = sum(a * b for a, b in zip(direction, along))
+                        offset = [a - b for a, b in zip(origin, point)]
+                        axial = sum(a * b for a, b in zip(offset, along))
+                        radial = sum((a - axial * b) ** 2 for a, b in zip(offset, along))
+                        if abs(abs(dot) - 1) < 1e-6 and radial < _TOL * _TOL:
+                            stations.extend(axial + dot * v for v in
+                                            (surface.FirstVParameter(), surface.LastVParameter()))
+                            break
+                    else:
+                        axes.append(((origin, direction),
+                                     [surface.FirstVParameter(), surface.LastVParameter()]))
+                # One hole can have several cylindrical wall faces after a cross
+                # hole or seam split. Their common-axis span is the bore's depth.
+                for _, stations in axes:
+                    if depth > max(stations) - min(stations) + _TOL:
+                        raise ValueError("thread depth exceeds the hole's depth")
+            extent = _number(depth)
         if not self.internal:
             if len(self._targets) != 1:
                 raise ValueError("external thread requires one continuous cylindrical face")
@@ -133,30 +173,39 @@ class CylinderRef(FaceRef):
         self._part._pmi.thread(self._targets, str(size), not self.internal, extent, diameters)
         return self
 
-    def knurl(self, pitch, pattern="straight", *, teeth, helix_angle=None):
+    def knurl(self, pitch, pattern="straight", *, helix_angle=None):
         """A straight or diamond knurl on an external cylinder; linear pitch in mm."""
         if self.internal:
             raise ValueError("knurl requires an external cylinder, not a hole")
         if len(self._targets) != 1:
             raise ValueError("knurl requires one continuous cylindrical face")
         _, diameter, _ = self._part._cylinders(self._targets, "knurl")
+        try:
+            pitch_value = float(pitch)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("knurl pitch must be a finite positive number in mm") from None
+        if isinstance(pitch, bool) or not math.isfinite(pitch_value) or pitch_value <= 0:
+            raise ValueError("knurl pitch must be a finite positive number in mm")
         if pattern == "straight" and helix_angle is not None:
             raise ValueError("a straight knurl takes no helix_angle")
-        if not isinstance(teeth, int) or isinstance(teeth, bool) or teeth <= 0:
-            raise ValueError("knurl teeth must be a positive integer")
         self._part._pmi.knurl(self._targets, str(pattern), _number(pitch), _number(diameter),
-                              teeth, None if helix_angle is None else _number(helix_angle))
+                              None if helix_angle is None else _number(helix_angle))
         return self
 
 
 class HoleRef(CylinderRef):
-    def __init__(self, part, faces, label, bores):
+    def __init__(self, part, faces, label, bores, bore_groups):
         super().__init__(part, faces, label, True)
         self.bores = bores  # smallest-radius cylinders of each hole
+        self._bore_groups = bore_groups
 
     @property
     def _targets(self):
         return self.bores
+
+    @property
+    def _thread_depth_groups(self):
+        return self._bore_groups
 
     def fit(self, fit):
         # Hole patterns can have several equal bores on separate axes.
@@ -186,7 +235,19 @@ class DistanceRef:
         return self
 
 
-def _bounds(nominal, plus_minus, limits):
+class AngleRef:
+    """A measured angular dimension; tolerance values are in degrees."""
+
+    def __init__(self, part, first, second, nominal):
+        self._part, self.first, self.second, self.nominal = part, first, second, nominal
+
+    def tolerance(self, *, plus_minus=None, limits=None):
+        lower, upper, is_limits = _bounds(self.nominal, plus_minus, limits, unit="degrees")
+        self._part._pmi.angular_tolerance(self.first, self.second, lower, upper, is_limits)
+        return self
+
+
+def _bounds(nominal, plus_minus, limits, *, unit="mm"):
     if (plus_minus is None) == (limits is None):
         raise ValueError("state exactly one of plus_minus or limits=(lower, upper)")
     if plus_minus is not None:
@@ -195,7 +256,7 @@ def _bounds(nominal, plus_minus, limits):
             raise ValueError("plus_minus must be finite, positive and smaller than the nominal size")
         return _number(-n), _number(n), False
     if not isinstance(limits, (tuple, list)) or len(limits) != 2:
-        raise ValueError("limits must be (lower, upper) in mm")
+        raise ValueError(f"limits must be (lower, upper) in {unit}")
     lo, hi = map(float, limits)
     if not (math.isfinite(lo) and math.isfinite(hi) and 0 <= lo < hi and lo <= nominal <= hi):
         raise ValueError("limits must be finite, 0 <= lower < upper, and contain the nominal size")
@@ -229,6 +290,7 @@ class Part:
     """
 
     def __init__(self, shape, name=None, *, number=None, title=None):
+        check_version()
         self.shape = shape
         self.name = str(name if name is not None else getattr(shape, "label", "") or "part").strip()
         if not self.name:
@@ -255,6 +317,18 @@ class Part:
 
     def general_tolerance(self, value):
         self._pmi.general_tolerance(str(value))
+        return self
+
+    def note(self, text):
+        """Append a general note, preserving call order in the notes block."""
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("note text must be a nonempty string")
+        self._pmi.note(text)
+        return self
+
+    def default_finish(self, ra):
+        """Part-wide surface texture Ra in µm, unless otherwise specified."""
+        self._pmi.finish([], _finish(ra))
         return self
 
     # ---- faces -----------------------------------------------------------
@@ -334,12 +408,33 @@ class Part:
         a, b = sorted((a, b))
         return DistanceRef(self, a, b, nominal)
 
+    def angle(self, first, second):
+        """State the measured angle between two planar faces in a principal view.
+
+        The existing PMI renderer selects the rays using each face's bounds.
+        """
+        groups = []
+        for obj in (first, second):
+            if isinstance(obj, _Ref):
+                if obj._part is not self:
+                    raise ValueError("angle reference belongs to another Part")
+                indices = obj.faces
+            else:
+                indices = sorted({i for g in self._find(obj, "angle") for i in g})
+            if len(indices) != 1 or self._faces[indices[0]].geom_type.name != "PLANE":
+                raise ValueError("angle requires one planar face at each end")
+            groups.append(indices)
+        groups.sort()
+        geometry = self._geometry()
+        nominal = geometry.angle(self._pmi, *groups)
+        return AngleRef(self, *groups, nominal)
+
     def _hole(self, obj, label, single):
         groups = self._find(obj, "hole")
         if single and len(groups) > 1:
             raise ValueError(
                 f"hole(): the object holds {len(groups)} separate holes; use holes() for several")
-        bores = []
+        bores, bore_groups = [], []
         for g in groups:
             cylinders = [i for i in g if self._faces[i].geom_type.name == "CYLINDER"]
             if not cylinders:
@@ -350,9 +445,11 @@ class Part:
                 raise ValueError(
                     "hole(): the cylindrical faces found are bosses or shafts (material inside), not holes")
             smallest = min(_radius(self._faces[i]) for i in walls)
-            bores += [i for i in walls if abs(_radius(self._faces[i]) - smallest) < _TOL]
+            bore = [i for i in walls if abs(_radius(self._faces[i]) - smallest) < _TOL]
+            bores.extend(bore)
+            bore_groups.append(bore)
         flat = self._assign(groups, label or self._auto("hole"), "hole")
-        return HoleRef(self, flat, self._last_label, bores)
+        return HoleRef(self, flat, self._last_label, bores, bore_groups)
 
     @staticmethod
     def _is_hole_wall(face):
@@ -564,7 +661,15 @@ def write_step(shape, path, names, faces, product, *, number=None, title=None, p
     # XCAF assemblies separate a child's outer placement from its product B-rep.
     # Export the identical local reference for packs; keep the original placement
     # for ordinary single-Part drawings. Intrinsic sub-face locations stay intact.
-    wrapped = shape.wrapped.Located(TopLoc_Location()) if product_local else shape.wrapped
+    reference = shape.wrapped
+    if product_local and check_version() < (0, 11, 0):
+        # build123d 0.10 wraps primitives in a Compound whose single solid has
+        # its own placement. XCAF exports that solid as the leaf product, with
+        # BOTH placements outside its B-rep. Use the same exact product frame.
+        solids = shape.solids()
+        if len(solids) == 1:
+            reference = solids[0].wrapped
+    wrapped = reference.Located(TopLoc_Location()) if product_local else reference
     writer.Transfer(wrapped, STEPControl_AsIs)
     model = writer.Model()
     for i in range(1, model.NbEntities() + 1):
@@ -576,7 +681,7 @@ def write_step(shape, path, names, faces, product, *, number=None, title=None, p
     for index, name in sorted(names.items()):
         face = faces[index].wrapped
         if product_local:
-            face = face.Moved(shape.wrapped.Location().Inverted())
+            face = face.Moved(reference.Location().Inverted())
         item = STEPConstruct.FindEntity_s(finder, face, TopLoc_Location())
         if item is None:
             raise RuntimeError(f"OCCT wrote no STEP face for the face named {name}")
@@ -610,7 +715,9 @@ class Drawing:
             title["number"] = part.number
         if sheet is not None:
             self._spec["sheet"]["size"] = sheet
-        self.problems = []
+        self._problems = None
+        self._rendered_pmi = None
+        self._rendered_layout = None
         self._scale = None
         if scale is not None:
             if isinstance(scale, str):
@@ -649,6 +756,16 @@ class Drawing:
     def spec(self):
         return json.loads(json.dumps(self._spec))
 
+    @property
+    def problems(self):
+        """Findings from the last current render; raises before render or after edits."""
+        if (self._problems is None or self._part is None
+                or self._rendered_layout != (self._spec, self._scale)
+                or not self._part._pmi.same(self._rendered_pmi)):
+            raise _native.DraftwrightError(
+                "Drawing.problems requires render() first; render again after Part PMI or layout edits")
+        return self._problems
+
     def update(self, spec_dict):
         """Deep merge a layout patch, validating the Spec schema. Lists replace whole."""
         self._spec = json.loads(_native.layout_spec(json.dumps(self._spec), json.dumps(spec_dict)))
@@ -670,15 +787,20 @@ class Drawing:
         formats = tuple(formats)
         if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
-        layout = _native.layout_spec(json.dumps(self._spec), json.dumps({} if spec is None else spec))
+        self._problems = None
+        base_spec, scale = self.spec(), self._scale
+        layout = _native.layout_spec(json.dumps(base_spec), json.dumps({} if spec is None else spec))
         part = self._part
         out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(_safe(part.name))
-        if self._scale is not None:
-            if not self._scale > 0:
+        if scale is not None:
+            if not scale > 0:
                 raise ValueError("scale must be positive")
             layout = json.loads(layout)
-            layout.setdefault("sheet", {})["scale"] = f"{self._scale:g}:1" if self._scale >= 1 else f"1:{1 / self._scale:g}"
+            layout.setdefault("sheet", {})["scale"] = f"{scale:g}:1" if scale >= 1 else f"1:{1 / scale:g}"
             layout = json.dumps(layout)
-        result = json.loads(part._geometry().render(part._pmi, layout, str(out), list(formats)))
-        self.problems = result["problems"]
+        pmi = part._pmi.snapshot()
+        result = json.loads(part._geometry().render(pmi, layout, str(out), list(formats)))
+        self._problems = result["problems"]
+        self._rendered_pmi = pmi
+        self._rendered_layout = (base_spec, scale)
         return tuple(result["written"])

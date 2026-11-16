@@ -1176,7 +1176,9 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
         textures: vec![false; model.surface_textures.len()],
     };
     records.extend(r.semantic_threads(&mut used));
-    records.extend(r.semantic_knurls(&mut used));
+    // Caller pitch is explicitly linear. Imported AP242's ambiguous diametral pitch
+    // still needs its existing count confirmation; do not alter imported ink.
+    records.extend(r.semantic_knurls(&mut used, false));
     records.extend(r.semantic_textures(&mut used));
     for general in &model.general {
         let GeneralTolerance::Class { text, .. } = general else {
@@ -1195,6 +1197,26 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
         records.push(item);
     }
     for attribute in &model.attributes {
+        if attribute.name == "semantic text" && attribute.on.is_none() {
+            let mut item = r.record(
+                Category::ManufacturingRequirement,
+                0,
+                &[],
+                Support::default(),
+                vec![],
+            );
+            item.kind = "general_note".into();
+            for (key, value) in &attribute.items {
+                match (key.as_str(), value) {
+                    ("general note", AttributeValue::Text(text)) => item.label = text.clone(),
+                    ("note index", AttributeValue::Integer(index)) => item
+                        .fields
+                        .push(("note index".into(), Field::Text(index.to_string()))),
+                    _ => {}
+                }
+            }
+            records.push(item);
+        }
         if attribute.name == "manufacturing process" && attribute.on.is_none() {
             let mut item = r.record(
                 Category::ManufacturingRequirement,
@@ -1657,7 +1679,7 @@ impl PartReader<'_> {
             knurls: vec![false; self.pmi.knurls.len()],
             textures: vec![false; self.pmi.surface_textures.len()],
         };
-        for r in self.semantic_knurls(&mut used) {
+        for r in self.semantic_knurls(&mut used, true) {
             self.keep(r, records, sources);
         }
         for r in self.semantic_threads(&mut used) {
@@ -1773,7 +1795,7 @@ impl PartReader<'_> {
     // diameter after knurling and its diametral pitch, the circular pitch specify-core writes,
     // as draftwright's linear pitch, but only where its number of teeth confirms that reading
     // (π·major diameter / pitch within one tooth of it); otherwise the record is not lowered.
-    fn semantic_knurls(&self, used: &mut Used) -> Vec<Record> {
+    fn semantic_knurls(&self, used: &mut Used, confirm_pitch: bool) -> Vec<Record> {
         let mut out = Vec::new();
         for (index, k) in self.pmi.knurls.iter().enumerate() {
             let pattern = match k.pattern {
@@ -1805,6 +1827,7 @@ impl PartReader<'_> {
             ];
             let teeth = std::f64::consts::PI * diameter / pitch;
             match k.number_of_teeth {
+                _ if !confirm_pitch => {}
                 Some(n) if (teeth - f64::from(n.0)).abs() <= 1.0 => {}
                 Some(n) => r.blockers.push(format!(
                     "turned knurl pitch {pitch} and tooth count {} disagree: \

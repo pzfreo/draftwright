@@ -92,7 +92,10 @@ class PackAPI(unittest.TestCase):
         self.assertEqual({row["part_number"] for row in pack.rows}, {"DWG-101", "DWG-102"})
         report = json.loads((self.directory / "enclosure.json").read_text())
         self.assertEqual(pack.rows, report["rows"])
-        self.assertEqual(pack.findings, report["findings"])
+        self.assertEqual(pack.report, report)
+        self.assertEqual(pack.findings[:len(report["findings"])], report["findings"])
+        self.assertEqual(len(pack.findings), len(report["findings"]) +
+                         sum(len(row["problems"]) for row in report["rows"]))
         self.assertEqual(len((self.directory / "enclosure.csv").read_text().splitlines()), 3)
         for i, page in enumerate(pdf.pages):
             text = page.extract_text()
@@ -288,6 +291,11 @@ class PackAPI(unittest.TestCase):
         failed = next(r for r in pack.rows if r["key"] == "one")
         self.assertIn("reference geometry differs", failed["error"]["message"])
         self.assertFalse(failed["sheets"])
+        self.assertTrue(any(f.get("part") == "one" and f["severity"] == "error"
+                            and f["code"] == failed["error"]["code"]
+                            and failed["error"]["message"] in f["message"]
+                            for f in pack.findings))
+        self.assertEqual(pack.report, json.loads((self.directory / "failed.json").read_text()))
         self.assertTrue(next(r for r in pack.rows if r["key"] == "two")["sheets"])
         geometry = draftwright.Pack(assembly)
         geometry.part("two").title(revision="D")

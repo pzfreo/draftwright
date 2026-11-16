@@ -4,6 +4,8 @@ Install the platform wheel (Python 3.9 or newer; Rust is not required):
 
 ```sh
 pip install --pre draftwright
+# Optional shape/assembly API:
+pip install --pre "draftwright[build123d]"
 ```
 
 ```python
@@ -12,6 +14,15 @@ from draftwright import make_drawing, DraftwrightError
 
 svg_path, dxf_path = make_drawing(Path("part.step"), out="drawing", title="Bracket")
 ```
+
+Shape and assembly use requires build123d >=0.10. The Python suite is tested
+against build123d 0.10.0 and 0.13.0 (Python 3.12); these are the tested endpoints,
+not a claim about later versions. Older installed versions raise `DraftwrightError`
+on first shape use, naming the required and found versions. STEP-only use needs
+no build123d installation.
+
+With build123d 0.10, pin `ocp-gordon<0.3` (tested with 0.1.17 and 0.2.2):
+ocp-gordon 0.3.1 imports `OCP.collections`, absent from 0.10's OCCT 7.8.
 
 **The return value is `(svg_path, dxf_path)`, both strings, as in 0.4.** The DXF is
 editable in CAD: native text, live dimensions, blocks and title-block attributes. For PDF
@@ -70,6 +81,8 @@ Rust. Unknown keywords raise Python's normal `TypeError`.
 
 ## Requirements and drawings from build123d (`Part`, 0.6.0-alpha.2)
 
+For a task-by-task introduction, see [Drawings from build123d](build123d.md).
+
 State requirements where you build the faces. `Part` owns an in-memory
 `haecceity::pmi::PartPmi`, the same semantic model the engine reads from AP242.
 Drawing lowers that model directly; requirements never go into the drawing Spec.
@@ -110,10 +123,13 @@ The mapping uses haecceity's native types:
 
 | Part call | In-memory semantic PMI |
 | --- | --- |
+| `note(text)` | One `semantic text` general-note `AttributeSet` per call, with a one-based note index |
+| `default_finish(3.2)` | `SurfaceTexture` with no face owner, Ra in µm |
+| `angle(first, second)` | Angular location `Dimension` with two face references and a measured nominal in degrees |
 | `datum(letter, face)` | `Datum` on a face-anchored `Feature` |
 | `hole(...).fit("H7")` | Diameter `Dimension` with ISO 286 `DimTolerance::Fit` |
 | `shaft(...).fit("h6")` / `cylinder(boss).fit("g6")` | External diameter `Dimension` with ISO 286 `DimTolerance::Fit` |
-| `hole(...).thread("M3x0.5-6H")` / `shaft(...).thread("M10x1.5-6g")` | Internal/external `Thread` plus its `thread manufacturing` pitch attribute |
+| `hole(...).thread("M3x0.5-6H", depth=6)` / `shaft(...).thread("M10x1.5-6g")` | Internal/external `Thread` plus its feature-owned `thread manufacturing` pitch and minimum full-thread/length attributes |
 | `cylinder(...).diameter(plus_minus=0.02)` / `.diameter(limits=(9.98, 10.04))` | Diameter `Dimension` with `DimTolerance::Deviations` / `Limits`; also on `hole`, `shaft` and cylindrical `face` refs |
 | `distance(face1, face2).tolerance(plus_minus=0.03)` / `.tolerance(limits=(29.98, 30.04))` | `DimensionKind::Location` (`LinearDistance`) with deviations / limits |
 | `holes(...).position(0.1, A, B, C)` | `GeometricTolerance::Position`, cylindrical zone and ordered `DatumSystem` |
@@ -123,7 +139,7 @@ The mapping uses haecceity's native types:
 | `shaft(...).circular_runout(0.03, A)` / `.total_runout(0.04, A)` | `GeometricTolerance::CircularRunout` / `TotalRunout` |
 | `face(...).profile_surface(0.05, A)` | `GeometricTolerance::SurfaceProfile`; datums optional |
 | `shaft(...).concentricity(0.02, A)` | `GeometricTolerance::Concentricity`, cylindrical zone |
-| `shaft(...).knurl(0.8, "straight", teeth=39)` | Native `Knurl` with pitch, maximum diameter and tooth count; also `"diamond"` with `helix_angle=` |
+| `shaft(...).knurl(0.8, "straight")` | Native `Knurl` with pitch, maximum diameter and tooth count; also `"diamond"` with `helix_angle=` |
 | `face(...).finish(1.6)` / `hole(...).finish(1.6)` | `SurfaceTexture` with Ra in micrometres |
 | `material(text)` | `Material` |
 | `general_tolerance(text)` | `GeneralTolerance::Class` with the stated text |
@@ -193,8 +209,8 @@ axis in a cylindrical `⌀` zone; on a plane they use a two-planes zone.
 
 Straight and diamond knurls draw the engine's manufacturing suffix and depiction.
 Pitch is linear mm, and the measured diameter is the maximum diameter after
-knurling. `teeth=` must agree with π × diameter / pitch within one tooth; no tooth
-count is invented. Diamond requires `helix_angle=` in degrees (0 < angle < 90),
+knurling. The tooth count is derived as `round(π * diameter / pitch)` for the AP242 record.
+The callout still states pattern and pitch. Diamond requires `helix_angle=` in degrees (0 < angle < 90),
 which native PMI retains; the current drawing prints the pattern and pitch, not
 that angle. A straight knurl refuses `helix_angle`. Diagonal knurls are refused
 because the engine does not lower them.
@@ -245,7 +261,7 @@ for kind in ("shaft_fit", "thread", "diameter_pm", "diameter_limits",
                else {"limits": (29.98, 30.04)}))
     elif kind.endswith("knurl"):
         pattern = kind.split("_")[0]
-        shaft.knurl(0.8, pattern, teeth=39,
+        shaft.knurl(0.8, pattern,
                     **({"helix_angle": 30} if pattern == "diamond" else {}))
     elif kind == "cylindricity":
         shaft.cylindricity(0.02)
@@ -255,6 +271,33 @@ for kind in ("shaft_fit", "thread", "diameter_pm", "diameter_limits",
         getattr(shaft, kind)(0.03, A)
     p.drawing(sheet="A3").render(out / kind, formats=("svg",))
 ```
+
+General notes retain call order and use the ordinary PMI notes block. Repeated
+`default_finish` calls replace the part-wide default; face finishes remain separate:
+
+```python
+p.note("Visible surfaces: clean satin finish, no lacquer.")
+p.note("DEBURR").default_finish(3.2)  # Ra in µm, unless otherwise specified
+p.hole(tap_drill).thread("M6", depth=12)  # minimum FULL-THREAD depth in mm
+p.shaft(knob).knurl(0.8)  # straight; tooth count derived from diameter and pitch
+p.angle(bottom_face, bevel_face).tolerance(plus_minus=0.5)  # degrees
+```
+
+`thread(size, depth=None)` uses the whole hole when depth is omitted. A numeric
+depth is a finite positive minimum full-thread depth, as Specify's `tapped:M6@12`;
+it cannot exceed any selected bore's depth. It prints `M6-6H ↧ 12` above the drill
+line, for example `⌀5 ↧ 18`. A partially tapped through bore is never labelled as
+tapped through. External threads refuse `depth`; their length comes from the
+cylinder. The native AP242 Thread schema has no length member: both external
+length and internal minimum full-thread depth use the existing feature-owned
+`thread manufacturing` attribute set read by haecceity, alongside that Thread.
+
+`angle(a, b)` takes two planar faces (or face/datum handles) whose selected rays
+lie in a principal view. It measures using the engine's PMI angular geometry;
+parallel/coincident faces and angles oblique to every principal view are refused.
+The existing imported-PMI angle renderer draws the result.
+The returned handle accepts `.tolerance(plus_minus=0.5)` or
+`.tolerance(limits=(24.5, 25.5))`, in degrees, using native angular dimension bounds.
 
 `export_step(path)` writes **plain geometry**, product metadata and referenced face
 names. It does not write PMI or sidecars. Its return value is `{"step": Path,
@@ -308,13 +351,16 @@ layout edits.
 selects any distinct subset and returns a tuple of **all** written paths, in format
 order. SVG, PNG and DXF have one file per sheet (`name.sheet2.svg`, etc.); PDF is
 one document containing every sheet. PNG uses the engine's default resolution.
-`drawing.problems` contains the most recent successful render's findings. Every dictionary
+`drawing.problems` contains the current successful render's findings. It raises
+`DraftwrightError` before `render()` or after Part PMI/layout edits, until rendered again;
+Drawing plans during render, so reading findings never silently starts a render.
+Every dictionary
 includes the engine-owned `tier`: `fix_before_printing`, `tidy`, or `information`.
 See the [code-to-tier table](finding-impact.md), including its explicit severity-dependent rules.
 
 ## Assembly drawing packs (`Pack`, 0.6.0-alpha.3)
 
-`Pack(assembly, parts=[...], title=..., number=...)` renders the Rust pack pipeline:
+`Pack(assembly, parts=[...], title=..., number=..., horizontal_axis="x")` renders the Rust pack pipeline:
 a GA followed by made-part sheets, with one PDF, CSV and JSON report. `assembly`
 is a build123d Compound whose leaf children are located shapes with product
 labels matching `Part.name`. Repeated instances can share one product label and
@@ -355,21 +401,32 @@ lid = Part(lid_shape, "lid", number="DWG-102", title="Enclosure lid")
 lid.process("machined").material("6082-T6")
 
 assembly = Compound(children=[base_shape, lid_shape])
-pack = Pack(assembly, parts=[base, lid], title="Enclosure", number="ASM-100")
+pack = Pack(assembly, parts=[base, lid], title="Enclosure", number="ASM-100",
+            horizontal_axis="x")
 pack.title(drawn_by="PA", date="2026-11-15", revision="B")
 pack.part("lid").update({"sheet": {"title": {"revision": "C"}}})
 written = pack.render("enclosure", formats=("pdf", "csv", "json"))
 print(written)
-print(pack.rows, pack.findings)
+print(pack.rows)
+for finding in pack.findings:
+    print(finding.get("part", "GA/pack"), finding["severity"], finding["message"])
 ```
 
 `render(out, formats=("pdf", "csv", "json"))` returns every written path, in format
 order. `out` is a stem (`"enclosure"` produces `enclosure.pdf`, `.csv`, `.json`).
-`pack.rows` and `pack.findings` are dictionaries from the latest successful Rust
-report; `pack.report` also includes the page count and GA details. Row `problems`
+`pack.rows` contains the latest successful Rust report’s rows. `pack.findings` is
+a Python convenience list combining the report’s findings and each row’s problems.
+`pack.report` and the exported JSON retain the native report, including page count
+and GA details; they do not repeat row problems in their findings. Row `problems`
 and `error` retain individual failures. Caller-owned material and process are
-marked `"pmi"` in row `sources`, independently of drawing Spec intent. Findings
-never block completed output.
+marked `"pmi"` in row `sources`, independently of drawing Spec intent. Each part-sheet problem also appears in `pack.findings`, with `part` naming
+its part and the original `severity`; rows retain their problems. A row
+with an `error` also produces a finding with its `part` name and `severity="error"`.
+Supplied Parts
+are stated as made and do not produce `pack_make_guess`. Findings never block
+completed output. `horizontal_axis` accepts `"x"`, `"y"`, `"z"` or `None`; it is
+the source assembly axis read across the GA, identical to `ga.horizontal_axis`.
+Omitted/`None` chooses the longest axis.
 
 The Python wrapper caches assembly geometry in memory after its first render and
 transfers each Part's
@@ -381,7 +438,9 @@ same shapes, preserving product-local frames. A STEP path with supplied Parts
 must preserve that same geometry; a mismatch remains a row error and the other
 sheets render. A cheap signature of leaf labels, placements and wrapped shapes
 invalidates the assembly export after geometry, placement or child-list edits.
-PMI and layout edits remain live. No temporary files or PMI sidecars are created.
+PMI and layout edits remain live. Assembly STEP export uses a temporary file for build123d 0.10 compatibility;
+the file and its directory are removed after reading, including on failure. No
+PMI sidecars are created.
 
 ## Commands and interrupts
 

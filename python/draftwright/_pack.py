@@ -1,22 +1,31 @@
 """Assembly drawing packs through the Rust pack pipeline; requirements stay native."""
 import copy
-import io
 import json
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from . import _native
 from ._part import Part, Drawing
+from ._build123d import check_version
 
 
 class Pack:
     """A placed build123d assembly, STEP path, or sequence of Parts.
 
     Product labels match Part.name. Parts supply caller-owned in-memory PMI;
-    other products draw from geometry. Findings never prevent output.
+    other products draw from geometry. Supplied Parts are stated as made.
+    horizontal_axis is x, y or z (the source axis across the GA); None chooses
+    the longest axis, as ga.horizontal_axis in the pack Spec does.
+    After render, findings includes pack findings and every part sheet problem
+    with its part name and original severity, plus row errors with severity error.
+    Rows retain their problems too.
+    Findings never prevent output.
     """
 
-    def __init__(self, assembly, *, parts=(), title=None, number=None):
+    def __init__(self, assembly, *, parts=(), title=None, number=None, horizontal_axis=None):
+        if horizontal_axis is not None and horizontal_axis not in ("x", "y", "z"):
+            raise ValueError("horizontal_axis must be x, y or z, or None")
         if isinstance(parts, (str, bytes)):
             raise TypeError("parts must be a sequence of Part objects")
         parts = tuple(parts)
@@ -29,6 +38,7 @@ class Pack:
         elif not isinstance(assembly, (str, os.PathLike)):
             if not hasattr(assembly, "children") or not assembly.children:
                 raise TypeError("assembly must be a build123d Compound with children, a STEP path, or a list of Parts")
+            check_version()
         if any(not isinstance(p, Part) for p in parts):
             raise TypeError("parts must contain only Part objects")
         if len({p.name for p in parts}) != len(parts):
@@ -37,6 +47,7 @@ class Pack:
             if value is not None and not isinstance(value, str):
                 raise TypeError(f"{field} must be a string or None")
         self._assembly = assembly
+        self.horizontal_axis = horizontal_axis
         self._assembly_step = None
         self._assembly_signature = None
         self._parts = {p.name: p for p in parts}
@@ -122,20 +133,52 @@ class Pack:
         signature = self._signature()
         if self._assembly_step is not None and self._assembly_signature == signature:
             return self._assembly_step
+        check_version()
         from build123d import Compound, export_step
         names = self._product_names()
         missing = set(self._parts) - names
         if missing:
             raise ValueError(f"Parts have no matching assembly product: {', '.join(sorted(missing))}")
         assembly = self._assembly
+        copied_shapes = []
+
+        def clone(node):
+            if not node.children:
+                # Copy geometry in its product frame. Copying a placed B-rep
+                # rounds tiny local vertices when the translation is baked in
+                # and removed, breaking exact binding to the caller's Part.
+                from OCP.TopLoc import TopLoc_Location
+                local = copy.copy(node)
+                local.wrapped = node.wrapped.Located(TopLoc_Location())
+                result = copy.deepcopy(local)
+                result.wrapped.Location(node.wrapped.Location())
+                # Repeated placed instances must still share a definition in
+                # XCAF. Share the private copy, never the caller's TShape.
+                for original, copied in copied_shapes:
+                    if node.wrapped.IsPartner(original):
+                        result.wrapped.TShape(copied.TShape())
+                        break
+                else:
+                    copied_shapes.append((node.wrapped, result.wrapped))
+                return result
+            # Rebuild wrappers from their copied children: copying a whole
+            # Compound separately breaks XCAF's exact shape-to-label lookup.
+            result = Compound(children=[clone(child) for child in node.children])
+            result.label = node.label
+            result.location = node.location
+            return result
+
         if isinstance(assembly, (list, tuple)):
             children = []
             for part in self._parts.values():
-                shape = copy.copy(part.shape)
+                # OCCT 7.8's XCAF transfer can repair shared TShapes in place.
+                # A shallow copy would invalidate the caller's retained faces.
+                shape = clone(part.shape)
                 shape.label = part.name
                 children.append(shape)
             assembly = Compound(children=children)
-        stream = io.BytesIO()
+        else:
+            assembly = clone(assembly)
         original_label = assembly.label
         try:
             # The STEP reader names a sole product after its assembly wrapper.
@@ -143,13 +186,17 @@ class Pack:
             # list mode, without changing the caller's assembly after export.
             if len(names) == 1:
                 assembly.label = next(iter(names))
-            export_step(assembly, stream)
+            with TemporaryDirectory(prefix="draftwright-pack-") as temporary:
+                path = Path(temporary) / "assembly.step"
+                if not export_step(assembly, path):
+                    raise _native.DraftwrightError("build123d could not export the assembly to STEP")
+                data = path.read_bytes()
         except (RuntimeError, ValueError) as error:
             raise _native.DraftwrightError(str(error)) from error
         finally:
             assembly.label = original_label
         self._assembly_signature = signature
-        self._assembly_step = "assembly.step", stream.getvalue()
+        self._assembly_step = "assembly.step", data
         return self._assembly_step
 
     def render(self, out="pack", *, formats=("pdf", "csv", "json")):
@@ -162,6 +209,8 @@ class Pack:
         name, data = self._step()
         spec = {"title": self._defaults, "ga": {"drawing": self._ga.spec()},
                 "parts": {key: {"drawing": drawing.spec()} for key, drawing in self._drawings.items()}}
+        if self.horizontal_axis is not None:
+            spec["ga"]["horizontal_axis"] = self.horizontal_axis
         # Authored Parts are made products, even if their names resemble stock.
         for key in self._parts:
             spec["parts"][key]["supply"] = "make"
@@ -169,5 +218,20 @@ class Pack:
         result = json.loads(_native.render_pack(data, name, json.dumps(spec), products,
                                                os.fsdecode(os.fspath(out)), list(formats)))
         self.report = result["report"]
-        self.rows, self.findings = self.report["rows"], self.report["findings"]
+        self.rows = self.report["rows"]
+        # The native report/JSON is shared with the CLI and MCP. Only this
+        # Python convenience property includes the individual sheet problems.
+        self.findings = list(self.report["findings"])
+        for row in self.rows:
+            name = row.get("name") or row["key"]
+            if row.get("error"):
+                error = row["error"]
+                self.findings.append({"code": error["code"], "severity": "error",
+                                      "part": name, "products": row["products"],
+                                      "message": (error["message"] if error["message"].startswith(f"{name}:")
+                                                  else f"{name}: {error['message']}")})
+            self.findings.extend({"code": problem["code"], "severity": problem["severity"],
+                                  "part": name, "products": row["products"],
+                                  "message": f"{name}: {problem['message']}"}
+                                 for problem in row["problems"])
         return tuple(result["written"])

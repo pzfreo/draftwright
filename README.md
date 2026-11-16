@@ -119,7 +119,7 @@ part = Part(Box(120, 80, 20), "plate", title="Mounting plate")
 svg, dxf = part.drawing(sheet="A3").render("plate")
 ```
 
-Install build123d separately for shapes and `Part`. See the [Python guide](docs/python.md)
+Install build123d separately for shapes and `Part`. Start with [Drawings from build123d](docs/build123d.md), then the [Python guide](docs/python.md)
 for requirements, layout edits and the parts of the build123d API still being completed.
 
 Moving from 0.4: see [Python migration](docs/python.md#migrating-from-python-0-4) and [CLI migration](docs/cli-migration.md).
@@ -159,11 +159,17 @@ The Spec is the steering surface: an agent inspects the drawing and findings, ch
 or edits by item ID, then renders and reviews again. Requirements belong in STEP; the Spec
 controls the drawing.
 
+Two agent skills ship in [`skills/`](skills/): **[draftwright-step](skills/draftwright-step/SKILL.md)**
+for any STEP file, as a basic drawing or with requirements written by Specify, and
+**[draftwright-build123d](skills/draftwright-build123d/SKILL.md)** for build123d scripts. For Claude
+Code, copy a folder to `.claude/skills/` in your project or to `~/.claude/skills/`.
+
 ## Documentation
 
 - [Engine guide](docs/engine.md): building, the full command line, what is and isn't supported,
   known limitations, checking a change
 - [Model and Spec reference](docs/model.md): the Analysis, Spec and Plan, and every setting
+- [Drawings from build123d: support and how-to](docs/build123d.md)
 - [Python API and migration](docs/python.md)
 - [MCP and agents](docs/mcp.md)
 - [Browser / WASM package](docs/wasm.md)

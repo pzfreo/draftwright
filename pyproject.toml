@@ -22,6 +22,9 @@ classifiers = [
 draftwright = "draftwright._cli:main"
 draftwright-mcp = "draftwright._cli:mcp"
 
+[project.optional-dependencies]
+build123d = ["build123d>=0.10"]
+
 [project.urls]
 Homepage = "https://draftwright.io"
 Repository = "https://github.com/pzfreo/draftwright"
