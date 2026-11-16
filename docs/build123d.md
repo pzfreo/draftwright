@@ -28,11 +28,6 @@ Not yet available:
 - Diagonal knurls.
 - Distances between faces that are not normal to X, Y or Z, and angles that do not lie in a principal view.
 
-**CadQuery:** CadQuery and build123d cannot be installed in the same environment
-(their OCP builds conflict), so `Part` is build123d only. A CadQuery model can still
-be drawn from its STEP file: `cq.exporters.export(model, "part.step")`, then
-`make_drawing("part.step")`.
-
 ## Install
 
 ```sh
