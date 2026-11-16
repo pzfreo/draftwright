@@ -1,32 +1,17 @@
 # Drawings from build123d
 
+<p align="center">
+  <img src="images/build123d-pack-ga.png" alt="General assembly sheet of a motorcycle shock absorber: front and side views, section A–A, an isometric view, item balloons and a ten-line parts list" width="100%">
+  <br>
+  <sub>The general-assembly sheet from a ten-part drawing pack of a text-to-CAD shock absorber,
+  made by <code>Pack("motorcycle-shock-absorber.step", ...)</code> with no other input.</sub>
+</p>
+
 Draftwright turns a build123d part into a manufacturing drawing: views, dimensions,
 hole and thread callouts, GD&T frames, surface finish, notes and a title block. You
-state the requirements in the same script that builds the faces; the engine works out
-the layout. This page covers what is supported and how to use it. The
+state requirements in the same script that builds the faces; the engine does the
+layout. This page builds one part up in three steps, then covers assemblies. The
 [Python reference](python.md) has every call, argument and error in detail.
-
-## What is supported
-
-| Area | Status (0.6.0 alpha) |
-| --- | --- |
-| build123d versions | 0.10 and later; tested on 0.10.0 and 0.13.0 with Python 3.12. With 0.10, also pin `ocp-gordon<0.3`. |
-| Drawing a shape | Any build123d `Shape`: `make_drawing(shape)` or `Part(shape, ...).drawing()` |
-| Part details | process, material, general tolerance, notes, default surface finish |
-| Sizes | hole and shaft fits (ISO 286), ± and limit tolerances on diameters, distances between parallel faces, angles between faces |
-| Threads | metric internal and external (`M6`, `M10x1.5-6g`), with an optional minimum full-thread depth for tapped holes |
-| GD&T | datums; position, flatness, perpendicularity, parallelism, cylindricity, circular and total runout, surface profile, concentricity |
-| Other | surface finish (Ra) per face; straight and diamond knurls |
-| Layout | sheet size, scale, units, shaded views, omitted views, sections, title block, any [Spec](model.md) layout setting |
-| Assemblies | `Pack`: a general-arrangement sheet plus a sheet for each made part, with a BOM as CSV/JSON |
-| Output | SVG, PDF, PNG and editable DXF |
-
-Not yet available:
-
-- Writing the requirements into an AP242 STEP file. `export_step()` writes geometry only.
-- Chamfer requirements. Modelled chamfers are still recognised and dimensioned.
-- Diagonal knurls.
-- Distances between faces that are not normal to X, Y or Z, and angles that do not lie in a principal view.
 
 ## Install
 
@@ -36,127 +21,147 @@ pip install --pre "draftwright[build123d]"
 uv run --with draftwright --prerelease=allow --with build123d script.py
 ```
 
-Draftwright does not import build123d until you hand it a shape, so STEP-only
-scripts do not need build123d at all.
+build123d 0.10 or later is required; 0.10.0 and 0.13.0 are tested, on Python 3.12.
+With 0.10, also install `ocp-gordon<0.3`.
 
-## How to
-
-### Draw a part with no requirements
-
-```python
-from build123d import Box
-from draftwright import make_drawing
-
-svg, dxf = make_drawing(Box(100, 60, 12), out="block", title="Spacer block")
-```
-
-The engine recognises holes, pockets, slots, steps and chamfers, then chooses the
-views, scale, sheet and dimensions. This is the quickest way to see what it makes
-of your geometry.
-
-### State requirements on the faces you modelled
-
-Wrap the part in a `Part` and keep hold of the build123d objects you will refer to.
-A hole object, a face, a list of faces or the cutting shape all work; Draftwright
-matches them to the part's own faces.
+All three steps use this bracket:
 
 ```python
 from build123d import *
-from draftwright import Part
+from draftwright import make_drawing, Part
 
 with BuildPart() as bracket:
     Box(100, 60, 12)
     with Locations((0, 0, 6)):
         bore = CounterBoreHole(radius=8, counter_bore_radius=12, counter_bore_depth=4)
     with GridLocations(76, 36, 2, 2):
-        tapped = Hole(radius=2.5)   # Ø5.0, the M6 tap drill
-
-p = Part(bracket.part, "bracket", number="DWG-210", title="Motor bracket")
-p.process("machined").material("6082-T6").general_tolerance("ISO 2768-mK")
-p.note("Break all sharp edges 0.2 max.").default_finish(3.2)
-
-A = p.datum("A", bracket.faces().sort_by(Axis.Z)[0])
-B = p.datum("B", bracket.faces().sort_by(Axis.X)[0])
-C = p.datum("C", bracket.faces().sort_by(Axis.Y)[0])
-
-bearing = p.hole(bore).fit("H7").finish(1.6).position(0.05, A, B, C)
-p.holes(tapped).thread("M6", depth=8).position(0.2, A, B, C)
-p.face(bracket.faces().sort_by(Axis.Z)[-1]).flatness(0.05)
+        tapped = Hole(radius=2.5)          # Ø5.0, the M6 tap drill
 ```
 
-Points to know:
-
-- Calls chain and return a handle you can keep (`bearing` above) for sections and
-  further requirements. Repeating a call on the same faces replaces the earlier value.
-- `hole()` takes one hole; `holes()` takes a group and prints `4×`.
-- `thread("M6", depth=8)` sets the minimum full-thread depth and prints
-  `M6-6H ↧ 8`. Leave out `depth` to thread the whole hole. The pitch and class
-  default to ISO coarse and `6H`/`6g`.
-- A datum must be declared before it is used, and a control cannot use a datum on
-  its own faces.
-- Mistakes raise at the call, not at render time: an unknown fit class, a thread
-  that does not match the drill, or a face that is not part of the part.
-
-### Render and check the result
+## Step 1: a drawing from the shape alone
 
 ```python
+svg, dxf = make_drawing(bracket.part, out="step1", title="Motor bracket")
+```
+
+![Step 1: the bracket drawn from geometry alone](images/build123d-step1.png)
+
+With nothing but the shape, the engine recognises the counterbore and the hole
+pattern, then chooses views, a section, scale, sheet and dimensions. Every size is
+measured; nothing says how accurate it must be. The DXF opens in CAD with live
+dimensions.
+
+## Step 2: state the sizes that matter
+
+Wrap the shape in a `Part` and state what the shop must hold. Refer to the faces by
+the build123d objects you modelled: a hole, a face, a list of faces or the cutting
+shape.
+
+```python
+p = Part(bracket.part, "bracket", number="DWG-210", title="Motor bracket")
+p.process("machined").material("6082-T6").general_tolerance("ISO 2768-mK")
+
+bearing = p.hole(bore).fit("H7")            # keep the handle for step 3
+p.holes(tapped).thread("M6", depth=8)       # minimum full-thread depth
+ends = bracket.faces().sort_by(Axis.X)
+p.distance(ends[0], ends[-1]).tolerance(plus_minus=0.1)
+
 dwg = p.drawing(sheet="A3")
+svg, pdf = dwg.render("step2", formats=("svg", "pdf"))
+```
+
+![Step 2: fit, thread and toleranced length added](images/build123d-step2.png)
+
+The bore now reads `⌀16 H7`, the four holes `4× M6-6H ↧ 8` over their `⌀5` drill, and
+the length `100 ±0.1`. Material, general tolerance and process fill the title block
+and notes. Other size calls:
+
+| Call | Prints |
+| --- | --- |
+| `hole(h).fit("H7")`, `shaft(face).fit("h6")` | ISO 286 fit |
+| `cylinder(face).diameter(plus_minus=0.02)` or `limits=(9.98, 10.04)` | toleranced diameter |
+| `distance(face1, face2).tolerance(...)` | toleranced length between parallel faces |
+| `angle(face1, face2).tolerance(plus_minus=0.5)` | toleranced angle, in degrees |
+| `hole(h).thread("M6", depth=12)`, `shaft(face).thread("M10x1.5-6g")` | metric thread; coarse pitch and `6H`/`6g` by default |
+| `shaft(face).knurl(0.8, "straight")` | knurl, with the tooth count derived from diameter and pitch |
+
+`hole()` takes one hole and `holes()` a group. Calls chain, and repeating a call on
+the same faces replaces it. Mistakes raise at the call: an unknown fit class, a
+thread that does not suit the drill, a face that is not on the part.
+
+## Step 3: datums, GD&T and surface finish
+
+Continue with the same `Part` and drawing:
+
+```python
+A = p.datum("A", bracket.faces().sort_by(Axis.Z)[0])
+B = p.datum("B", ends[0])
+C = p.datum("C", bracket.faces().sort_by(Axis.Y)[0])
+
+bearing.position(0.05, A, B, C).finish(1.6)
+p.holes(tapped).position(0.2, A, B, C)
+p.face(bracket.faces().sort_by(Axis.Z)[-1]).flatness(0.05)
+p.note("Break all sharp edges 0.2 max.").default_finish(3.2)
+
 dwg.title(drawn_by="PA", date="2026-11-16", revision="A")
-svg, pdf = dwg.render("bracket", formats=("svg", "pdf"))
+svg, pdf = dwg.render("step3", formats=("svg", "pdf"))
 
 for f in dwg.problems:
     print(f["tier"], f["code"], f["message"])
 ```
 
-![The motor bracket drawn on A3](images/build123d-guide-bracket.png)
+![Step 3: datums, position and flatness frames, surface finish and notes](images/build123d-step3.png)
 
-`dwg.problems` lists what the engine could not state cleanly. Each finding has a
-`tier`:
+The datum symbols, position and flatness frames, the bore's Ra 1.6 and the
+default Ra 3.2 are added, and the note joins the notes table. To make room, the
+engine moved from 1:1 to 1:2 on the same A3 sheet; `problems` reports that as
+`layout_replanned`.
 
-- `fix_before_printing`: the drawing is wrong or ambiguous. Fix it.
-- `tidy`: readable, but crowded or crossing. Worth a look.
+Also available: `perpendicularity`, `parallelism`, `cylindricity`,
+`circular_runout`, `total_runout`, `profile_surface` and `concentricity`. Declare a
+datum before using it; a control cannot reference a datum on its own faces.
+
+`dwg.problems` lists what the engine could not state cleanly, each with a `tier`:
+
+- `fix_before_printing`: wrong or ambiguous. Fix it before the drawing is used.
+- `tidy`: readable but crowded or crossing. Worth a look.
 - `information`: context, such as why the scale changed.
 
-Read `problems` only after `render()`. Changing the Part or the layout clears it
-until you render again.
+Read `problems` after `render()`. Changing the Part or the layout clears it until
+you render again.
 
-### Change the layout
+## Changing the layout
 
-Layout is set on the drawing, never on the Part:
+Layout belongs to the drawing, never the Part:
 
 ```python
-dwg = p.drawing(sheet="A3", scale=0.5, units="mm").views(shaded=True)
-dwg.section("A-A", through=bearing)                # the handle from p.hole(...)
+dwg = p.drawing(sheet="A2", scale=1).views(shaded=True)
+dwg.section("A-A", through=bearing)                # a handle from a Part call
 dwg.update({"sheet": {"zones": False}})            # any Spec setting
-dwg.render("bracket-review", formats=("pdf",), spec={"sheet": {"title": {"revision": "B"}}})
+dwg.render("review", formats=("pdf",), spec={"sheet": {"title": {"revision": "B"}}})
 ```
 
-`update()` takes any setting from the [Spec](model.md) and checks it against the
-schema. Requirements such as material, fits and GD&T are refused there, with a
-pointer to the matching Part call, so each fact has one home.
+`update()` accepts any [Spec](model.md) setting and checks it against the schema.
+Requirements such as material, fits and GD&T are refused there, with a pointer to
+the matching Part call, so each fact has one home.
 
-### Turned parts: shafts, threads and knurls
+## Assemblies
 
-With faces selected from your turned model:
-
-```python
-shaft = p.shaft(journal_face)
-shaft.fit("h6")                        # or .diameter(plus_minus=0.02)
-p.shaft(end_face).thread("M10x1.5-6g")
-p.shaft(grip_face).knurl(0.8, "diamond", helix_angle=30)
-p.distance(left_end, right_end).tolerance(plus_minus=0.05)
-p.angle(base_face, bevel_face).tolerance(plus_minus=0.5)   # degrees
-```
-
-Select one cylindrical face at a time on a stepped shaft. The knurl's tooth count
-comes from the diameter and pitch.
-
-### Draw an assembly
+A `Pack` draws a general-assembly sheet with balloons and a parts list, then a sheet
+for each made part, as one PDF plus a CSV/JSON bill of materials. From a STEP file:
 
 ```python
-from build123d import Compound
 from draftwright import Pack
 
+pack = Pack("motorcycle-shock-absorber.step", title="Motorcycle shock absorber",
+            number="MSA-100")
+pdf, csv = pack.render("shock", formats=("pdf", "csv"))
+```
+
+From build123d, pass a `Compound` whose children are labelled with the `Part`
+names, and the Parts that carry requirements:
+
+```python
 base_shape.label, lid_shape.label = "base", "lid"
 assembly = Compound(children=[base_shape, lid_shape])
 pack = Pack(assembly, parts=[base, lid], title="Enclosure", number="ASM-100",
@@ -168,19 +173,26 @@ for f in pack.findings:
     print(f.get("part", "GA"), f["severity"], f["message"])
 ```
 
-The product labels in the assembly must match the `Part` names. Parts you supply
-are drawn with their requirements; the rest are drawn from geometry. If one part
-fails, the others still render, and the failure appears in `pack.findings` with
-severity `error`. The [Python reference](python.md#assembly-drawing-packs-pack-060-alpha3)
-has a complete example you can run.
+Supplied Parts are drawn with their requirements; other products are drawn from
+geometry. If one part fails, the rest still render and the failure appears in
+`pack.findings` with severity `error`. The
+[Python reference](python.md#assembly-drawing-packs-pack-060-alpha3) has a complete
+example you can run.
+
+## Not yet available
+
+- Writing requirements into an AP242 STEP file. `export_step()` writes geometry only.
+- Chamfer requirements. Modelled chamfers are still recognised and dimensioned.
+- Diagonal knurls.
+- Distances between faces not normal to X, Y or Z, and angles outside a principal view.
 
 ## Troubleshooting
 
-| Symptom | Cause and fix |
+| Message | Cause and fix |
 | --- | --- |
 | `DraftwrightError` naming build123d versions | build123d is older than 0.10. Upgrade it. |
 | `No module named 'OCP.collections'` on build123d 0.10 | Install `ocp-gordon<0.3`. |
-| `thread M6 does not match the measured internal cylinder diameter` | The drill does not suit that thread. Check the hole diameter, for example Ø5.0 for M6. |
+| `thread M6 does not match the measured internal cylinder diameter` | The drill does not suit that thread; M6 needs Ø5.0. |
 | `hole(): the object holds 4 separate holes` | Use `holes()` for a group. |
 | `Drawing.problems requires render() first` | Render again after changing the Part or the layout. |
 | `... is a requirement: use Part.material() ...` from `update()` | That key is a requirement, not layout. Use the Part call it names. |
