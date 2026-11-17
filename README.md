@@ -48,6 +48,18 @@ pinned draftwright release is bumped.
 
 ## Install
 
+For the command line on macOS arm64 or Linux x86_64 (glibc >= 2.35):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pzfreo/draftwright/main/install.sh | sh
+```
+
+To inspect it first: download `install.sh`, read it, then run `sh install.sh`.
+Installs `draftwright` and `draftwright-mcp` to `~/.local/bin` without sudo.
+Set `DRAFTWRIGHT_INSTALL_DIR` to change the destination, or `DRAFTWRIGHT_VERSION=v0.6.0`
+(also accepts `0.6.0`) to pin a release instead of the latest stable; with the pipe,
+set these variables on `sh`, e.g. `curl -fsSL https://raw.githubusercontent.com/pzfreo/draftwright/main/install.sh | DRAFTWRIGHT_VERSION=v0.6.0 sh`.
+
 | You use | Install | Platforms |
 | --- | --- | --- |
 | **Python 3.9+ (abi3)** | `pip install draftwright`, or `uv add draftwright` in a uv project ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |

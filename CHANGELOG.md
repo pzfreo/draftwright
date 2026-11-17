@@ -6,6 +6,8 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Add a one-line `install.sh` installer for the macOS arm64 and Linux x86_64 CLI binaries, with release pinning and SHA-256 verification.
+
 - Add CLI `--size`, `--max-size` and repeatable `--set PATH=VALUE` drawing overrides,
   including pack; pack size/scale affect only the GA, while max-size reaches every
   drawing. Scale accepts numeric values and ratios. Named flags conflicting with
