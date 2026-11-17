@@ -102,6 +102,102 @@ pub(crate) fn finish_pmi_witness_routes(analysis: &Analysis, plan: &mut crate::m
         });
     }
 }
+
+/// A finish's leader must leave its surface normally. When an automatic linear
+/// dimension fences off that corridor, try the dimension's opposite strip rather
+/// than bending the finish or accepting a crossing. Judge the complete drawing;
+/// explicit placements and every other item's ink stay fixed.
+pub(crate) fn finish_texture_lanes(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+) {
+    let blocked: BTreeSet<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "annotation_leader_crossing")
+        .filter(|p| {
+            plan.gdt
+                .iter()
+                .any(|g| g.kind == "surface_finish" && p.subjects.contains(&g.id))
+        })
+        .flat_map(|p| p.subjects.iter().cloned())
+        .collect();
+    if blocked.is_empty() {
+        return;
+    }
+    let (raw, ..) = wants(analysis);
+    let cache = footprints::Cache::default();
+    for i in 0..plan.dimensions.len() {
+        let d = &plan.dimensions[i];
+        if d.kind != "linear"
+            || !blocked.contains(&d.id)
+            || spec
+                .dimensions
+                .get(&d.id)
+                .is_some_and(|s| s.place.is_some())
+        {
+            continue;
+        }
+        let (Some(w), Some(p), Some(v)) = (
+            raw.iter().find(|w| w.id == d.id),
+            d.placed.as_ref(),
+            plan.views.iter().find(|v| v.id == d.view),
+        ) else {
+            continue;
+        };
+        let frame = Frame::new(analysis, v);
+        let Some(line) = crate::output::linear_ink(&p.lines) else {
+            continue;
+        };
+        let outline = frame.outline();
+        let side = if line.k == 0 {
+            if line.offset > (outline[1] + outline[3]) / 2. {
+                placement::Side::Below
+            } else {
+                placement::Side::Above
+            }
+        } else if line.offset > (outline[0] + outline[2]) / 2. {
+            placement::Side::Left
+        } else {
+            placement::Side::Right
+        };
+        let mut w = w.clone();
+        w.terms.clone_from(&d.terms);
+        w.measurements.clone_from(&d.measurements);
+        for lane in 0..8 {
+            let Some(candidate) = placement::place(&frame, &w, side, lane) else {
+                continue;
+            };
+            let mut trial = plan.clone();
+            trial.dimensions[i].placed = Some(candidate);
+            let before = recheck_cached(analysis, plan, &cache);
+            let after = recheck_cached(analysis, &trial, &cache);
+            let codes: BTreeSet<_> = before.iter().chain(&after).map(|p| &p.code).collect();
+            trial.problems.retain(|p| !codes.contains(&p.code));
+            trial.problems.extend(after);
+            contacts::report(analysis, &mut trial);
+            if callout_routes::no_regression(&plan.problems, &trial.problems)
+                && trial
+                    .problems
+                    .iter()
+                    .filter(|p| p.code == "annotation_leader_crossing")
+                    .count()
+                    < plan
+                        .problems
+                        .iter()
+                        .filter(|p| p.code == "annotation_leader_crossing")
+                        .count()
+                && crate::model::finished_sheets_fit(analysis, &trial)
+            {
+                trial.sheet.fill = crate::sheet_fit::fill(analysis, &trial);
+                trial.status = crate::completeness::status(&trial.problems);
+                *plan = trial;
+                break;
+            }
+        }
+    }
+}
 mod label_lanes;
 mod modelled_threads;
 pub(crate) use modelled_threads::{possible_threads, refused as refused_threads};
