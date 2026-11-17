@@ -214,6 +214,7 @@ fn lower_uncached(
     // ([`crate::spec_gdt`]).
     problems.extend(report.spec_problems.iter().cloned());
     problems.extend(report.reader.problems.iter().cloned());
+    let mut unread_sources: BTreeMap<&str, usize> = BTreeMap::new();
     for s in report
         .sources
         .iter()
@@ -222,6 +223,22 @@ fn lower_uncached(
         // A requirement lost is an error; a shape aspect, property or standard the reader did
         // not read states no requirement on its own.
         let requirement = s.category != Category::Other;
+        // A single entity may be reached through several qualifications, or
+        // have several reader findings. Its identity owns one problem; retain
+        // every distinct reason, rather than dropping diagnostic information.
+        if let Some(&index) = unread_sources.get(s.id.as_str()) {
+            let problem = &mut problems[index];
+            for reference in [&s.entity, &s.reason] {
+                if !problem.refs.contains(reference) {
+                    problem.refs.push(reference.clone());
+                }
+            }
+            if requirement {
+                problem.severity = "error".into();
+            }
+            continue;
+        }
+        unread_sources.insert(&s.id, problems.len());
         problems.push(Problem {
             id: format!("p:pmi_not_extracted:{}", s.id),
             code: "pmi_not_extracted".into(),
@@ -269,22 +286,40 @@ fn lower_uncached(
                         alternate_view(&mut item, shown);
                         items.push(item);
                     }
-                    Err(reasons) => problems.push(Problem {
-                        id: format!("p:pmi_not_lowered:{}", r.source_id),
-                        code: "pmi_not_lowered".into(),
-                        severity: "error".into(),
-                        message: format!(
-                            "PMI {} ({}) is not drawn: {}.",
-                            r.source_id,
-                            r.label,
-                            crate::pmi::reader_reason(&reasons.join("; "))
-                        ),
-                        subjects: Vec::new(),
-                        refs: std::iter::once(r.source_id.clone())
-                            .chain(reasons)
-                            .collect(),
-                        ..Default::default()
-                    }),
+                    Err(mut reasons) => {
+                        if r.category == Category::Datum
+                            && r.geometry.as_ref().is_some_and(|g| {
+                                g.reasons
+                                    .iter()
+                                    .any(|reason| reason.contains("not axis-aligned"))
+                            })
+                        {
+                            let dependents: Vec<_> = report.records.iter().filter(|dimension| {
+                                dimension.category == Category::Dimension
+                                    && dimension.part == r.part
+                                    && dimension.fields.iter().any(|(name, value)| name == "reference datum" && matches!(value, crate::pmi::Field::Text(letter) if letter == &r.label))
+                            }).map(|dimension| dimension.source_id.as_str()).collect();
+                            if !dependents.is_empty() {
+                                reasons.push(format!("dimensions {} still measure from this datum's source surfaces, without a drawn datum symbol; an oblique surface makes those dimensions slanted rather than principal-axis locations", dependents.join(", ")));
+                            }
+                        }
+                        problems.push(Problem {
+                            id: format!("p:pmi_not_lowered:{}", r.source_id),
+                            code: "pmi_not_lowered".into(),
+                            severity: "error".into(),
+                            message: format!(
+                                "PMI {} ({}) is not drawn: {}.",
+                                r.source_id,
+                                r.label,
+                                crate::pmi::reader_reason(&reasons.join("; "))
+                            ),
+                            subjects: Vec::new(),
+                            refs: std::iter::once(r.source_id.clone())
+                                .chain(reasons)
+                                .collect(),
+                            ..Default::default()
+                        });
+                    }
                 }
             }
             // A face's surface texture is its ISO 1302 symbol, attached as a datum's symbol is.
@@ -4050,6 +4085,8 @@ struct Owner {
     depth: Option<f64>,
     /// The axial entry of the chamfer on a hole's mouth, which depths from the surface include.
     entry: f64,
+    /// Native topology of the recognised owner, including its entry recesses.
+    faces: Vec<usize>,
 }
 
 /// The features that may own a thread or knurl: each hole the callouts state on its own (a
@@ -4089,6 +4126,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
                 through: h.through,
                 depth: h.depth,
                 entry: h.entry,
+                faces: Vec::new(),
             });
             taken.extend(members);
         }
@@ -4108,6 +4146,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
             through: h.through,
             depth: h.depth,
             entry: h.entry,
+            faces: h.feature.faces.clone(),
         });
     }
     if let Ok(steps) = crate::lint::turned::bands(analysis) {
@@ -4123,6 +4162,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
                     through: false,
                     depth: None,
                     entry: 0.0,
+                    faces: Vec::new(),
                 });
             }
         }
@@ -4172,6 +4212,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
                 through: false,
                 depth: None,
                 entry: 0.0,
+                faces: Vec::new(),
             });
         }
     }
@@ -4212,6 +4253,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
             through: false,
             depth: None,
             entry: 0.0,
+            faces: Vec::new(),
         });
     }
     out
@@ -4240,7 +4282,7 @@ fn external_owner(c: &Cylinder, o: &Owner) -> bool {
 
 /// `_internal_member_matches`: an internal cylinder on the hole's axis, of its diameter, running
 /// from its opening its depth (a through hole's within the part's box).
-fn internal_owner(c: &Cylinder, o: &Owner, envelope: [[f64; 3]; 2]) -> bool {
+fn internal_owner(c: &Cylinder, o: &Owner, analysis: &Analysis, source_faces: &[usize]) -> bool {
     if !c.internal || c.principal() != Some(o.axis) {
         return false;
     }
@@ -4251,8 +4293,40 @@ fn internal_owner(c: &Cylinder, o: &Owner, envelope: [[f64; 3]; 2]) -> bool {
     let [lo, hi] = c.interval;
     let station = o.at[k];
     if o.through {
+        let envelope = analysis.envelope;
         let [box_lo, box_hi] = [envelope[0][k], envelope[1][k]];
-        if !(lo - 0.01 <= station && station <= hi + 0.01) {
+        // A recessed hole is located at its outer mouth; its main bore starts
+        // past the recess. Shared native topology proves ownership without
+        // pretending that the tapping cylinder extends through the counterbore.
+        let at_mouth = lo - 0.01 <= station && station <= hi + 0.01;
+        let on_bore = !at_mouth
+            && analysis
+                .dimension_references()
+                .values()
+                .flatten()
+                .any(|reference| {
+                    let crate::model::dimension_geometry::Reference::Cylinder {
+                        membership,
+                        origin,
+                        axis,
+                        radius,
+                        bounds,
+                        ..
+                    } = reference
+                    else {
+                        return false;
+                    };
+                    membership
+                        .faces
+                        .iter()
+                        .any(|f| source_faces.contains(f) && o.faces.contains(f))
+                        && exact_axis(*axis) == Some(k)
+                        && same_number(*radius, c.radius, 0.01)
+                        && (0..3).all(|i| i == k || same_number(origin[i], c.origin[i], 0.01))
+                        && same_number(bounds[0][k], lo, 0.01)
+                        && same_number(bounds[1][k], hi, 0.01)
+                });
+        if !(on_bore || at_mouth) {
             return false;
         }
         if lo < box_lo - 0.01 || hi > box_hi + 0.01 || hi.min(box_hi) - lo.max(box_lo) <= 0.01 {
@@ -4498,18 +4572,18 @@ fn caller_threads(
 }
 
 /// `_manufacturing_owner_matches`: whether *o* owns requirement *a* on cylinder *c*.
-fn owns(a: &Aspect, c: &Cylinder, o: &Owner, envelope: [[f64; 3]; 2]) -> bool {
+fn owns(a: &Aspect, c: &Cylinder, o: &Owner, analysis: &Analysis, source_faces: &[usize]) -> bool {
     match a {
         Aspect::Thread(t) if t.internal => {
             o.kind == "hole"
                 && if t.through {
-                    o.through && internal_owner(c, o, envelope)
+                    o.through && internal_owner(c, o, analysis, source_faces)
                 } else {
                     !o.through
                         && o.depth.is_some_and(|d| {
                             t.drill_depth.is_some_and(|dd| same_number(dd, d, 0.01))
                         })
-                        && internal_owner(c, o, envelope)
+                        && internal_owner(c, o, analysis, source_faces)
                 }
         }
         _ => matches!(o.kind, "step" | "boss") && external_owner(c, o),
@@ -4709,7 +4783,7 @@ pub fn manufacturing(analysis: &Analysis) -> Manufacturing {
                     return Err(disagree());
                 }
                 let matches: Vec<usize> = (0..candidates.len())
-                    .filter(|&i| owns(&aspect, cylinder, &candidates[i], analysis.envelope))
+                    .filter(|&i| owns(&aspect, cylinder, &candidates[i], analysis, &r.faces))
                     .collect();
                 match matches[..] {
                     [owner] if !matched.contains(&owner) => matched.push(owner),
@@ -4943,7 +5017,11 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
         let shown = depiction_enabled(o, spec);
         let (identity, mut compact, auxiliary) = match &o.requirement {
             Aspect::Thread(t) => {
-                let identity = short_designation(t);
+                let identity = if o.source.starts_with(crate::spec_gdt::SOURCE_PREFIX) {
+                    t.designation.trim().to_string()
+                } else {
+                    short_designation(t)
+                };
                 let mut label = identity.clone();
                 if t.through {
                     label += " THRU";

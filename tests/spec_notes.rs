@@ -25,13 +25,24 @@ fn plate() -> (Part, Analysis) {
 #[test]
 fn issue461_finish_uses_intact_cylinder_beyond_the_groove() {
     for name in ["issue461-whole.step", "issue461-grooved.step"] {
-        let (part, a) = model::analyse_native(&root().join("tests/fixtures/pmi").join(name)).unwrap();
-        let feature = a.features.iter().find(|f| f.kind == "cylindrical_profile").unwrap();
+        let (part, a) =
+            model::analyse_native(&root().join("tests/fixtures/pmi").join(name)).unwrap();
+        let feature = a
+            .features
+            .iter()
+            .find(|f| f.kind == "cylindrical_profile")
+            .unwrap();
         assert_eq!(feature.parameters["radius"], json!(8.11));
         assert_eq!(feature.parameters["side"], "convex");
         for target in ["features", "faces"] {
-            let key = if target == "features" { feature.id.clone() } else { format!("face:{}", feature.faces[0]) };
-            let s = spec(json!({"sheet":{"title":{"tolerance":"±0.1"}}, target: {key: {"finish":{"ra":0.8}}}}));
+            let key = if target == "features" {
+                feature.id.clone()
+            } else {
+                format!("face:{}", feature.faces[0])
+            };
+            let s = spec(
+                json!({"sheet":{"title":{"tolerance":"±0.1"}}, target: {key: {"finish":{"ra":0.8}}}}),
+            );
             let plan = model::plan_recovered(&a, &s).unwrap();
             no_pmi_problems(&plan);
             let finishes = gdt(&plan, "surface_finish");
@@ -39,6 +50,17 @@ fn issue461_finish_uses_intact_cylinder_beyond_the_groove() {
             let finish = finishes[0];
             assert!(finish.placed.is_some());
             assert_eq!(finish.faces, feature.faces);
+            assert!(
+                !plan.problems.iter().any(|p| p.subjects.contains(&finish.id)
+                    && matches!(
+                        p.code.as_str(),
+                        "annotation_overlap"
+                            | "annotation_ink_overlap"
+                            | "annotation_leader_crossing"
+                    )),
+                "{:?}",
+                plan.problems
+            );
             let drawing = model::render(&part, &a, &plan, &font()).unwrap();
             assert_eq!(runs(&drawing, &finish.id), ["Ra 0.8"]);
             assert!(pmi_lint(&a, &drawing).is_empty());
@@ -48,16 +70,22 @@ fn issue461_finish_uses_intact_cylinder_beyond_the_groove() {
 
 #[test]
 fn issue464_explicit_coarse_pitch_survives_every_callout_style() {
-    let (part, a) = model::analyse_native(&root().join("tests/fixtures/pmi/issue464-tap.step")).unwrap();
+    let (part, a) =
+        model::analyse_native(&root().join("tests/fixtures/pmi/issue464-tap.step")).unwrap();
     let hole = a.features.iter().find(|f| f.kind == "hole").unwrap();
     assert_eq!(hole.parameters["diameter"], json!(2.5));
     for designation in ["M3x0.5-6H", "M3 x 0.5-6H", "M3x0.35-6H", "M3-6H"] {
         for style in ["auto", "compact", "full", "note"] {
-            let s = spec(json!({"features":{&hole.id:{"thread":{"designation":designation},"callouts":{"style":style}}}}));
+            let s = spec(
+                json!({"features":{&hole.id:{"thread":{"designation":designation},"callouts":{"style":style}}}}),
+            );
             let plan = model::plan_recovered(&a, &s).unwrap();
             no_pmi_problems(&plan);
             let drawing = model::render(&part, &a, &plan, &font()).unwrap();
-            assert!(drawing.svg().contains(designation), "{designation} ({style}) absent");
+            assert!(
+                drawing.svg().contains(designation),
+                "{designation} ({style}) absent"
+            );
         }
     }
 }
@@ -72,34 +100,125 @@ fn issue466_original_shank_thread_attaches_after_the_counterbore() {
     assert_eq!(hole.parameters["cbore"]["diameter"], json!(6.35));
     assert_eq!(hole.parameters["cbore"]["depth"], json!(5.5));
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    assert!(!plan.problems.iter().any(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "manufacturing_requirement:#10445")), "{:?}", plan.problems);
+    assert!(
+        !plan.problems.iter().any(|p| matches!(
+            p.code.as_str(),
+            "pmi_not_lowered" | "pmi_not_rendered"
+        ) && p
+            .refs
+            .iter()
+            .any(|r| r == "manufacturing_requirement:#10445")),
+        "{:?}",
+        plan.problems
+    );
     let owned = draftwright::pmi_lowering::manufacturing(&a);
-    let thread = owned.owned.iter().find(|o| o.source == "manufacturing_requirement:#10445").unwrap();
+    let thread = owned
+        .owned
+        .iter()
+        .find(|o| o.source == "manufacturing_requirement:#10445")
+        .unwrap();
     assert_eq!(thread.owner, hole.id);
     let drawing = model::render(&part, &a, &plan, &font()).unwrap();
     let svg = drawing.svg();
     assert!(svg.contains("M6-6H THRU"));
-    assert!(svg.contains("6.35") && svg.contains("5.5"), "counterbore must still be stated");
+    assert!(
+        svg.contains("6.35") && svg.contains("5.5"),
+        "counterbore must still be stated"
+    );
     // These source records do not uniquely state the intended counterbore size,
     // straight depth and single bore location. Preserve their explicit findings.
-    for (source, why) in [("dimension:#10391", "along a curve"), ("dimension:#10395", "differ from nominal"), ("dimension:#10411", "no proven face-supported axis witness")] {
-        assert!(plan.problems.iter().any(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == source) && p.message.contains(why)), "{source}: {:?}", plan.problems);
+    for (source, why) in [
+        ("dimension:#10391", "along a curve"),
+        ("dimension:#10395", "differ from nominal"),
+        ("dimension:#10411", "no proven face-supported axis witness"),
+    ] {
+        assert!(
+            plan.problems.iter().any(|p| p.code == "pmi_not_lowered"
+                && p.refs.iter().any(|r| r == source)
+                && p.message.contains(why)),
+            "{source}: {:?}",
+            plan.problems
+        );
     }
+    // A shared face ID alone cannot justify moving the tap onto a different
+    // axial span. The canonical native cylinder must prove that span too.
+    let mut wrong_span = a.clone();
+    let Some(draftwright::pmi::Reading::Read(report)) = &mut wrong_span.pmi else {
+        panic!("PMI read")
+    };
+    let thread = report
+        .records
+        .iter_mut()
+        .find(|r| r.source_id == "manufacturing_requirement:#10445")
+        .unwrap();
+    for station in &mut thread.geometry.as_mut().unwrap().cylinders[0].interval {
+        *station += 1.;
+    }
+    let manufacturing = draftwright::pmi_lowering::manufacturing(&wrong_span);
+    assert!(manufacturing.refused.iter().any(|p| {
+        p.refs
+            .iter()
+            .any(|r| r == "manufacturing_requirement:#10445")
+    }));
 }
 
 #[test]
 fn issue466_original_plate_reference_and_unavailable_datum_consequences() {
     let path = root().join("tests/fixtures/assembly/issue466-gramil-pmi.step.gz");
-    let (part, a) = model::analyse_native_part(&path, Some(5)).unwrap();
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let reference = plan.dimensions.iter().find(|d| d.label == "(4.5)").expect("source reference dimension");
+    let (part, mut a) = model::analyse_native_part(&path, Some(5)).unwrap();
+    let plan =
+        model::plan_recovered(&a, &spec(json!({"sheet":{"size":"A3","scale":"5:1"}}))).unwrap();
+    let reference = plan
+        .dimensions
+        .iter()
+        .find(|d| d.label == "(4.5)")
+        .expect("source reference dimension");
     assert!(reference.reference && reference.placed.is_some());
-    assert!(!plan.problems.iter().any(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "dimension:#12041")));
-    let problem = plan.problems.iter().find(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "datum:#11997")).unwrap();
-    assert!(problem.message.contains("dimension:#12046") && problem.message.contains("dimension:#12050"), "{}", problem.message);
-    assert!(problem.message.contains("slanted") && problem.message.contains("datum symbol"), "{}", problem.message);
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "dimension:#12041"))
+    );
+    let problem = plan
+        .problems
+        .iter()
+        .find(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "datum:#11997"))
+        .unwrap();
+    assert!(
+        problem.message.contains("dimension:#12046")
+            && problem.message.contains("dimension:#12050"),
+        "{}",
+        problem.message
+    );
+    assert!(
+        problem.message.contains("slanted") && problem.message.contains("datum symbol"),
+        "{}",
+        problem.message
+    );
     let drawing = model::render(&part, &a, &plan, &font()).unwrap();
     assert!(drawing.svg().contains("(4.5)"));
+    // A multi-token reference keeps the same informational role as the
+    // original nominal-only reference, rather than acquiring a drill depth.
+    let Some(draftwright::pmi::Reading::Read(report)) = &mut a.pmi else {
+        panic!("PMI read")
+    };
+    let record = report
+        .records
+        .iter_mut()
+        .find(|r| r.source_id == "dimension:#12041")
+        .unwrap();
+    assert!(record.reference);
+    record.label = "(4.5 ±0.1)".into();
+    record.lower_tol = Some(-0.1);
+    record.upper_tol = Some(0.1);
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let reference = plan
+        .dimensions
+        .iter()
+        .find(|d| d.label == "(4.5 ±0.1)")
+        .unwrap();
+    assert!(reference.reference && reference.placed.is_some());
 }
 
 /// A gzipped sample, from its own scratch file.

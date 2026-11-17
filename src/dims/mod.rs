@@ -4602,7 +4602,8 @@ fn plan_inventory_ordered(
             basis += interior::BASIS;
         }
         // Drawn in brackets: a reference, with what determines it where consolidation said.
-        let reference = matches!(&w.terms[..], [t] if t.starts_with('(') && t.ends_with(')'));
+        let reference = w.terms.first().is_some_and(|t| t.starts_with('('))
+            && w.terms.last().is_some_and(|t| t.ends_with(')'));
         let determined_by = if reference {
             references.get(&w.id).cloned().unwrap_or_default()
         } else {

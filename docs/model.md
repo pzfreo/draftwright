@@ -2251,6 +2251,16 @@ item 1, stream K1b; Python draftwright's `Sheet.finish`, `thread`, `knurl`, `not
 
 ### Toleranced and basic dimensions (PMI)
 
+An AP242 `Reference` dimension is informational: its complete label is drawn in
+parentheses, with the same proven witnesses as a controlling dimension. It stays
+reference through planning; it cannot supply a controlling hole depth or diameter
+tolerance, or be treated as a replaceable general-tolerance nominal.
+
+Measured angular nominals use up to three decimal places and omit trailing zeroes
+after rounding (`24.9999°` displays as `25°`). The measured value remains available
+for geometric checks, independently of the displayed value and tolerance. Angular
+labels keep the ordinary 0.5 mm text clearance from view line-work.
+
 `src/dims/pmi_dimensions.rs` lowers each AP242 dimension record as draftwright's
 `lower_ap242_*_tolerances`/`_nominal_*` and `render_pmi` do, from where its faces put it (the
 Analysis's `geometry` on a dimension: a linear or thickness dimension's two proven `stations` and

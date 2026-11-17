@@ -6,6 +6,15 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- PMI finish attachments try intact cylindrical stations beyond grooves (#461).
+  Spec thread designations retain explicit coarse pitches as authored (#464).
+  Recessed through taps use native face ownership; AP242 reference dimensions
+  draw in parentheses, and unavailable oblique datums name dependent dimensions
+  (#466). Repeated reader paths produce one finding with all reasons retained.
+
+- Python `Part.angle()` trims rounded trailing zeroes and keeps angular labels
+  clear of the part's line-work (#505).
+
 - Python pictorials carry colour to below views enabled later and preserve authored
   below styles on unrelated view edits; DPI rejects booleans and reports overflow as non-finite.
 

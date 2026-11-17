@@ -124,11 +124,34 @@ fn unique_problem_ids(plan: &Plan) {
     }
 }
 
+fn unread_reasons_are_retained(a: &Analysis, plan: &Plan) {
+    let Some(Reading::Read(report)) = &a.pmi else {
+        return;
+    };
+    for source in report
+        .sources
+        .iter()
+        .filter(|s| s.outcome == draftwright::pmi::Outcome::NotExtracted)
+    {
+        let id = format!("p:pmi_not_extracted:{}", source.id);
+        let problem = plan.problems.iter().find(|p| p.id == id).unwrap();
+        assert!(
+            problem.refs.contains(&source.reason),
+            "{id} lost reader reason {:?}",
+            source.reason
+        );
+    }
+}
+
 pmi_cases!(ap242_plans_have_unique_problem_ids);
 fn ap242_plans_have_unique_problem_ids(only: &str) {
     for (file, _, bytes) in inputs(only) {
-        let (_, a) = analysed(&file, &bytes);
-        unique_problem_ids(&cache::default_plan(&a, false));
+        let (_, a) = cache::analysed(&file, &bytes, true, || {
+            model::analyse_native_bytes(&file, &bytes).unwrap()
+        });
+        let plan = cache::default_plan(&a, true);
+        unique_problem_ids(&plan);
+        unread_reasons_are_retained(&a, &plan);
     }
 }
 
@@ -136,13 +159,26 @@ quality_cases!(corpus_plans_have_unique_problem_ids);
 fn corpus_plans_have_unique_problem_ids(only: &str) {
     let Some(dir) = corpus::dir() else { return };
     let path = dir.join(only);
-    let (_, a) = model::analyse(&path).unwrap();
-    let plan = cache::default_plan(&a, false);
+    let (_, a) = cache::native(&path);
+    let plan = cache::default_plan(&a, true);
     unique_problem_ids(&plan);
-    if only.ends_with("nist_ctc_05_asme1_rd.stp") {
-        for finding in ["finding:#935", "finding:#938"] {
-            assert_eq!(plan.problems.iter().filter(|p| p.id == format!("p:pmi_not_extracted:{finding}")).count(), 1);
-        }
+    unread_reasons_are_retained(&a, &plan);
+}
+
+#[test]
+fn ctc05_ap242_repeated_qualifications_produce_one_problem_per_finding() {
+    let (_, a) = cache::native(&fixtures().join("issue-ctc05-ap242.stp.gz"));
+    let plan = cache::default_plan(&a, true);
+    unique_problem_ids(&plan);
+    unread_reasons_are_retained(&a, &plan);
+    for finding in ["finding:#935", "finding:#938"] {
+        assert_eq!(
+            plan.problems
+                .iter()
+                .filter(|p| p.id == format!("p:pmi_not_extracted:{finding}"))
+                .count(),
+            1
+        );
     }
 }
 
