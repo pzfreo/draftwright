@@ -4,7 +4,7 @@ All notable changes to draftwright are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## 0.6.0 (2026-11-16)
+## 0.6.0 (2026-11-17)
 
 - Add Python `Pack` drawing sets with in-memory PMI, shared `PackSpec::title`
   defaults and persistent CLI part keys. Downstream Rust API additions include
