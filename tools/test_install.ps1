@@ -20,7 +20,13 @@ $null = [IO.Directory]::CreateDirectory($payload)
 [IO.File]::WriteAllText((Join-Path $payload 'draftwright.exe'), 'not executed')
 $fixture = Join-Path $testRoot $asset
 Compress-Archive -Path $payload -DestinationPath $fixture
-$testState = @{ ManifestMode = 'mismatch'; Marker = '*'; DestinationLink = $false; DestinationPath = $destination; Requests = @(); Output = @() }
+$testState = @{ ManifestMode = 'mismatch'; Marker = '*'; DestinationLink = $false; DestinationPath = $destination; NativeArchitecture = $null; Requests = @(); Output = @() }
+
+function Get-ItemPropertyValue {
+    [CmdletBinding()]
+    param([string]$LiteralPath, [string]$Name)
+    return $testState.NativeArchitecture
+}
 
 function Get-Item {
     param([string]$LiteralPath, [switch]$Force)
@@ -97,6 +103,10 @@ try {
     Test-Refusal 'Destination is a link: draftwright.exe'
     $testState.DestinationLink = $false
     $testState.ManifestMode = 'mismatch'
+    $testState.NativeArchitecture = 'ARM64'
+    Test-Refusal 'Checksum mismatch'
+    if (($testState.Output -join "`n") -notlike '*ARM64*x64*emulation*') { throw 'Emulated x64 session hid the ARM64 host' }
+    $testState.NativeArchitecture = $null
     $env:PROCESSOR_ARCHITECTURE = 'ARM64'
     Test-Refusal 'Checksum mismatch'
     if (($testState.Output -join "`n") -notlike '*ARM64*x64*emulation*') { throw 'ARM64 emulation notice was not printed' }
@@ -108,7 +118,7 @@ try {
     Test-Refusal 'Invalid release version'
     if ($testState.Requests.Count) { throw 'Invalid version downloaded files' }
     & $installer -Help
-    Write-Output 'PASS: all 9 Windows refusal tests and help'
+    Write-Output 'PASS: all 10 Windows refusal tests and help'
 } finally {
     foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key]) }
     Remove-Item -LiteralPath $testRoot -Recurse -Force

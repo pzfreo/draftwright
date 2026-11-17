@@ -22,7 +22,13 @@ The destination is added to the USER PATH; no administrator access is needed.
     if ($env:OS -ne 'Windows_NT') {
         throw 'Use install.sh on macOS or Linux.'
     }
-    $arch = $env:PROCESSOR_ARCHITEW6432
+    # An x64 PowerShell session under ARM64 emulation can report AMD64 in its environment.
+    try {
+        $arch = Get-ItemPropertyValue -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PROCESSOR_ARCHITECTURE -ErrorAction Stop
+    } catch {
+        $arch = $null
+    }
+    if (-not $arch) { $arch = $env:PROCESSOR_ARCHITEW6432 }
     if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
     switch ($arch) {
         'AMD64' { }
