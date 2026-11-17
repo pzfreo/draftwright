@@ -6,6 +6,9 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Python pictorials carry colour to below views enabled later and preserve authored
+  below styles on unrelated view edits; DPI rejects booleans and reports overflow as non-finite.
+
 - Python `Drawing.render(dpi=...)` sets PNG resolution (default 150 pixels per inch).
 
 - Python `Drawing.views()` accepts `colour=` (alias `color=`) for shaded pictorials

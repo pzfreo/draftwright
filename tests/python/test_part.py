@@ -276,12 +276,42 @@ class PartAPI(unittest.TestCase):
         expected["iso_below"]["omit"] = True
         self.assertEqual(drawing.spec()["views"], expected)
         drawing.views(below=True).views(shaded=False)
+        expected["iso_below"]["colour"] = [17, 34, 51]
         expected["iso"]["style"] = expected["iso_below"]["style"] = "wireframe"
         expected["iso_below"]["omit"] = False
         self.assertEqual(drawing.spec()["views"], expected)
         self.assertEqual(p.drawing().views(below=False).spec()["views"], {
             "iso_below": {"omit": True},
         })
+
+    def test_pictorial_below_inherits_earlier_colour(self):
+        _, p = build_plate()
+        for alias in ("colour", "color"):
+            with self.subTest(alias=alias):
+                drawing = p.drawing().views(shaded=True, **{alias: "ff0000"}).views(below=True)
+                expected = {
+                    "iso": {"style": "shaded", "colour": [255, 0, 0]},
+                    "iso_below": {"omit": False, "style": "shaded", "colour": [255, 0, 0]},
+                }
+                self.assertEqual(drawing.spec()["views"], expected)
+                drawing.views(shaded=False)
+                expected["iso"]["style"] = expected["iso_below"]["style"] = "wireframe"
+                self.assertEqual(drawing.spec()["views"], expected)
+                drawing.views(shaded=True)
+                expected["iso"]["style"] = expected["iso_below"]["style"] = "shaded"
+                self.assertEqual(drawing.spec()["views"], expected)
+
+    def test_pictorial_unrelated_views_preserve_authored_below_style(self):
+        _, p = build_plate()
+        drawing = p.drawing().views(shaded=True, below=True, colour="ff0000").update({
+            "views": {"iso_below": {"style": "wireframe", "colour": [0, 255, 0]}},
+        })
+        expected = drawing.spec()["views"]
+        drawing.views()
+        self.assertEqual(drawing.spec()["views"], expected)
+        drawing.views(omit=("side",))
+        expected["side"] = {"omit": True}
+        self.assertEqual(drawing.spec()["views"], expected)
 
     def test_pictorial_uses_authored_spec_and_omissions(self):
         _, p = build_plate()
@@ -389,10 +419,13 @@ class PartAPI(unittest.TestCase):
                     ValueError, "PNG dpi must be positive and finite"):
                 drawing.render(self.directory / "bad", formats=("png",), dpi=dpi)
         for formats in (("png",), ("svg",)):
-            for dpi in ("bad", object(), [], 10 ** 400):
+            for dpi in ("bad", object(), [], True, False):
                 with self.subTest(formats=formats, dpi=dpi), self.assertRaisesRegex(
                         ValueError, "dpi must be a number"):
                     drawing.render(self.directory / "bad", formats=formats, dpi=dpi)
+            with self.subTest(formats=formats, dpi="overflow"), self.assertRaisesRegex(
+                    ValueError, "^dpi must be finite$"):
+                drawing.render(self.directory / "bad", formats=formats, dpi=10 ** 400)
         self.assertEqual(list(self.directory.iterdir()), [])
         for index, dpi in enumerate((300, 0, -1, float("nan"), float("inf"))):
             with self.subTest(dpi=dpi):

@@ -733,6 +733,7 @@ class Drawing:
         ``below=False`` omits it. ``omit=("side",)`` drops named views.
         Chained calls use the resulting Spec's shading and below-view state,
         e.g. ``views(shaded=True).views(below=True, colour="#ccaa88")``.
+        Turning shading off retains colours for when shading is enabled again.
         """
         views = self.spec().get("views", {})
         if shaded is not None:
@@ -758,10 +759,12 @@ class Drawing:
             raise ValueError("colour= and color= must match")
         if colours:
             views.setdefault("iso", {})["colour"] = colours[0]
-        if "iso_below" in views and not views["iso_below"].get("omit", False):
+        if ((shaded is not None or below is not None or colours)
+                and "iso_below" in views and not views["iso_below"].get("omit", False)):
             views["iso_below"]["style"] = "shaded" if is_shaded else "wireframe"
-            if colours:
-                views["iso_below"]["colour"] = colours[0]
+            iso_colour = views.get("iso", {}).get("colour")
+            if iso_colour is not None:
+                views["iso_below"]["colour"] = iso_colour.copy()
         self._spec["views"] = views
         return self
 
@@ -821,9 +824,13 @@ class Drawing:
         if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
         if dpi is not None:
+            if isinstance(dpi, bool):
+                raise ValueError("dpi must be a number, not a bool")
             try:
                 dpi = float(dpi)
-            except (TypeError, ValueError, OverflowError):
+            except OverflowError:
+                raise ValueError("dpi must be finite") from None
+            except (TypeError, ValueError):
                 raise ValueError("dpi must be a number") from None
             if "png" in formats and not (dpi > 0 and math.isfinite(dpi)):
                 raise ValueError("PNG dpi must be positive and finite")
