@@ -1388,6 +1388,47 @@ impl Grid {
     }
 }
 
+#[derive(Clone, Copy)]
+struct TagCost {
+    value: f64,
+    complete: bool,
+}
+
+// A station's leader, model ink and outward cost stay fixed during tag-order retries.
+// An interrupted scan supplies only a lower bound; it can reject a tighter bound,
+// but must be measured again before it can admit a more permissive one.
+fn bounded_tag_cost(
+    lines: &Grid,
+    leader: Segment,
+    base: f64,
+    bound: f64,
+    memo: &std::cell::Cell<Option<TagCost>>,
+) -> f64 {
+    if let Some(saved) = memo.get()
+        && (saved.complete || saved.value >= bound)
+    {
+        return saved.value;
+    }
+    let mut cost = base;
+    let span = [
+        leader[0][0].min(leader[1][0]),
+        leader[0][1].min(leader[1][1]),
+        leader[0][0].max(leader[1][0]),
+        leader[0][1].max(leader[1][1]),
+    ];
+    let complete = lines.all_clear(span, |edge| {
+        if segments_cross(leader, edge) {
+            cost += TAG_CROSSING;
+        }
+        cost < bound
+    });
+    memo.set(Some(TagCost {
+        value: cost,
+        complete,
+    }));
+    cost
+}
+
 /// Whether box *a* lies wholly inside box *b*.
 fn within(a: Rect, b: Rect) -> bool {
     a[0] >= b[0] && a[1] >= b[1] && a[2] <= b[2] && a[3] <= b[3]
@@ -2010,6 +2051,50 @@ fn segments_cross(a: [[f64; 2]; 2], b: [[f64; 2]; 2]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tag_cost_remeasures_a_partial_score_when_the_bound_grows() {
+        let lines = Grid::new([-3.0, 0.0, 3.0].into_iter().map(|x| [[x, -2.0], [x, 2.0]]));
+        let leader = [[-10.0, 0.0], [10.0, 0.0]];
+        let memo = std::cell::Cell::new(None);
+        let full = 2.0 + 3.0 * TAG_CROSSING;
+        for bound in [3.0, 4.0, 3.5, 100.0, full, full + 0.1, 0.0] {
+            let cost = bounded_tag_cost(&lines, leader, 2.0, bound, &memo);
+            assert_eq!(cost >= bound, full >= bound);
+            if cost < bound {
+                assert_eq!(cost, full, "an admitted route needs its complete score");
+            }
+        }
+    }
+
+    #[test]
+    fn origin_clearance_grid_keeps_boundary_and_diagonal_contacts() {
+        let segments = [
+            [[-25.0, -25.0], [25.0, 25.0]],
+            [[5.0, -10.0], [5.0, 10.0]],
+            [[-10.0, -5.0], [10.0, -5.0]],
+            [[5.0, 5.0], [5.0, 5.0]],
+        ];
+        let lines = Grid::new(segments.iter().copied());
+        let boxes = [
+            [-5.0, -5.0, 0.0, 0.0],
+            [0.0, 0.0, 5.0, 5.0],
+            [5.0, 5.0, 10.0, 10.0],
+            [4.999_999, -1.0, 5.0, 1.0],
+            [-1.0, -5.0, 1.0, -4.999_999],
+            [8.0, 9.0, 9.0, 10.0],
+            [-20.0, 15.0, -15.0, 20.0],
+        ];
+        for _ in 0..3 {
+            for bounds in boxes {
+                assert_eq!(
+                    lines.all_clear(bounds, |line| !crosses(line, bounds)),
+                    segments.iter().all(|line| !crosses(*line, bounds)),
+                    "origin box {bounds:?}",
+                );
+            }
+        }
+    }
 
     fn row(cells: &[&str]) -> Vec<String> {
         cells.iter().map(|c| c.to_string()).collect()
@@ -3356,13 +3441,12 @@ fn origin_places(
             .filter(|w| w.kind != "cutting_plane")
             .flat_map(crate::centrelines::segments)
             .collect();
+        let lines =
+            std::cell::LazyCell::new(|| Grid::new(edges.iter().chain(&centrelines).copied()));
         let origin = frame.page(origin);
         if let Some(at) = origin_mark(origin, page, |_, bounds| {
             curved.iter().all(|q| !overlap(bounds, *q))
-                && edges
-                    .iter()
-                    .chain(&centrelines)
-                    .all(|l| !crosses(*l, bounds))
+                && lines.all_clear(bounds, |l| !crosses(l, bounds))
         }) {
             out.push((t.id.clone(), view.id.clone(), origin, at));
         }
@@ -3688,6 +3772,9 @@ fn install_at_mode(
             radius: f64,
             others: Vec<([f64; 2], f64)>,
             size: [f64; 2],
+            // Clearance against the complete near pass stays fixed during far-tag retries.
+            clearance: Vec<std::cell::OnceCell<bool>>,
+            costs: Vec<std::cell::Cell<Option<TagCost>>>,
         }
         let mut groups: Vec<Group> = Vec::new();
         let mut tagged = BTreeSet::new();
@@ -3737,6 +3824,12 @@ fn install_at_mode(
                 radius,
                 others,
                 size: [width, crate::dims::TEXT],
+                clearance: (0..TAG_STEPS * TAG_FAR)
+                    .map(|_| std::cell::OnceCell::new())
+                    .collect(),
+                costs: (0..TAG_STEPS * TAG_FAR)
+                    .map(|_| std::cell::Cell::new(None))
+                    .collect(),
             });
         }
         let boxed = |g: &Group, at: [f64; 2]| -> Rect {
@@ -3747,19 +3840,19 @@ fn install_at_mode(
                 at[1] + g.size[1] * 0.5,
             ]
         };
-        let clear = |g: &Group, b: Rect, labels: &[Rect], leaders: &[Segment]| -> bool {
+        let clear_near = |g: &Group, b: Rect, labels: &[Rect], leaders: &[Segment]| -> bool {
             let padded = [b[0] - 0.6, b[1] - 0.6, b[2] + 0.6, b[3] + 0.6];
-            labels.iter().all(|q| !overlap(padded, *q))
+            padded[0] >= crate::layout::FRAME
+                && padded[1] >= crate::layout::FRAME
+                && padded[2] <= plan.sheet.page[0] - crate::layout::FRAME
+                && padded[3] <= plan.sheet.page[1] - crate::layout::FRAME
+                && labels.iter().all(|q| !overlap(padded, *q))
                 // A curved face's silhouette lies on its projected envelope's sides: the tag
                 // may sit wholly inside or outside that envelope, not across it.
                 && curved.iter().all(|q| !overlap(padded, *q) || within(padded, *q))
                 && lines.all_clear(padded, |l| !crosses(l, padded))
                 && leaders.iter().all(|l| !crosses(*l, padded))
                 && fixed.iter().all(|q| !overlap(padded, *q))
-                && padded[0] >= crate::layout::FRAME
-                && padded[1] >= crate::layout::FRAME
-                && padded[2] <= plan.sheet.page[0] - crate::layout::FRAME
-                && padded[3] <= plan.sheet.page[1] - crate::layout::FRAME
                 && read.values().all(|other| {
                     if other
                         .principal
@@ -3779,12 +3872,15 @@ fn install_at_mode(
                                 .all(|d| d < r - RING * 0.5))
                 })
         };
-        let around = |g: &Group, reach: f64, k: usize| -> [f64; 2] {
+        let directions: [[f64; 2]; TAG_STEPS] = std::array::from_fn(|k| {
             let angle =
                 k as f64 * std::f64::consts::TAU / TAG_STEPS as f64 + std::f64::consts::FRAC_PI_4;
+            [angle.cos(), angle.sin()]
+        });
+        let around = |g: &Group, reach: f64, k: usize| -> [f64; 2] {
             [
-                g.hole[0] + angle.cos() * (g.radius + g.size[0] * 0.5 + reach),
-                g.hole[1] + angle.sin() * (g.radius + g.size[1] * 0.5 + reach),
+                g.hole[0] + directions[k][0] * (g.radius + g.size[0] * 0.5 + reach),
+                g.hole[1] + directions[k][1] * (g.radius + g.size[1] * 0.5 + reach),
             ]
         };
         let mut placed: Vec<Option<([f64; 2], Option<Segment>)>> = vec![None; groups.len()];
@@ -3804,7 +3900,7 @@ fn install_at_mode(
                     let at = around(g, 1.0 + ring as f64, k);
                     let b = boxed(g, at);
                     if names_own(b, at, g.hole, g.radius, &g.others)
-                        && clear(g, b, &labels, &leaders)
+                        && clear_near(g, b, &labels, &leaders)
                     {
                         *slot = Some((at, None));
                         labels.push(b);
@@ -3817,6 +3913,19 @@ fn install_at_mode(
         // Placed greedily; a tag left without a place goes first on the next attempt.
         let (near_labels, near_leaders, near_placed) =
             (labels.clone(), leaders.clone(), placed.clone());
+        // The near pass is immutable during retries; only the appended far tags move.
+        let clear_far =
+            |g: &Group, b: Rect, station: usize, labels: &[Rect], leaders: &[Segment]| {
+                let padded = [b[0] - 0.6, b[1] - 0.6, b[2] + 0.6, b[3] + 0.6];
+                labels[near_labels.len()..]
+                    .iter()
+                    .all(|q| !overlap(padded, *q))
+                    && leaders[near_leaders.len()..]
+                        .iter()
+                        .all(|l| !crosses(*l, padded))
+                    && *g.clearance[station]
+                        .get_or_init(|| clear_near(g, b, &near_labels, &near_leaders))
+            };
         let mut order: Vec<usize> = (0..groups.len()).filter(|&i| placed[i].is_none()).collect();
         let mut attempts = 0;
         'attempt: loop {
@@ -3851,7 +3960,7 @@ fn install_at_mode(
                         // A blocked label cannot win at any crossing cost. Check
                         // the unchanged clearance predicate before scoring its
                         // leader through a dense model's projected edges.
-                        if !clear(g, b, &labels, &leaders) {
+                        if !clear_far(g, b, ring * TAG_STEPS + k, &labels, &leaders) {
                             continue;
                         }
                         let Some(leader) = tag_leader(g.hole, g.radius, at, b) else {
@@ -3864,19 +3973,13 @@ fn install_at_mode(
                             a.sin().atan2(a.cos()).abs()
                         });
                         let bound = best.map_or(f64::INFINITY, |(c, _, _)| c);
-                        let mut cost = length + TAG_TURN * turn;
-                        let span = [
-                            leader[0][0].min(leader[1][0]),
-                            leader[0][1].min(leader[1][1]),
-                            leader[0][0].max(leader[1][0]),
-                            leader[0][1].max(leader[1][1]),
-                        ];
-                        lines.all_clear(span, |e| {
-                            if segments_cross(leader, e) {
-                                cost += TAG_CROSSING;
-                            }
-                            cost < bound
-                        });
+                        let cost = bounded_tag_cost(
+                            &lines,
+                            leader,
+                            length + TAG_TURN * turn,
+                            bound,
+                            &g.costs[ring * TAG_STEPS + k],
+                        );
                         if cost >= bound {
                             continue;
                         }
@@ -3930,11 +4033,8 @@ fn install_at_mode(
                         .chain(fixed.iter())
                         .all(|b| !overlap(bounds, *b))
                         && curved.iter().all(|q| !overlap(bounds, *q))
-                        && edge_segments
-                            .iter()
-                            .chain(&annotation_lines)
-                            .chain(&leaders)
-                            .all(|l| !crosses(*l, bounds))
+                        && lines.all_clear(bounds, |l| !crosses(l, bounds))
+                        && leaders.iter().all(|l| !crosses(*l, bounds))
                         && leaders.iter().all(|l| !segments_cross(*l, [origin, at]))
                         && labels.iter().all(|b| !crosses([origin, at], *b))
                 })
