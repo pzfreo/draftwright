@@ -12,7 +12,7 @@ on:
         description: Existing release tag to build and attach the command line to (e.g. v0.6.0-alpha.2)
         required: true
   pull_request:
-    paths: ['.github/workflows/cli.yml', '.github/requirements/cli-musl.txt', 'about.toml', 'about.hbs']
+    paths: ['.github/workflows/cli.yml', '.github/requirements/cli-linux.txt', 'tools/check_glibc_floor.py', 'about.toml', 'about.hbs']
 
 permissions:
   contents: read
@@ -25,8 +25,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: '' }
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, exe: '' }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, exe: '' }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, exe: '' }
           - { os: macos-latest, target: aarch64-apple-darwin, exe: '' }
           - { os: macos-15-intel, target: x86_64-apple-darwin, exe: '' }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: .exe }
@@ -54,45 +53,45 @@ jobs:
         with:
           key: cli-${{ matrix.target }}
       - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        if: matrix.target != 'x86_64-apple-darwin'
         with:
           tool: cargo-about@0.9.3
+      - name: Build the Intel macOS licence generator with its CLI
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: cargo install cargo-about --version 0.9.3 --locked --features cli
       - name: Third-party licence notices
         run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
       # Use the workflow's requirements even when manually backfilling an older tag.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        if: endsWith(matrix.target, '-musl')
+        if: endsWith(matrix.target, '-linux-gnu')
         with:
           ref: ${{ github.workflow_sha }}
           path: .cli-toolchain
-          sparse-checkout: .github/requirements/cli-musl.txt
+          sparse-checkout: |
+            .github/requirements/cli-linux.txt
+            tools/check_glibc_floor.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: Static Linux toolchain
-        if: endsWith(matrix.target, '-musl')
+      - name: Linux glibc toolchain
+        if: endsWith(matrix.target, '-linux-gnu')
         run: |
           rustup target add ${{ matrix.target }}
-          python3 -m venv "$RUNNER_TEMP/musl-tools"
-          "$RUNNER_TEMP/musl-tools/bin/pip" install --require-hashes -r .cli-toolchain/.github/requirements/cli-musl.txt
-          echo "$RUNNER_TEMP/musl-tools/bin" >> "$GITHUB_PATH"
+          python3 -m venv "$RUNNER_TEMP/linux-tools"
+          "$RUNNER_TEMP/linux-tools/bin/pip" install --require-hashes -r .cli-toolchain/.github/requirements/cli-linux.txt
+          echo "$RUNNER_TEMP/linux-tools/bin" >> "$GITHUB_PATH"
       - run: cargo build --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
-        if: ${{ !endsWith(matrix.target, '-musl') }}
-      - name: Build static Linux binaries
-        if: endsWith(matrix.target, '-musl')
-        run: cargo zigbuild --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
-      - name: Verify both Linux binaries are static
-        if: endsWith(matrix.target, '-musl')
+        if: ${{ !endsWith(matrix.target, '-linux-gnu') }}
+      - name: Build Linux binaries for glibc 2.17
+        if: endsWith(matrix.target, '-linux-gnu')
+        # Zig's suffix selects glibc; Cargo's output directory remains the plain triple.
+        run: cargo zigbuild --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}.2.17
+      - name: Verify both Linux binaries require at most glibc 2.17
+        if: endsWith(matrix.target, '-linux-gnu')
         run: |
-          for binary in draftwright draftwright-mcp; do
-            bin="target/${{ matrix.target }}/release/$binary"
-            file "$bin"
-            file -b "$bin" | grep -E 'statically linked|static-pie linked'
-            headers=$(readelf --program-headers "$bin")
-            dynamic=$(readelf --dynamic "$bin")
-            if printf '%s\n' "$headers" | grep -q INTERP || printf '%s\n' "$dynamic" | grep -q NEEDED; then
-              echo "::error::$binary has a dynamic interpreter or shared dependency"
-              exit 1
-            fi
-          done
+          python3 .cli-toolchain/tools/check_glibc_floor.py --max-version 2.17 \
+            target/${{ matrix.target }}/release/draftwright \
+            target/${{ matrix.target }}/release/draftwright-mcp
+          target/${{ matrix.target }}/release/draftwright-mcp --version
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
         # removed hole.

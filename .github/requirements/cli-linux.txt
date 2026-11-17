@@ -1,4 +1,4 @@
-# Linux wheels used by the x86_64 and aarch64 musl release jobs.
+# Linux wheels used by the x86_64 and aarch64 GNU release jobs.
 --only-binary=:all:
 
 # cargo_zigbuild-0.23.4-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
