@@ -767,6 +767,7 @@ fn cover_uncached(
             continue;
         }
         let mut owners = BTreeSet::new();
+        let mut member_owners = BTreeMap::new();
         let mut uncontrolled = Vec::new();
         for s in &spans {
             let first = location::proof(
@@ -790,6 +791,7 @@ fn cover_uncached(
                 )
             };
             if let (Some(p), Some(q)) = (first, second) {
+                let mut span_owners = BTreeSet::new();
                 if p.is_empty()
                     && let Some(feature) = &s.b_feature
                     && location::datum_axis_owner(a, feature, s.axis).is_some()
@@ -802,11 +804,15 @@ fn cover_uncached(
                     // The datum axis already roots this coaxial element. Keep its
                     // numeric claim on a live source witness of that same interval;
                     // an uncited datum symbol is not a drawn measurement owner.
-                    owners.insert(witness.owner.clone());
+                    span_owners.insert(witness.owner.clone());
                 }
                 for j in p.into_iter().chain(q) {
-                    owners.insert(edges[j].owner.clone());
+                    span_owners.insert(edges[j].owner.clone());
                 }
+                if let (Some(feature), Some(owner)) = (&s.b_feature, span_owners.first()) {
+                    member_owners.insert(feature.clone(), owner.clone());
+                }
+                owners.extend(span_owners);
             } else {
                 uncontrolled.push(s.clone());
             }
@@ -854,6 +860,23 @@ fn cover_uncached(
                 .unwrap()
                 .parameter
                 .clone();
+            // Splitting a shared ordinate must retain the located members'
+            // measurements on their live source carriers, just as full coverage
+            // does. Only the unlocated members remain on the generated item.
+            for measurement in w
+                .measurements
+                .iter()
+                .filter(|m| location_role(&m.parameter))
+            {
+                if let Some(owner) = member_owners.get(&measurement.feature)
+                    && let Some((target, ..)) = kept.iter_mut().find(|(w, ..)| w.id == *owner)
+                    && !target.measurements.iter().any(|m| {
+                        m.feature == measurement.feature && m.parameter == measurement.parameter
+                    })
+                {
+                    target.measurements.push(measurement.clone());
+                }
+            }
             let target = &mut kept[i].0;
             target.measurements.retain(|m| !location_role(&m.parameter));
             target

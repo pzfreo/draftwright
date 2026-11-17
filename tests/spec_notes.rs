@@ -188,6 +188,69 @@ fn issue466_original_shank_thread_attaches_after_the_counterbore() {
 }
 
 #[test]
+fn issue466_compound_location_carries_each_explicit_bore_once() {
+    let path = root().join("tests/fixtures/assembly/issue466-gramil-pmi.step.gz");
+    let (_, a) = model::analyse_native_part(&path, Some(0)).unwrap();
+    let assert_carriers = |a: &Analysis, included: &[&str], independent: Option<&str>| {
+        let plan = model::plan_recovered(a, &Spec::default()).unwrap();
+        let Some(draftwright::pmi::Reading::Read(report)) = &a.pmi else {
+            panic!("PMI read")
+        };
+        let ids = report.identities();
+        let source = ids.id("dimension:#10411").unwrap();
+        let carrier = plan
+            .dimensions
+            .iter()
+            .find(|d| d.placed.is_some() && d.measurements.iter().any(|m| m.feature == source))
+            .unwrap();
+        for feature in included {
+            let owners: Vec<_> = plan
+                .dimensions
+                .iter()
+                .filter(|d| {
+                    d.placed.is_some()
+                        && d.measurements
+                            .iter()
+                            .any(|m| m.feature == *feature && m.parameter == "location.length.y")
+                })
+                .collect();
+            assert_eq!(owners.len(), 1, "{feature} must keep one drawn carrier");
+            assert_eq!(
+                owners[0].id, carrier.id,
+                "{feature} repeats the authored Y span"
+            );
+        }
+        if let Some(feature) = independent {
+            assert!(
+                plan.dimensions.iter().any(|d| {
+                    d.placed.is_some()
+                        && d.id != carrier.id
+                        && d.measurements
+                            .iter()
+                            .any(|m| m.feature == feature && m.parameter == "location.length.y")
+                }),
+                "a bore absent from the source must keep its own location"
+            );
+        }
+    };
+    assert_carriers(&a, &["f:hole:f6", "f:hole:f7", "f:hole:f20"], None);
+    let mut narrower = a.clone();
+    let Some(draftwright::pmi::Reading::Read(report)) = &mut narrower.pmi else {
+        panic!("PMI read")
+    };
+    let location = report
+        .records
+        .iter_mut()
+        .find(|r| r.source_id == "dimension:#10411")
+        .unwrap();
+    location.faces.retain(|&f| f != 7);
+    for group in &mut location.face_groups {
+        group.retain(|&f| f != 7);
+    }
+    assert_carriers(&narrower, &["f:hole:f6", "f:hole:f20"], Some("f:hole:f7"));
+}
+
+#[test]
 fn issue466_original_plate_reference_and_unavailable_datum_consequences() {
     let path = root().join("tests/fixtures/assembly/issue466-gramil-pmi.step.gz");
     let (part, mut a) = model::analyse_native_part(&path, Some(5)).unwrap();
