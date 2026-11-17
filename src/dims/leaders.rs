@@ -2391,13 +2391,14 @@ pub(crate) fn settle_after_furniture(
                 c.score(),
             )
         };
-        let partial = candidates.into_iter().filter(&acceptable).min_by(|a, b| {
-            if compact {
-                a.score().cmp(&b.score())
-            } else {
-                rank(a).cmp(&rank(b))
-            }
-        });
+        // The incumbent's physical-edge and arrowhead scores do not change
+        // while considering another candidate. Measure each accepted route once.
+        let candidates = candidates.into_iter().filter(&acceptable);
+        let partial = if compact {
+            candidates.min_by_key(Candidate::score)
+        } else {
+            candidates.min_by_key(rank)
+        };
         let next = if held {
             None
         } else {
@@ -2461,18 +2462,18 @@ pub(crate) fn settle_after_furniture(
                                         }
                                         continue;
                                     }
+                                    let attached = moved_rim_tip(
+                                        &job.sites,
+                                        tip,
+                                        elbow,
+                                        frame.scale() * crate::model::projected_ink::GRID,
+                                    );
                                     for right in [elbow[0] >= tip[0], elbow[0] < tip[0]] {
                                         for shoulder in [0.75, 3.0] {
                                             let end = [
                                                 elbow[0] + if right { shoulder } else { -shoulder },
                                                 elbow[1],
                                             ];
-                                            let attached = moved_rim_tip(
-                                                &job.sites,
-                                                tip,
-                                                elbow,
-                                                frame.scale() * crate::model::projected_ink::GRID,
-                                            );
                                             if let Some(c) =
                                                 ring_measure(attached, elbow, end, right)
                                                 && acceptable(&c)
