@@ -3,9 +3,9 @@
 Install the platform wheel (Python 3.9 or newer; Rust is not required):
 
 ```sh
-pip install --pre draftwright
+pip install draftwright
 # Optional shape/assembly API:
-pip install --pre "draftwright[build123d]"
+pip install "draftwright[build123d]"
 ```
 
 ```python
@@ -79,7 +79,7 @@ Custom `page` dimensions also raise `TypeError` naming the unsupported value. In
 as a nonpositive scale or an unknown projection, raise `DraftwrightError` from
 Rust. Unknown keywords raise Python's normal `TypeError`.
 
-## Requirements and drawings from build123d (`Part`, 0.6.0-alpha.2)
+## Requirements and drawings from build123d (`Part`)
 
 For a task-by-task introduction, see [Drawings from build123d](build123d.md).
 
@@ -89,7 +89,7 @@ Drawing lowers that model directly; requirements never go into the drawing Spec.
 No questionnaire, answer files or separate package is needed.
 
 build123d is optional. Install it alongside Draftwright, for example
-`pip install --pre draftwright build123d`, or use
+`pip install draftwright build123d`, or use
 `uv run --with draftwright --with build123d script.py`. A pipx/uv-tool environment
 needs build123d in the same environment to use `Part`. Importing Draftwright does
 not import build123d or OCP.
@@ -358,7 +358,7 @@ Every dictionary
 includes the engine-owned `tier`: `fix_before_printing`, `tidy`, or `information`.
 See the [code-to-tier table](finding-impact.md), including its explicit severity-dependent rules.
 
-## Assembly drawing packs (`Pack`, 0.6.0-alpha.3)
+## Assembly drawing packs (`Pack`)
 
 `Pack(assembly, parts=[...], title=..., number=..., horizontal_axis=None)` renders the Rust pack pipeline:
 a GA followed by made-part sheets, with one PDF, CSV and JSON report. `assembly`
@@ -517,5 +517,5 @@ Pin `draftwright<0.6` to continue
 using the old API. `draftwright.__version__` is the Cargo package version.
 
 The wheel contains an abi3 extension (`draftwright._native`) and Python wrappers.
-The published Rust crate has no PyO3 dependency. `cargo install draftwright --version 0.6.0-alpha.2`
+The published Rust crate has no PyO3 dependency. `cargo install draftwright`
 continues to install the two native commands.
