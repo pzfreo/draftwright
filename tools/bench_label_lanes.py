@@ -34,8 +34,13 @@ for case, extra in [('default', []), ('text-edit', ['--spec', str(spec.resolve()
         for name in order:
             start = time.monotonic()
             result = subprocess.run([str(getattr(args, name).resolve()), 'plan', str(step.resolve()), *extra],
-                                    capture_output=True, check=True)
-            timings[name].append(time.monotonic() - start)
+                                    capture_output=True)
+            elapsed = time.monotonic() - start
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f'{case} {name}: plan exited {result.returncode}: '
+                    f'{result.stderr.decode(errors="replace")}')
+            timings[name].append(elapsed)
             assert 'dimensions' in json.loads(result.stdout), result.stderr
             assert name not in plans or plans[name] == result.stdout, (case, name, 'nondeterministic plan')
             plans[name] = result.stdout

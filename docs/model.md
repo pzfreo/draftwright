@@ -575,7 +575,18 @@ Inch drawings use ratios 4:1, 2:1, 1:1, 1:2, 1:4, 1:8, 1:12, 1:16, 1:24,
 1:48 and 1:96. Scale text uses ratios (`SCALE 1:12`); architectural foot-and-inch
 scale captions are not added. Metric drawings retain the ISO 5455 ladder.
 `--units mm|in` and `--paper iso|ansi|arch` on render, review, plan and the bare
-CLI override and record these fields in the embedded Spec. The Python keyword
+CLI override and record these fields in the embedded Spec. These forms also take
+`--size NAME` (force a sheet) and `--max-size NAME` (preferred largest paper), using
+A4..A0, ANSI A..E or ARCH A..E. All four forms accept numeric `--scale 5`
+or ratios such as `--scale 1:2`. Repeatable `--set PATH=VALUE` uses the edit paths
+(`/` separators, `~1` for a slash in a key, `~0` for a tilde); values parse as JSON,
+otherwise text. For example, `--set sheet/size=A3` or `--set views/iso/omit=true`.
+Flags and edits override `--spec` or the defaults. A named flag and `--set` targeting
+the same path (including a parent object) are refused, in either order; repeated
+`--set` entries apply in order. Pack accepts these sheet flags and `--set` into the
+pack Spec: `--size` and `--scale` constrain only `ga/drawing/sheet`, while
+`--max-size` sets `preferred_max_size` for the GA and every part drawing.
+`--set ga/drawing/sheet/size=A3` forces the GA sheet. The Python keyword
 `units=` and case-insensitive `page="ANSI B"` / `page="ARCH D"` map to the same fields.
 
 `sheet/projection` is ISO 5456-2's method, `first` or `third` (angle); absent means third, and the
@@ -2578,6 +2589,11 @@ output is byte-identical to analysing the same STEP with the same features.
   names an Analysis file in place of `--features` (`draftwright plan --analysis a.json` needs no
   STEP file). A failed write leaves its destination unreplaced by that invocation.
   Earlier formats in the same export may already have been published.
+  Render, review, plan and bare render take `--size NAME`, `--max-size NAME` and
+  repeatable `--set PATH=VALUE`; all four accept numeric or ratio `--scale`.
+  Pack takes all four: size/scale constrain the GA, max-size reaches every drawing,
+  and `--set` addresses the pack Spec. Named flags override the Spec file; overlap
+  with a `--set` path is refused in either order.
 - **JSON-lines service.** `draftwright serve` takes one request and gives one reply per line, in
   the shape of specify-core's `serve`: `{"id": 1, "op": "plan", "step": "part.step", "spec": {…}}`
   gives `{"id": 1, "ok": true, "result": …}` or `{"id": 1, "ok": false, "error": {…}}`, and

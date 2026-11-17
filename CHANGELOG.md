@@ -6,6 +6,11 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Add CLI `--size`, `--max-size` and repeatable `--set PATH=VALUE` drawing overrides,
+  including pack; pack size/scale affect only the GA, while max-size reaches every
+  drawing. Scale accepts numeric values and ratios. Named flags conflicting with
+  `--set` are refused in either order.
+
 - Python pictorials carry colour to below views enabled later and preserve authored
   below styles on unrelated view edits; DPI rejects booleans and reports overflow as non-finite.
 
