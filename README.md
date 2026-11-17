@@ -72,6 +72,16 @@ draftwright --version                # should print 0.6.0 or later
 If pipx says the command "is not on your PATH" or points elsewhere, `pipx install --force` takes
 the link over. An older Rust build in `~/.cargo/bin` can also shadow it: `cargo uninstall draftwright`.
 
+If you installed shell completion for the old command (`--install-completion`), pressing Tab after
+`draftwright` prints a mess until you replace it. Write the new script over the old one, then open a
+new shell:
+
+```sh
+draftwright completions zsh  > ~/.zfunc/_draftwright                       # zsh
+draftwright completions bash > ~/.bash_completions/draftwright.sh          # bash
+draftwright completions fish > ~/.config/fish/completions/draftwright.fish # fish
+```
+
 ## Command line
 
 ```sh
