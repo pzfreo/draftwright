@@ -12,7 +12,7 @@ on:
         description: Existing release tag to build and attach the command line to (e.g. v0.6.0-alpha.2)
         required: true
   pull_request:
-    paths: ['.github/workflows/cli.yml', 'about.toml', 'about.hbs']
+    paths: ['.github/workflows/cli.yml', '.github/requirements/cli-musl.txt', 'about.toml', 'about.hbs']
 
 permissions:
   contents: read
@@ -58,12 +58,21 @@ jobs:
           tool: cargo-about@0.9.3
       - name: Third-party licence notices
         run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
+      # Use the workflow's requirements even when manually backfilling an older tag.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: endsWith(matrix.target, '-musl')
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .cli-toolchain
+          sparse-checkout: .github/requirements/cli-musl.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Static Linux toolchain
         if: endsWith(matrix.target, '-musl')
         run: |
           rustup target add ${{ matrix.target }}
           python3 -m venv "$RUNNER_TEMP/musl-tools"
-          "$RUNNER_TEMP/musl-tools/bin/pip" install cargo-zigbuild==0.23.4 ziglang==0.17.1
+          "$RUNNER_TEMP/musl-tools/bin/pip" install --require-hashes -r .cli-toolchain/.github/requirements/cli-musl.txt
           echo "$RUNNER_TEMP/musl-tools/bin" >> "$GITHUB_PATH"
       - run: cargo build --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
         if: ${{ !endsWith(matrix.target, '-musl') }}
