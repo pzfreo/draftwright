@@ -1346,12 +1346,27 @@ fn cli_reference_set_examples_are_accepted() {
             assert_reference_effect(&result, path, &expected);
             result["spec"].clone()
         };
-        assert_reference_value(
+        let actual = if let Some(view) = drawing_path
+            .strip_prefix("views/")
+            .and_then(|p| p.strip_suffix("/omit"))
+        {
+            // False is omitted by ViewSpec's serializer. Require the view entry,
+            // then check its actual typed value instead of treating absence as false.
+            let typed: model::Spec = serde_json::from_value(spec.clone()).unwrap();
+            let key = view.replace("~1", "/").replace("~0", "~");
+            json!(
+                typed
+                    .views
+                    .get(&key)
+                    .expect("the edited view is present")
+                    .omit
+            )
+        } else {
             spec.pointer(&format!("/{drawing_path}"))
-                .unwrap_or(&Value::Null),
-            &expected,
-            row,
-        );
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        assert_reference_value(&actual, &expected, row);
         if pack {
             std::fs::remove_dir_all(out).unwrap();
         }
@@ -1479,7 +1494,7 @@ fn plan_and_review_accept_numeric_and_ratio_scales_and_override_the_spec() {
                 } else {
                     let svg = result["svg"].as_str().unwrap();
                     assert!(
-                        svg.contains(&format!(">{ratio}<")),
+                        svg.contains(&format!(">SCALE {ratio}<")),
                         "{args:?}: scale caption"
                     );
                     serde_json::to_value(model::embedded_spec(svg.as_bytes()).unwrap().unwrap())
