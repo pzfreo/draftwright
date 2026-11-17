@@ -93,8 +93,13 @@ The destination is added to the USER PATH; no administrator access is needed.
                 ((Get-Item -LiteralPath $source).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 throw "Archive is missing a regular file: $binary"
             }
-            if ([IO.Directory]::Exists((Join-Path $installDir $binary))) {
+            $destination = Join-Path $installDir $binary
+            if ([IO.Directory]::Exists($destination)) {
                 throw "Destination is a directory: $binary"
+            }
+            if ((Test-Path -LiteralPath $destination) -and
+                ((Get-Item -LiteralPath $destination -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw "Destination is a link: $binary"
             }
         }
         foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {

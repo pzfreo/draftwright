@@ -20,7 +20,16 @@ $null = [IO.Directory]::CreateDirectory($payload)
 [IO.File]::WriteAllText((Join-Path $payload 'draftwright.exe'), 'not executed')
 $fixture = Join-Path $testRoot $asset
 Compress-Archive -Path $payload -DestinationPath $fixture
-$testState = @{ ManifestMode = 'mismatch'; Marker = '*'; Requests = @(); Output = @() }
+$testState = @{ ManifestMode = 'mismatch'; Marker = '*'; DestinationLink = $false; DestinationPath = $destination; Requests = @(); Output = @() }
+
+function Get-Item {
+    param([string]$LiteralPath, [switch]$Force)
+    # Simulate reparse-point metadata without requiring Windows symlink privileges.
+    if ($testState.DestinationLink -and $LiteralPath -eq (Join-Path $testState.DestinationPath 'draftwright.exe')) {
+        return [pscustomobject]@{ Attributes = [IO.FileAttributes]::ReparsePoint }
+    }
+    Microsoft.PowerShell.Management\Get-Item -LiteralPath $LiteralPath -Force:$Force
+}
 
 function Invoke-WebRequest {
     param([switch]$UseBasicParsing, [string]$Uri, [int]$MaximumRedirection, [string]$OutFile)
@@ -84,6 +93,9 @@ try {
     Test-Refusal 'Archive is missing a regular file: draftwright-mcp.exe'
     $testState.Marker = ' '
     Test-Refusal 'Archive is missing a regular file: draftwright-mcp.exe'
+    $testState.DestinationLink = $true
+    Test-Refusal 'Destination is a link: draftwright.exe'
+    $testState.DestinationLink = $false
     $testState.ManifestMode = 'mismatch'
     $env:PROCESSOR_ARCHITECTURE = 'ARM64'
     Test-Refusal 'Checksum mismatch'
@@ -96,7 +108,7 @@ try {
     Test-Refusal 'Invalid release version'
     if ($testState.Requests.Count) { throw 'Invalid version downloaded files' }
     & $installer -Help
-    Write-Output 'PASS: all 8 Windows refusal tests and help'
+    Write-Output 'PASS: all 9 Windows refusal tests and help'
 } finally {
     foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key]) }
     Remove-Item -LiteralPath $testRoot -Recurse -Force
