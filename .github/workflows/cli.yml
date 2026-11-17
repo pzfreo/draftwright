@@ -1,7 +1,7 @@
 name: Release command line
 
 # The draftwright command line for Linux, macOS and Windows, attached to each release. A change to
-# this workflow builds and tries all three on its pull request, without attaching anything. A manual
+# this workflow builds and tries every target on its pull request, without attaching anything. A manual
 # run builds an existing release tag and attaches to it, for a release whose own run failed.
 on:
   release:
@@ -25,7 +25,10 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: '' }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, exe: '' }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, exe: '' }
           - { os: macos-latest, target: aarch64-apple-darwin, exe: '' }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, exe: '' }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: .exe }
     runs-on: ${{ matrix.os }}
     env:
@@ -55,7 +58,32 @@ jobs:
           tool: cargo-about@0.9.3
       - name: Third-party licence notices
         run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
+      - name: Static Linux toolchain
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          rustup target add ${{ matrix.target }}
+          python3 -m venv "$RUNNER_TEMP/musl-tools"
+          "$RUNNER_TEMP/musl-tools/bin/pip" install cargo-zigbuild==0.23.4 ziglang==0.17.1
+          echo "$RUNNER_TEMP/musl-tools/bin" >> "$GITHUB_PATH"
       - run: cargo build --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
+        if: ${{ !endsWith(matrix.target, '-musl') }}
+      - name: Build static Linux binaries
+        if: endsWith(matrix.target, '-musl')
+        run: cargo zigbuild --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
+      - name: Verify both Linux binaries are static
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          for binary in draftwright draftwright-mcp; do
+            bin="target/${{ matrix.target }}/release/$binary"
+            file "$bin"
+            file -b "$bin" | grep -E 'statically linked|static-pie linked'
+            headers=$(readelf --program-headers "$bin")
+            dynamic=$(readelf --dynamic "$bin")
+            if printf '%s\n' "$headers" | grep -q INTERP || printf '%s\n' "$dynamic" | grep -q NEEDED; then
+              echo "::error::$binary has a dynamic interpreter or shared dependency"
+              exit 1
+            fi
+          done
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
         # removed hole.
