@@ -128,22 +128,50 @@ fn unread_reasons_are_retained(a: &Analysis, plan: &Plan) {
     let Some(Reading::Read(report)) = &a.pmi else {
         return;
     };
+    let (_, lowered_problems) = lower(a, &shown_in(plan));
     for source in report
         .sources
         .iter()
         .filter(|s| s.outcome == draftwright::pmi::Outcome::NotExtracted)
     {
         let id = format!("p:pmi_not_extracted:{}", source.id);
-        let problem = plan.problems.iter().find(|p| p.id == id).unwrap();
+        let problem = lowered_problems.iter().find(|p| p.id == id).unwrap();
         assert!(
             problem.refs.contains(&source.reason),
             "{id} lost reader reason {:?}",
             source.reason
         );
+        if let Some(problem) = plan.problems.iter().find(|p| p.id == id) {
+            assert!(problem.refs.contains(&source.reason), "{id}: {problem:?}");
+        } else {
+            // Material is outside the legacy record projection. Final planning
+            // resolves its census warning only when the material is printed in
+            // a title cell (model::plan_with_presentation). Prove that carrier;
+            // every other unread source must still have its final problem.
+            assert!(
+                report.title_material().is_some_and(|material| {
+                    material.census_id() == source.id
+                        && plan.sheet.title_cells.iter().any(|cell| {
+                            cell.field == "material"
+                                && cell.value.as_deref().is_some_and(|value| {
+                                    value.trim() == material.designation.trim()
+                                })
+                        })
+                }),
+                "{id} has neither its problem nor a drawn material carrier"
+            );
+        }
     }
 }
 
 pmi_cases!(ap242_plans_have_unique_problem_ids);
+#[test]
+fn ap242_plans_have_unique_problem_ids_for_derived_thumbwheel() {
+    // This kernel-contract fixture is deliberately outside pmi_cases!, but is
+    // still part of the on-disk AP242 corpus and must satisfy the same checks.
+    ap242_plans_have_unique_problem_ids(support::DERIVED_PMI_FILE);
+}
+
 fn ap242_plans_have_unique_problem_ids(only: &str) {
     for (file, _, bytes) in inputs(only) {
         let (_, a) = cache::analysed(&file, &bytes, true, || {
