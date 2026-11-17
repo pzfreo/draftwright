@@ -34,6 +34,7 @@ class InstallerTests(unittest.TestCase):
             "DRAFTWRIGHT_INSTALL_DIR": str(self.dest),
             "TEST_ASSETS": str(self.assets),
             "TEST_DOWNLOAD_LOG": str(self.log),
+            "TMPDIR": str(self.root),
         }
         self.env.pop("DRAFTWRIGHT_VERSION", None)
         # An isolated PATH lets tests exercise missing tools and wget-only installs.
@@ -49,6 +50,7 @@ print(os.environ.get('TEST_OS', 'Linux') if sys.argv[1] == '-s'
 """)
         self.command("getconf", "import os; print(os.environ.get('TEST_GLIBC', 'glibc 2.35'))")
         self.command("ldd", "import os; print(os.environ.get('TEST_LDD', 'ldd (GNU libc) 2.36'))")
+        self.command("sysctl", "import os; print(os.environ.get('TEST_APPLE_ARM64', '0'))")
         downloader = """
 import os, pathlib, shutil, sys
 url = sys.argv[-1]
@@ -62,7 +64,18 @@ if url.endswith('/latest'):
 else:
     flag = '-O' if '-O' in sys.argv else '-o'
     dest = sys.argv[sys.argv.index(flag) + 1]
-    shutil.copyfile(pathlib.Path(os.environ['TEST_ASSETS']) / url.rsplit('/', 1)[1], dest)
+    source = pathlib.Path(os.environ['TEST_ASSETS']) / url.rsplit('/', 1)[1]
+    code = os.environ.get('TEST_MUSL_HTTP_ERROR', '') if '-linux-musl.' in url else ''
+    if code or not source.exists():
+        code = code or '404'
+        if flag == '-O':
+            sys.stderr.write('  HTTP/1.1 ' + code + ' Error\\n')
+        else:
+            print(code, end='')
+        sys.exit(22 if flag == '-o' else 8)
+    shutil.copyfile(source, dest)
+    if flag == '-o':
+        print('200', end='')
 """.replace("RELEASES", RELEASES)
         self.command("curl", downloader)
         self.command("wget", downloader)
@@ -120,9 +133,11 @@ else:
         self.assert_installed(self.run_installer())
         urls = self.log.read_text().splitlines()
         self.assertEqual(urls[0], f"{RELEASES}/latest")
-        self.assertEqual(len(urls), 3)
-        self.assertTrue(urls[1].startswith(f"{RELEASES}/download/v0.6.0/"))
-        self.assertEqual(urls[2], urls[1] + ".sha256")
+        self.assertEqual(len(urls), 4)
+        self.assertTrue(urls[1].endswith('-x86_64-unknown-linux-musl.tar.gz'))
+        self.assertTrue(urls[2].endswith('-x86_64-unknown-linux-gnu.tar.gz'))
+        self.assertEqual(urls[3], urls[2] + ".sha256")
+        self.assertIn('falling back', self.run_installer().stdout)
 
     def test_pinned_versions_replace_existing_binaries(self):
         self.seed_install()
@@ -159,8 +174,8 @@ else:
         self.assert_preserved(self.run_installer())
 
     def test_unsupported_platforms(self):
-        for os_name, arch in (("Darwin", "x86_64"), ("Linux", "aarch64"),
-                              ("MINGW64_NT", "x86_64"), ("FreeBSD", "amd64")):
+        for os_name, arch in (("Linux", "armv7l"), ("MINGW64_NT", "x86_64"),
+                              ("FreeBSD", "amd64")):
             with self.subTest(platform=f"{os_name}/{arch}"):
                 result = self.run_installer(TEST_OS=os_name, TEST_ARCH=arch)
                 self.assertNotEqual(result.returncode, 0)
@@ -180,6 +195,49 @@ else:
 
     def test_ldd_fallback(self):
         self.assert_installed(self.run_installer(TEST_GLIBC="", TEST_LDD="ldd (Debian GLIBC 2.36-9) 2.36"))
+
+    def test_static_linux_without_glibc(self):
+        for arch, target in (("x86_64", "x86_64-unknown-linux-musl"),
+                             ("aarch64", "aarch64-unknown-linux-musl")):
+            with self.subTest(arch=arch):
+                self.archive(target)
+                self.assert_installed(self.run_installer(TEST_ARCH=arch, TEST_GLIBC="", TEST_LDD="musl libc 1.2.5"))
+
+    def test_intel_mac_and_rosetta(self):
+        self.archive("x86_64-apple-darwin")
+        for arm64, target in (("0", "x86_64-apple-darwin"), ("1", "aarch64-apple-darwin")):
+            with self.subTest(arm64=arm64):
+                self.log.unlink(missing_ok=True)
+                self.assert_installed(self.run_installer(TEST_OS="Darwin", TEST_ARCH="x86_64", TEST_APPLE_ARM64=arm64))
+                self.assertIn(f'-{target}.tar.gz', self.log.read_text())
+
+    def test_old_release_missing_targets(self):
+        for os_name, arch, target in (("Darwin", "x86_64", "x86_64-apple-darwin"),
+                                      ("Linux", "aarch64", "aarch64-unknown-linux-musl")):
+            with self.subTest(target=target):
+                result = self.run_installer(TEST_OS=os_name, TEST_ARCH=arch)
+                self.assertNotEqual(result.returncode, 0)
+                for text in (f'No archive for {target}', 'v0.6.0', RELEASES, 'uv tool install draftwright'):
+                    self.assertIn(text, result.stderr)
+                self.assertFalse(self.dest.exists())
+
+    def test_network_errors_never_fall_back(self):
+        for code in ('403', '500', '000'):
+            with self.subTest(code=code):
+                self.log.unlink(missing_ok=True)
+                result = self.run_installer(TEST_MUSL_HTTP_ERROR=code)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('-linux-gnu', self.log.read_text())
+                self.assertFalse(self.dest.exists())
+
+    def test_static_checksum_failure_never_falls_back(self):
+        self.seed_install()
+        asset = self.archive('x86_64-unknown-linux-musl')
+        asset.write_bytes(asset.read_bytes() + b'tampered')
+        result = self.run_installer()
+        self.assert_preserved(result)
+        self.assertIn('Checksum mismatch', result.stderr)
+        self.assertNotIn('-linux-gnu', self.log.read_text())
 
     def test_help_and_unknown_flag(self):
         self.assertEqual(self.run_installer("--help").returncode, 0)

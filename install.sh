@@ -11,7 +11,8 @@ die() {
 if [ "$#" -gt 0 ]; then
     [ "$#" -eq 1 ] && [ "$1" = --help ] || die 'Usage: sh install.sh [--help]'
     cat <<'EOF'
-Install draftwright and draftwright-mcp for macOS arm64 or Linux x86_64 (glibc >= 2.35).
+Install draftwright and draftwright-mcp for macOS or Linux (arm64 / x86_64).
+Linux uses static binaries; older x86_64 releases require glibc >= 2.35.
 
 Usage: sh install.sh [--help]
   DRAFTWRIGHT_VERSION      Release to install, e.g. v0.6.0 or 0.6.0 (default: latest stable)
@@ -24,11 +25,19 @@ os=$(uname -s)
 arch=$(uname -m)
 case "$os/$arch" in
     Darwin/arm64|Darwin/aarch64) target=aarch64-apple-darwin ;;
-    Linux/x86_64) target=x86_64-unknown-linux-gnu ;;
+    Darwin/x86_64)
+        if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ]; then
+            target=aarch64-apple-darwin
+        else
+            target=x86_64-apple-darwin
+        fi
+        ;;
+    Linux/x86_64) target=x86_64-unknown-linux-musl ;;
+    Linux/aarch64|Linux/arm64) target=aarch64-unknown-linux-musl ;;
     *) die "Unsupported platform: $os/$arch. See $releases or use 'uv tool install draftwright' / 'cargo install draftwright'." ;;
 esac
 
-if [ "$os" = Linux ]; then
+check_glibc() {
     glibc_version=
     if command -v getconf >/dev/null 2>&1; then
         libc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
@@ -44,9 +53,9 @@ if [ "$os" = Linux ]; then
         }
         { exit 1 }
     '; then
-        die "Linux requires glibc >= 2.35 (detected: ${glibc_version:-unknown}). A static Linux build is planned; meanwhile use the Python package: uv tool install draftwright."
+        die "This release has no static Linux archive. Its GNU build requires glibc >= 2.35 (detected: ${glibc_version:-unknown}). Use a newer release with static binaries or the Python package: uv tool install draftwright."
     fi
-fi
+}
 
 if command -v curl >/dev/null 2>&1; then
     downloader=curl
@@ -65,20 +74,23 @@ fi
 
 install_dir=${DRAFTWRIGHT_INSTALL_DIR:-$HOME/.local/bin}
 case "$install_dir" in /*) ;; *) install_dir=$(pwd)/$install_dir ;; esac
-mkdir -p "$install_dir"
-install_dir=$(cd "$install_dir" && pwd -P)
-# Staging on the destination filesystem makes each final rename atomic.
-tmp_dir=$(mktemp -d "$install_dir/.draftwright-install.XXXXXX")
-trap 'rm -rf "$tmp_dir"' 0
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/draftwright-install.XXXXXX")
+stage_dir=
+trap 'rm -rf "$tmp_dir"; if [ -n "$stage_dir" ]; then rm -rf "$stage_dir"; fi' 0
 trap 'exit 1' HUP INT TERM
 cd "$tmp_dir"
 
 download() {
+    # Only HTTP 404 means an old release lacks this target. Never mask other errors.
     if [ "$downloader" = curl ]; then
-        curl -fsSL -o "$2" "$1" || die "Could not download $1"
+        if status=$(curl -fsSL -o "$2" -w '%{http_code}' "$1"); then return 0; fi
+        [ "$status" != 404 ] || return 44
     else
-        wget -q -O "$2" "$1" || die "Could not download $1"
+        if wget -q --server-response -O "$2" "$1" 2>download.headers; then return 0; fi
+        status=$(awk '/^[[:space:]]*HTTP\// { code = $2 } END { print code }' download.headers)
+        [ "$status" != 404 ] || return 44
     fi
+    return 1
 }
 
 version=${DRAFTWRIGHT_VERSION:-}
@@ -98,11 +110,28 @@ case "$version" in v*) ;; *) version=v$version ;; esac
 case "$version" in v[0-9]*) ;; *) die "Invalid release version: $version" ;; esac
 case "$version" in *[!a-zA-Z0-9.+-]*) die "Invalid release version: $version" ;; esac
 
-name=draftwright-$version-$target
-asset=$name.tar.gz
+set_asset() {
+    name=draftwright-$version-$target
+    asset=$name.tar.gz
+}
+set_asset
 printf 'Installing draftwright %s for %s\n' "$version" "$target"
-download "$releases/download/$version/$asset" "$asset"
-download "$releases/download/$version/$asset.sha256" "$asset.sha256"
+if download "$releases/download/$version/$asset" "$asset"; then
+    :
+else
+    result=$?
+    [ "$result" -eq 44 ] || die "Could not download $asset"
+    if [ "$os/$arch" = Linux/x86_64 ]; then
+        check_glibc
+        target=x86_64-unknown-linux-gnu
+        set_asset
+        printf 'No static archive in %s; falling back to %s\n' "$version" "$target"
+        download "$releases/download/$version/$asset" "$asset" || die "Could not download $asset. See $releases"
+    else
+        die "No archive for $target in $version. See $releases or use 'uv tool install draftwright' / 'cargo install draftwright'."
+    fi
+fi
+download "$releases/download/$version/$asset.sha256" "$asset.sha256" || die "Could not download the checksum for $asset"
 
 # Accept only the single checksum for this archive, never paths from a manifest.
 expected=$(awk -v asset="$asset" '
@@ -118,14 +147,18 @@ else
 fi
 [ "${actual%% *}" = "$expected" ] || die "Checksum mismatch for $asset; nothing installed."
 
-tar -xzf "$asset" "$name/draftwright" "$name/draftwright-mcp"
+mkdir -p "$install_dir"
+install_dir=$(cd "$install_dir" && pwd -P)
+# Staging on the destination filesystem makes each final rename atomic.
+stage_dir=$(mktemp -d "$install_dir/.draftwright-install.XXXXXX")
+tar -xzf "$asset" -C "$stage_dir" "$name/draftwright" "$name/draftwright-mcp"
 for binary in draftwright draftwright-mcp; do
-    [ -f "$name/$binary" ] && [ ! -L "$name/$binary" ] || die "Archive is missing a regular file: $binary"
+    [ -f "$stage_dir/$name/$binary" ] && [ ! -L "$stage_dir/$name/$binary" ] || die "Archive is missing a regular file: $binary"
     [ ! -d "$install_dir/$binary" ] || die "Destination is a directory: $install_dir/$binary"
-    chmod 755 "$name/$binary"
+    chmod 755 "$stage_dir/$name/$binary"
 done
 for binary in draftwright draftwright-mcp; do
-    mv -f "$name/$binary" "$install_dir/$binary"
+    mv -f "$stage_dir/$name/$binary" "$install_dir/$binary"
 done
 
 "$install_dir/draftwright" --version
