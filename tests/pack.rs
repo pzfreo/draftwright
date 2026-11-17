@@ -2211,6 +2211,16 @@ fn cli_pack_sheet_flags_and_set_constrain_only_the_ga() {
 
 #[test]
 fn cli_pack_max_size_preserves_merged_drawing_and_reaches_parts() {
+    let help = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .args(["pack", "--help"])
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(
+        help.contains("overrides --spec") && help.contains("every part"),
+        "{help}"
+    );
     let dir =
         std::env::temp_dir().join(format!("draftwright-pack-max-size-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -2231,7 +2241,12 @@ fn cli_pack_max_size_preserves_merged_drawing_and_reaches_parts() {
             } else { json!({"supply":"buy"}) };
             (row.key.clone(), intent)
         }).collect();
-        std::fs::write(&base, json!({"parts":parts}).to_string()).unwrap();
+        std::fs::write(
+            &base,
+            json!({"parts":parts,"ga":{"drawing":{"sheet":{"preferred_max_size":"A2"}}}})
+                .to_string(),
+        )
+        .unwrap();
         let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
             .arg("pack")
             .arg(fixture("pack-small.step.gz"))

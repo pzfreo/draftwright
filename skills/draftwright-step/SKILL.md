@@ -129,7 +129,7 @@ draftwright render part-pmi.step --spec next.json -o part
   in paper mm. Prefer `side`: the engine still finds a clear spot. A pinned label is
   never moved off other ink, so re-check problems after pinning.
 - Sheet and scale: `--size A3`, `--max-size A3`, `--scale 1:1` (also numeric `1`);
-  units `--units in`. Size/max-size and repeatable `--set PATH=VALUE` also work on
+  units `--units in`. Size, max-size, scale and repeatable `--set PATH=VALUE` also work on
   review and plan. Values parse as JSON, otherwise text; paths use `/`, with `~1`
   for a slash in a key. Example: `--set views/iso/omit=true`. Flags/edits override
   `--spec`; overlapping named flags and `--set` are refused in either order.

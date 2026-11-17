@@ -577,7 +577,7 @@ scale captions are not added. Metric drawings retain the ISO 5455 ladder.
 `--units mm|in` and `--paper iso|ansi|arch` on render, review, plan and the bare
 CLI override and record these fields in the embedded Spec. These forms also take
 `--size NAME` (force a sheet) and `--max-size NAME` (preferred largest paper), using
-A4..A0, ANSI A..E or ARCH A..E. Render and bare render accept numeric `--scale 5`
+A4..A0, ANSI A..E or ARCH A..E. All four forms accept numeric `--scale 5`
 or ratios such as `--scale 1:2`. Repeatable `--set PATH=VALUE` uses the edit paths
 (`/` separators, `~1` for a slash in a key, `~0` for a tilde); values parse as JSON,
 otherwise text. For example, `--set sheet/size=A3` or `--set views/iso/omit=true`.
@@ -2590,7 +2590,7 @@ output is byte-identical to analysing the same STEP with the same features.
   STEP file). A failed write leaves its destination unreplaced by that invocation.
   Earlier formats in the same export may already have been published.
   Render, review, plan and bare render take `--size NAME`, `--max-size NAME` and
-  repeatable `--set PATH=VALUE`; render also accepts numeric or ratio `--scale`.
+  repeatable `--set PATH=VALUE`; all four accept numeric or ratio `--scale`.
   Pack takes all four: size/scale constrain the GA, max-size reaches every drawing,
   and `--set` addresses the pack Spec. Named flags override the Spec file; overlap
   with a `--set` path is refused in either order.

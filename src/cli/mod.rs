@@ -134,6 +134,9 @@ enum Command {
         drawing: Drawing,
         #[command(flatten)]
         pictorial: compat::PictorialOptions,
+        /// Drawing scale as a number or ratio, e.g. 5, 0.5 or 1:2 (default: auto)
+        #[arg(long, allow_negative_numbers = true)]
+        scale: Option<String>,
     },
     /// write the drawing's files and print what was written, with the problems
     Render {
@@ -171,6 +174,9 @@ enum Command {
         drawing: Drawing,
         #[command(flatten)]
         pictorial: compat::PictorialOptions,
+        /// Drawing scale as a number or ratio, e.g. 5, 0.5 or 1:2 (default: auto)
+        #[arg(long, allow_negative_numbers = true)]
+        scale: Option<String>,
     },
     /// print a Spec with edit operations applied
     Edit {
@@ -335,10 +341,12 @@ pub fn main(args: Vec<std::ffi::OsString>) -> u8 {
             step,
             drawing,
             pictorial,
+            scale,
         } => (
             "plan",
             Given {
                 pictorial,
+                sheet: compat::SheetOptions::with_scale_text(scale),
                 ..Given::drawing(step.into_iter().collect(), drawing)
             },
         ),
@@ -346,10 +354,12 @@ pub fn main(args: Vec<std::ffi::OsString>) -> u8 {
             step,
             drawing,
             pictorial,
+            scale,
         } => (
             "review",
             Given {
                 pictorial,
+                sheet: compat::SheetOptions::with_scale_text(scale),
                 ..Given::drawing(vec![step], drawing)
             },
         ),
@@ -546,7 +556,9 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
         Some(path) => read_json(path)?,
         None => given.inline_spec.clone().unwrap_or(Value::Null),
     };
-    if command == "render" || (matches!(command, "plan" | "review") && given.pictorial.requested())
+    if command == "render"
+        || (matches!(command, "plan" | "review")
+            && (given.pictorial.requested() || given.sheet.scale.is_some()))
     {
         let mut typed = if spec.is_null() {
             Spec::default()
@@ -555,14 +567,10 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
                 .map_err(|e| Error::invalid(format!("the spec is not valid: {e}")))?
         };
         let mut paths = given.pictorial.paths();
-        if command == "render" {
-            paths.extend(given.sheet.paths());
-        }
+        paths.extend(given.sheet.paths());
         given.pictorial.apply(&mut typed)?;
         typed = given.pictorial.overrides.drawing(&typed, &paths)?;
-        if command == "render" {
-            given.sheet.apply(&mut typed)?;
-        }
+        given.sheet.apply(&mut typed)?;
         spec = json_of(&typed);
     }
     let render_output = if command == "render" && (given.bare || given.out_dir.is_some()) {

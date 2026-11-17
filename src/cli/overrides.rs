@@ -13,7 +13,7 @@ pub(super) struct Overrides {
     /// Force sheet size: A4..A0, ANSI A..E or ARCH A..E (pack: GA only)
     #[arg(long, value_name = "NAME")]
     size: Option<String>,
-    /// Preferred largest paper: A4..A0, ANSI A..E or ARCH A..E
+    /// Preferred largest paper; overrides --spec, including GA and every part on pack
     #[arg(long, value_name = "NAME")]
     pub(super) max_size: Option<String>,
     /// Set a Spec path to JSON or text; repeatable; conflicts with named flags
@@ -22,6 +22,11 @@ pub(super) struct Overrides {
 }
 
 fn at_path(mut error: Error, path: &str) -> Error {
+    if let Some(previous) = &error.path
+        && let Some(message) = error.message.strip_prefix(&format!("{previous}: "))
+    {
+        error.message = message.to_owned();
+    }
     error.message = format!("{path}: {}", error.message);
     error.path = Some(path.into());
     error
@@ -29,7 +34,6 @@ fn at_path(mut error: Error, path: &str) -> Error {
 
 fn components(path: &str) -> Vec<String> {
     path.split('/')
-        .filter(|s| !s.is_empty())
         .map(|s| s.replace("~1", "/").replace("~0", "~"))
         .collect()
 }
@@ -88,11 +92,26 @@ impl Overrides {
     fn edits(&self, named: &[String], pack: bool) -> Result<Vec<Value>, Error> {
         let mut edits = Vec::new();
         for assignment in &self.sets {
+            if assignment.is_empty() || assignment.starts_with('=') {
+                return Err(Error::invalid("--set needs PATH=VALUE; the path is empty"));
+            }
             let (path, text) = assignment
                 .split_once('=')
                 .ok_or_else(|| at_path(Error::invalid("--set expects PATH=VALUE"), assignment))?;
+            if path.starts_with('/') {
+                return Err(at_path(
+                    Error::invalid("--set paths must not have a leading '/'"),
+                    path,
+                ));
+            }
+            if path.split('/').any(str::is_empty) {
+                return Err(at_path(
+                    Error::invalid("--set paths must not contain empty segments or a trailing '/'"),
+                    path,
+                ));
+            }
             let keys = components(path);
-            if keys.is_empty() || keys.len() > 64 {
+            if keys.len() > 64 {
                 return Err(at_path(
                     Error::invalid("--set needs a path of 1 to 64 components"),
                     path,
@@ -130,6 +149,10 @@ impl Overrides {
         let mut spec = spec.clone();
         for edit in edits {
             let path = edit["path"].as_str().expect("edit path");
+            // The editor also supports table-index operations; CLI --set only writes whole values.
+            let mut doc = serde_json::to_value(&spec).expect("drawing Spec serialises");
+            set(&mut doc, &components(path), edit["value"].clone())
+                .map_err(|e| at_path(e, path))?;
             spec = api::edit(&spec, &json!([edit.clone()])).map_err(|e| at_path(e, path))?;
             check_sheet(&spec).map_err(|e| at_path(e, path))?;
         }
@@ -202,12 +225,12 @@ fn set(doc: &mut Value, keys: &[String], value: Value) -> Result<(), Error> {
     }
     let child = match doc {
         Value::Object(object) => object.entry(key.clone()).or_insert(Value::Null),
-        Value::Array(array) => key
-            .parse::<usize>()
-            .ok()
-            .and_then(|i| array.get_mut(i))
-            .ok_or_else(|| Error::invalid("no such list index"))?,
-        _ => return Err(Error::invalid("path is not inside an object or list")),
+        Value::Array(_) => {
+            return Err(Error::invalid(
+                "--set edits whole values only; set an array or object in one go",
+            ));
+        }
+        _ => return Err(Error::invalid("path is not inside an object")),
     };
     if rest.is_empty() {
         *child = value;

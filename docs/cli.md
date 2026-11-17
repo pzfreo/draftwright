@@ -40,7 +40,7 @@ Options belong to particular commands; check that command's `--help`.
   (force a sheet), `--max-size NAME` (preferred largest paper), `--units mm` or
   `--units in`, and `--paper iso`, `ansi` or `arch`. Names are `A4` through `A0`,
   `ANSI A` through `ANSI E`, or `ARCH A` through `ARCH E`; quote names with spaces.
-  Render and bare render take `--scale 5`, `--scale 0.5`, `--scale 5:1` or
+  All four forms take `--scale 5`, `--scale 0.5`, `--scale 5:1` or
   `--scale 1:2`; omit it for automatic scale. Ratios must be positive and valid
   for the drawing's standard scale series. Geometry stays in mm. Decimal inches
   default to three places, trailing zeros and no leading zero below one; paper
@@ -87,10 +87,12 @@ draftwright render part.step -o out --set sheet/size=A3 --set views/iso/omit=tru
 draftwright pack assembly.step -o drawings --set ga/drawing/sheet/size=A3
 ```
 
-- Paths are the Spec's `/`-separated edit paths, without a leading slash. Within a
+- Paths are the Spec's `/`-separated edit paths, without a leading or trailing
+  slash or empty segments (`/sheet//size/` is refused). Within a
   key, write `/` as `~1` and `~` as `~0`, e.g.
   `dimensions/d:f:hole:f6~1bore.diameter/omit=true`. Setting an object replaces
-  that object; use a leaf path to retain its other fields.
+  that object; use a leaf path to retain its other fields. Whole values only;
+  set an array or object in one go. Array-element paths are refused.
 - Values parse as JSON when possible (`true`, `3`, `[184,196,204]`, `{"ra":1.6}`);
   otherwise they are strings (`A3`, `1:2`). Use a JSON string to keep numeric text
   as text: `--set 'sheet/title/number="123"'`. JSON `null` clears optional values.
@@ -98,8 +100,10 @@ draftwright pack assembly.step -o drawings --set ga/drawing/sheet/size=A3
 - Both named flags and sets override `--spec` or the defaults. Repeated sets apply
   in command-line order, so the last value wins. A set overlapping a named flag's
   path, including a parent object, is refused in either order. For example,
-  `--size A3 --set sheet/size=A4` is a conflict. Pack `--max-size` also conflicts
-  with sets targeting any part's preferred maximum.
+  `--size A3 --set sheet/size=A4` is a conflict. On pack, `--max-size` overrides
+  `preferred_max_size` in the Spec file for the GA and every part, including
+  existing per-part values. It also conflicts with sets targeting any drawing's
+  preferred maximum.
 - Unknown paths and invalid values are refused with exit 2 and a readable path,
   e.g. `--set sheet/typo=A3` prints `error: sheet/typo: ... unknown field ...`
   on stderr, followed by `  entry: sheet/typo`. A missing `=` is refused too.
