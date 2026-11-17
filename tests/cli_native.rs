@@ -1302,7 +1302,14 @@ fn cli_reference_set_examples_are_accepted() {
         };
         if let Some((key, _)) = part_path {
             let key = key.replace("~1", "/").replace("~0", "~");
-            let keys = draftwright::pack::part_keys(&api::parts(&assembly).unwrap());
+            let (code, listed) = run(&["parts", assembly.to_str().unwrap()]);
+            assert_eq!(code, Some(0), "{row}: {listed}");
+            let keys: Vec<_> = listed["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["key"].as_str().unwrap().to_owned())
+                .collect();
             assert!(keys.contains(&key), "{row}");
             // PDF embeds the first sheet's Spec. Make this target the only made
             // part, separate from congruent products, with no preceding GA.
