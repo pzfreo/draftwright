@@ -1268,6 +1268,7 @@ fn cli_reference_set_examples_are_accepted() {
     assert!((15..=25).contains(&examples.len()), "common settings table");
     let part = fixture("parts/plate.step");
     let assembly = fixture("assembly/pack-small.step.gz");
+    let process = std::process::id();
     for (index, row) in examples.iter().enumerate() {
         assert!(row.starts_with('|') && row.ends_with('|'), "{row}");
         let columns: Vec<_> = row.trim_matches('|').split('|').map(str::trim).collect();
@@ -1285,8 +1286,8 @@ fn cli_reference_set_examples_are_accepted() {
             .map(|(_, p)| p)
             .unwrap_or_else(|| path.strip_prefix("ga/drawing/").unwrap_or(path));
         let pack = part_path.is_some() || path.starts_with("ga/");
-        let out = scratch(&format!("reference-pack-{index}"));
-        let base_file = scratch(&format!("reference-pack-{index}.json"));
+        let out = scratch(&format!("reference-pack-{process}-{index}"));
+        let base_file = scratch(&format!("reference-pack-{process}-{index}.json"));
         let mut args = if pack {
             vec![
                 "pack",
