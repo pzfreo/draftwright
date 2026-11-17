@@ -65,8 +65,9 @@ Options belong to particular commands; check that command's `--help`.
 - **Part:** `--part KEY` or `--part INDEX` selects one assembly part on analyse,
   plan, render, review and diff. Get persistent keys from `parts`; quote spaces.
 - **Recognition:** analyse, plan, render and review use native recognition by
-  default. `--features r.json`, `--no-features`, and `--analysis a.json` select
-  alternatives; see [the engine guide](engine.md#using-it) for their constraints.
+  default. `--features r.json` or `--no-features` changes the feature input;
+  plan, render and review can reuse `--analysis a.json`. See
+  [the engine guide](engine.md#using-it) for their constraints.
 
 With no overrides, existing defaults and output are unchanged. For example:
 
@@ -88,7 +89,8 @@ draftwright pack assembly.step -o drawings --set ga/drawing/sheet/size=A3
 
 - Paths are the Spec's `/`-separated edit paths, without a leading slash. Within a
   key, write `/` as `~1` and `~` as `~0`, e.g.
-  `dimensions/d:f:hole:f6~1bore.diameter/omit=true`.
+  `dimensions/d:f:hole:f6~1bore.diameter/omit=true`. Setting an object replaces
+  that object; use a leaf path to retain its other fields.
 - Values parse as JSON when possible (`true`, `3`, `[184,196,204]`, `{"ra":1.6}`);
   otherwise they are strings (`A3`, `1:2`). Use a JSON string to keep numeric text
   as text: `--set 'sheet/title/number="123"'`. JSON `null` clears optional values.
@@ -122,7 +124,7 @@ Replace `pin A` with a key from `draftwright parts assembly.step`.
 | `sheet/frame_gutter` | 0–20 mm or `null` | Clearance inside the always-drawn frame. | `--set 'sheet/frame_gutter=3'` |
 | `sheet/title/title` | String | Drawing title. | `--set 'sheet/title/title=Mounting plate'` |
 | `sheet/title/number` | String | Drawing number. | `--set 'sheet/title/number="123"'` |
-| `sheet/title` | Object of string fields | Title-block material, authorship, approval, date, revision and company. | `--set 'sheet/title={"material":"Aluminium","drawn_by":"PA","approved_by":"QA","date":"2026-11-17","revision":"B","company":"Workshop"}'` |
+| `sheet/title` | Object of string fields | Replace title fields: material, authorship, approval, date, revision and company. | `--set 'sheet/title={"material":"Aluminium","drawn_by":"PA","approved_by":"QA","date":"2026-11-17","revision":"B","company":"Workshop"}'` |
 | `sheet/title/tolerance` | String | State the intended general tolerance. | `--set 'sheet/title/tolerance=ISO 2768-mK'` |
 | `sheet/default_finish` | Object: positive `ra` in µm; optional `removal`: `any`, `required`, `prohibited`; or `null` | State the default ISO 1302 finish beside the title block. | `--set 'sheet/default_finish={"ra":1.6}'` |
 | `views/iso/style` | `wireframe`, `shaded`, `null` | Isometric line drawing or vector shading. | `--set 'views/iso/style=shaded'` |
