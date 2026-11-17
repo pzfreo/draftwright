@@ -86,6 +86,7 @@ fn issue464_explicit_coarse_pitch_survives_every_callout_style() {
                 drawing.svg().contains(designation),
                 "{designation} ({style}) absent"
             );
+            assert!(pmi_lint(&a, &drawing).is_empty(), "{designation} ({style})");
         }
     }
 }
@@ -445,7 +446,8 @@ fn m6_on_the_plate_hole_pattern_prints_on_its_callout() {
         &spec(json!({"features": {"f:hole_pattern:f6": {"thread": {"designation": "M6x1-6H", "length": 4}}}})),
     )
     .unwrap();
-    assert_eq!(dimension(&plan, id).label, "4× M6-6H ↧ 4\n⌀6 THRU");
+    // #464: retain the authored coarse pitch; depth and drill information stay present.
+    assert_eq!(dimension(&plan, id).label, "4× M6x1-6H ↧ 4\n⌀6 THRU");
     let plan = model::plan_recovered(
         &a,
         &spec(json!({"features": {"f:hole:f6": {"thread": {"designation": "M6"}}}})),
@@ -554,7 +556,8 @@ fn a_thread_and_a_knurl_on_bosses_print_on_their_diameter_callouts() {
     }}));
     let plan = model::plan(&a, &s).unwrap();
     let thread = dimension(&plan, "d:f:boss:f41/boss.diameter");
-    assert_eq!(thread.label, "M31.75 x 1.5");
+    // #464: the Spec's designation prints as written, including its spacing.
+    assert_eq!(thread.label, "M31.75x1.5");
     assert!(thread.measurements.iter().any(|m| m.parameter == "thread"));
     assert!(
         thread
@@ -1077,9 +1080,9 @@ fn a_thread_length_whose_callout_is_omitted_is_reported_not_lost() {
     }));
     let plan = model::plan_recovered(&a, &s).unwrap();
     assert!(plan.dimensions.iter().all(|d| d.id != id));
-    // The omission keeps the label it would have printed, thread length included.
+    // The omission keeps the authored pitch (#464) and the thread length it would have printed.
     let omitted = plan.omitted.iter().find(|o| o.id == id).expect("omitted");
-    assert_eq!(omitted.label, "4× M6-6H ↧ 4\n⌀6 THRU");
+    assert_eq!(omitted.label, "4× M6x1-6H ↧ 4\n⌀6 THRU");
     // And the thread the Spec authored is reported as not drawn.
     let lost = problems(&plan, "pmi_not_drawn");
     assert_eq!(lost.len(), 1, "{:?}", plan.problems);
@@ -1088,7 +1091,7 @@ fn a_thread_length_whose_callout_is_omitted_is_reported_not_lost() {
 
 /// LINT-hole_coverage-thread_and_profile, the authored half (draftwright's `thread.depth`, a
 /// `ThreadOperation`'s depth): a Spec thread's length on a hole prints as its depth after the
-/// designation (`4× M6-6H ↧ 4`), and lint requires that depth on the sheet. A callout that drops
+/// designation (`4× M6x1-6H ↧ 4`), and lint requires that depth on the sheet. A callout that drops
 /// it, or states another, is a `pmi_source_text_mismatch` error naming the Spec thread.
 #[test]
 fn a_spec_threads_depth_on_its_holes_is_required_by_lint() {
@@ -1099,7 +1102,7 @@ fn a_spec_threads_depth_on_its_holes_is_required_by_lint() {
         &spec(json!({"features": {"f:hole_pattern:f6": {"thread": {"designation": "M6x1-6H", "length": 4}}}})),
     )
     .unwrap();
-    assert_eq!(dimension(&plan, id).label, "4× M6-6H ↧ 4\n⌀6 THRU");
+    assert_eq!(dimension(&plan, id).label, "4× M6x1-6H ↧ 4\n⌀6 THRU");
     let d = model::render(&part, &a, &plan, &font()).unwrap();
     assert_eq!(pmi_lint(&a, &d), Vec::<String>::new());
     let thread = d.annotations.iter().find(|m| m.name == id).unwrap().clone();
