@@ -6,6 +6,11 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Add CLI `--size`, `--max-size` and repeatable `--set PATH=VALUE` drawing overrides,
+  including pack; pack size/scale affect only the GA, while max-size reaches every
+  drawing. Scale accepts numeric values and ratios. Named flags conflicting with
+  `--set` are refused in either order.
+
 - One-shot CLI commands, including bare render, now print refusals as plain `error:` lines on
   stderr with empty stdout, followed by choices and an entry path when present. Exit codes stay
   2 for invalid input and 1 for failures. Successful results remain JSON on stdout; `serve`

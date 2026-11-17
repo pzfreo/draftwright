@@ -68,6 +68,7 @@ const PROTOCOL: u32 = 1;
 
 mod compat;
 pub mod mcp;
+mod overrides;
 mod version;
 
 const AFTER_HELP: &str = "Discovery: schemas/spec.json, docs/model.md and docs/mcp.md ship in the release.
@@ -195,6 +196,11 @@ enum Command {
         /// the pack Spec
         #[arg(long, value_name = "JSON")]
         spec: Option<String>,
+        #[command(flatten)]
+        overrides: overrides::Overrides,
+        /// GA drawing scale as a number or ratio, e.g. 1 or 1:2
+        #[arg(long, allow_negative_numbers = true)]
+        scale: Option<String>,
         /// the formats written
         #[arg(long, value_name = "LIST", default_value = "pdf,csv,json")]
         formats: String,
@@ -394,6 +400,8 @@ pub fn main(args: Vec<std::ffi::OsString>) -> u8 {
             output,
             spec,
             formats,
+            overrides,
+            scale,
         } => (
             "pack",
             Given {
@@ -401,6 +409,8 @@ pub fn main(args: Vec<std::ffi::OsString>) -> u8 {
                 output,
                 spec,
                 formats: Some(formats),
+                pictorial: compat::PictorialOptions::with_overrides(overrides),
+                sheet: compat::SheetOptions::with_scale_text(scale),
                 ..Given::default()
             },
         ),
@@ -544,6 +554,11 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
             serde_json::from_value(spec)
                 .map_err(|e| Error::invalid(format!("the spec is not valid: {e}")))?
         };
+        let mut paths = given.pictorial.paths();
+        if command == "render" {
+            paths.extend(given.sheet.paths());
+        }
+        typed = given.pictorial.overrides.drawing(&typed, &paths)?;
         if command == "render" {
             given.sheet.apply(&mut typed)?;
         }
@@ -659,6 +674,10 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
             serde_json::from_value(spec)
                 .map_err(|e| Error::invalid(format!("invalid pack Spec: {e}")))?
         };
+        let spec = given
+            .pictorial
+            .overrides
+            .pack(&spec, given.sheet.scale.as_deref())?;
         let formats: Vec<_> = given
             .formats
             .as_deref()
@@ -666,7 +685,12 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
             .split(',')
             .collect();
         return guarded(command, || {
-            let (report, files, timings) = crate::pack::render_profiled(step, &spec, &formats)?;
+            let (report, files, timings) = crate::pack::render_profiled_cli(
+                step,
+                &spec,
+                &formats,
+                given.pictorial.overrides.max_size.as_deref(),
+            )?;
             std::fs::create_dir_all(dir)
                 .map_err(|e| Error::failed(format!("cannot create {}: {e}", dir.display())))?;
             let written = api::write(&dir.join("pack"), &files)?;

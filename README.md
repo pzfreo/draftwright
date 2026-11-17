@@ -87,6 +87,8 @@ draftwright completions fish > ~/.config/fish/completions/draftwright.fish # fis
 ```sh
 draftwright render part.step -o part --formats svg,pdf,dxf  # includes editable DXF
 draftwright render part.step -o part --units in --paper ansi
+draftwright render part.step -o part --max-size A3
+draftwright render part.step -o part --set views/iso/omit=true
 draftwright review part.step
 ```
 

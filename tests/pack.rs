@@ -2147,3 +2147,171 @@ fn pack_title_defaults_follow_ap242_sources_and_own_drawing_intent() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn cli_pack_sheet_flags_and_set_constrain_only_the_ga() {
+    let dir = std::env::temp_dir().join(format!(
+        "draftwright-pack-sheet-flags-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let base = dir.join("base.json");
+    std::fs::write(
+        &base,
+        r#"{"ga":{"drawing":{"sheet":{"size":"A4","scale":"1:2"}}}}"#,
+    )
+    .unwrap();
+    for options in [
+        vec!["--size", "A3", "--scale", "1:1"],
+        vec![
+            "--set",
+            "ga/drawing/sheet/size=A3",
+            "--set",
+            "ga/drawing/sheet/scale=1:1",
+        ],
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .arg("pack")
+            .arg(fixture("pack-small.step.gz"))
+            .arg("-o")
+            .arg(&dir)
+            .arg("--spec")
+            .arg(&base)
+            .args(&options)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(result["report"]["general_assembly"]["size"], "A3");
+        assert_eq!(result["report"]["general_assembly"]["scale"], "1:1");
+        let embedded = draftwright::api::spec(&dir.join("pack.pdf")).unwrap();
+        assert_eq!(embedded.sheet.size.as_deref(), Some("A3"));
+        assert_eq!(embedded.sheet.scale.as_deref(), Some("1:1"));
+        // A second run without the GA exposes the part's untouched automatic intent.
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .arg("pack")
+            .arg(fixture("pack-small.step.gz"))
+            .arg("-o")
+            .arg(&dir)
+            .args(&options)
+            .args(["--set", "ga/include=false"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let part = draftwright::api::spec(&dir.join("pack.pdf")).unwrap();
+        assert!(part.sheet.size.is_none() && part.sheet.scale.is_none());
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn cli_pack_max_size_preserves_merged_drawing_and_reaches_parts() {
+    let dir =
+        std::env::temp_dir().join(format!("draftwright-pack-max-size-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let base = dir.join("base.json");
+    // A drawing addressed by a merged stem must not conflict with added defaults.
+    for target in std::iter::once(None).chain(
+        small()
+            .report
+            .rows
+            .iter()
+            .filter(|r| r.supply != Supply::Buy)
+            .map(Some),
+    ) {
+        let parts: serde_json::Map<String, serde_json::Value> = small().report.rows.iter().map(|row| {
+            let chosen = target.is_some_and(|t| t.key == row.key);
+            let intent = if chosen {
+                json!({"supply":"make", "drawing":{"sheet":{"preferred_max_size":"A2", "title":{"company":"KEEP"}}}})
+            } else { json!({"supply":"buy"}) };
+            (row.key.clone(), intent)
+        }).collect();
+        std::fs::write(&base, json!({"parts":parts}).to_string()).unwrap();
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .arg("pack")
+            .arg(fixture("pack-small.step.gz"))
+            .arg("-o")
+            .arg(&dir)
+            .arg("--spec")
+            .arg(&base)
+            .args([
+                "--max-size",
+                "A3",
+                "--set",
+                &format!("ga/include={}", target.is_none()),
+            ])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let embedded = draftwright::api::spec(&dir.join("pack.pdf")).unwrap();
+        assert_eq!(embedded.sheet.preferred_max_size.as_deref(), Some("A3"));
+        if target.is_some() {
+            assert_eq!(embedded.sheet.title["company"], "KEEP");
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn cli_pack_set_refuses_bad_paths_values_and_named_conflicts() {
+    let step = fixture("pack-small.step.gz");
+    for (options, path, reason) in [
+        (vec!["--set", "ga/typo=true"], "ga/typo", "unknown field"),
+        (
+            vec!["--set", "ga/drawing/sheet/size=bad"],
+            "ga/drawing/sheet/size",
+            "sheet size",
+        ),
+        (
+            vec!["--set", "ga/include=perhaps"],
+            "ga/include",
+            "invalid type",
+        ),
+        (vec!["--size", "bad"], "sheet/size", "sheet size"),
+        (
+            vec!["--max-size", "bad"],
+            "sheet/preferred_max_size",
+            "sheet size",
+        ),
+        (
+            vec!["--set", "ga/drawing/sheet/size"],
+            "ga/drawing/sheet/size",
+            "PATH=VALUE",
+        ),
+        (
+            vec!["--set", "ga/drawing/sheet/size=A4", "--size", "A3"],
+            "ga/drawing/sheet/size",
+            "conflicts",
+        ),
+        (
+            vec!["--scale", "1:1", "--set", "ga/drawing/sheet/scale=1:2"],
+            "ga/drawing/sheet/scale",
+            "conflicts",
+        ),
+        (
+            vec![
+                "--max-size",
+                "A3",
+                "--set",
+                "parts/pin/drawing/sheet/preferred_max_size=A4",
+            ],
+            "parts/pin/drawing/sheet/preferred_max_size",
+            "conflicts",
+        ),
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .arg("pack")
+            .arg(&step)
+            .args(["-o", "unused-sheet-refusal"])
+            .args(&options)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{options:?}: {out:?}");
+        assert!(out.stdout.is_empty());
+        let error = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            error.starts_with("error: ") && error.contains(path) && error.contains(reason),
+            "{options:?}: {error}"
+        );
+    }
+}

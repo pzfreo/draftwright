@@ -575,7 +575,18 @@ Inch drawings use ratios 4:1, 2:1, 1:1, 1:2, 1:4, 1:8, 1:12, 1:16, 1:24,
 1:48 and 1:96. Scale text uses ratios (`SCALE 1:12`); architectural foot-and-inch
 scale captions are not added. Metric drawings retain the ISO 5455 ladder.
 `--units mm|in` and `--paper iso|ansi|arch` on render, review, plan and the bare
-CLI override and record these fields in the embedded Spec. The Python keyword
+CLI override and record these fields in the embedded Spec. These forms also take
+`--size NAME` (force a sheet) and `--max-size NAME` (preferred largest paper), using
+A4..A0, ANSI A..E or ARCH A..E. Render and bare render accept numeric `--scale 5`
+or ratios such as `--scale 1:2`. Repeatable `--set PATH=VALUE` uses the edit paths
+(`/` separators, `~1` for a slash in a key, `~0` for a tilde); values parse as JSON,
+otherwise text. For example, `--set sheet/size=A3` or `--set views/iso/omit=true`.
+Flags and edits override `--spec` or the defaults. A named flag and `--set` targeting
+the same path (including a parent object) are refused, in either order; repeated
+`--set` entries apply in order. Pack accepts these sheet flags and `--set` into the
+pack Spec: `--size` and `--scale` constrain only `ga/drawing/sheet`, while
+`--max-size` sets `preferred_max_size` for the GA and every part drawing.
+`--set ga/drawing/sheet/size=A3` forces the GA sheet. The Python keyword
 `units=` and case-insensitive `page="ANSI B"` / `page="ARCH D"` map to the same fields.
 
 `sheet/projection` is ISO 5456-2's method, `first` or `third` (angle); absent means third, and the

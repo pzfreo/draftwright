@@ -299,6 +299,16 @@ pub fn build_bytes_with_pmi(
     spec: &PackSpec,
     pmi: &BTreeMap<String, ProductPmi>,
 ) -> Result<Pack, Error> {
+    build_bytes_with_options(name, bytes, spec, pmi, None)
+}
+
+fn build_bytes_with_options(
+    name: &str,
+    bytes: &[u8],
+    spec: &PackSpec,
+    pmi: &BTreeMap<String, ProductPmi>,
+    max_size: Option<&str>,
+) -> Result<Pack, Error> {
     let step = Path::new(name);
     if spec.schema != SPEC_SCHEMA {
         return Err(Error::invalid(format!(
@@ -527,6 +537,38 @@ pub fn build_bytes_with_pmi(
             )));
         }
     }
+    // CLI printer preference becomes ordinary drawing intent after group keys are known.
+    // Preserve a merged stem's drawing: adding empty leaf drawings would conflict with it.
+    let mut defaults;
+    let spec = if let Some(max_size) = max_size {
+        defaults = spec.clone();
+        defaults.ga.drawing.sheet.preferred_max_size = Some(max_size.into());
+        for intent in defaults.parts.values_mut() {
+            if let Some(drawing) = &mut intent.drawing {
+                drawing.sheet.preferred_max_size = Some(max_size.into());
+            }
+        }
+        for group in &groups {
+            let row = &group.row;
+            if !row
+                .products
+                .iter()
+                .chain(std::iter::once(&row.key))
+                .any(|k| defaults.parts.get(k).is_some_and(|p| p.drawing.is_some()))
+            {
+                let drawing = defaults
+                    .parts
+                    .entry(row.key.clone())
+                    .or_default()
+                    .drawing
+                    .get_or_insert_with(Spec::default);
+                drawing.sheet.preferred_max_size = Some(max_size.into());
+            }
+        }
+        &defaults
+    } else {
+        spec
+    };
     let mut reserved = BTreeSet::new();
     let mut rows = Vec::new();
     let mut prepared = Vec::new();
@@ -1252,6 +1294,29 @@ pub fn render_profiled(
     }
     let bytes = model::read_step_file(step).map_err(Error::invalid)?;
     render_bytes_profiled(&step.display().to_string(), &bytes, spec, formats)
+}
+
+/// CLI sheet preferences materialized into each resolved group's drawing Spec.
+#[cfg(feature = "cli")]
+pub(crate) fn render_profiled_cli(
+    step: &Path,
+    spec: &PackSpec,
+    formats: &[&str],
+    max_size: Option<&str>,
+) -> Result<(Report, Files, Timings), Error> {
+    if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
+        return Err(Error::invalid("pack formats must be pdf,csv,json"));
+    }
+    let bytes = model::read_step_file(step).map_err(Error::invalid)?;
+    let pack = build_bytes_with_options(
+        &step.display().to_string(),
+        &bytes,
+        spec,
+        &BTreeMap::new(),
+        max_size,
+    )?;
+    let files = pack.encode(formats)?;
+    Ok((pack.report, files, pack.timings))
 }
 
 /// Build and encode from STEP or gzip bytes without filesystem access.

@@ -128,7 +128,13 @@ draftwright render part-pmi.step --spec next.json -o part
 - `place` takes `view`, `side`, `lane`, `along`, or `{"pinned": true, "offset": [dx, dy]}`
   in paper mm. Prefer `side`: the engine still finds a clear spot. A pinned label is
   never moved off other ink, so re-check problems after pinning.
-- Sheet and scale: `"sheet": {"size": "A3", "scale": "1:1"}`; units `--units in`.
+- Sheet and scale: `--size A3`, `--max-size A3`, `--scale 1:1` (also numeric `1`);
+  units `--units in`. Size/max-size and repeatable `--set PATH=VALUE` also work on
+  review and plan. Values parse as JSON, otherwise text; paths use `/`, with `~1`
+  for a slash in a key. Example: `--set views/iso/omit=true`. Flags/edits override
+  `--spec`; overlapping named flags and `--set` are refused in either order.
+  On pack, size/scale affect only the GA; max-size affects GA and part drawings.
+  Pack edits address its Spec, e.g. `--set ga/drawing/sheet/size=A3`.
   Forcing a scale can create overlaps; when the engine drops the scale, look for what
   pushed it before overriding.
 - An edit naming an id that no longer exists is kept but reported

@@ -1052,3 +1052,180 @@ fn bare_and_render_embed_us_unit_and_paper_overrides() {
         assert_eq!(spec["sheet"]["paper"], "ansi");
     }
 }
+
+#[test]
+fn sheet_overrides_apply_to_every_drawing_cli_form() {
+    let step = fixture("parts/plate.step");
+    let base = scratch("sheet-flags-base.json");
+    std::fs::write(
+        &base,
+        r#"{"sheet":{"size":"A4","preferred_max_size":"A2"}}"#,
+    )
+    .unwrap();
+    for form in ["render", "bare", "plan", "review"] {
+        for (kind, options) in [
+            ("named", vec!["--size", "A3", "--max-size", "A3"]),
+            (
+                "set",
+                vec![
+                    "--set",
+                    "sheet/size=A3",
+                    "--set",
+                    "sheet/preferred_max_size=A3",
+                ],
+            ),
+        ] {
+            let stem = scratch(&format!("sheet-flags-{form}-{kind}"));
+            let mut args = Vec::new();
+            if form != "bare" {
+                args.push(form);
+            }
+            args.extend([step.to_str().unwrap(), "--spec", base.to_str().unwrap()]);
+            if form == "render" {
+                args.extend(["-o", stem.to_str().unwrap(), "--formats", "svg"]);
+            }
+            if form == "bare" {
+                args.extend(["--out", stem.to_str().unwrap()]);
+            }
+            args.extend(options);
+            let (code, result) = run(&args);
+            assert_eq!(code, Some(0), "{args:?}: {result}");
+            let spec = match form {
+                "plan" => {
+                    assert_eq!(result["sheet"]["size"], "A3", "{result}");
+                    result["spec"].clone()
+                }
+                "review" => {
+                    let svg = result["svg"].as_str().unwrap();
+                    assert!(svg.contains("width=\"420mm\""), "{svg}");
+                    serde_json::to_value(model::embedded_spec(svg.as_bytes()).unwrap().unwrap())
+                        .unwrap()
+                }
+                _ => {
+                    let svg = std::fs::read_to_string(stem.with_extension("svg")).unwrap();
+                    assert!(svg.contains("width=\"420mm\""), "{svg}");
+                    run(&["spec", stem.with_extension("svg").to_str().unwrap()]).1
+                }
+            };
+            assert_eq!(spec["sheet"]["size"], "A3");
+            assert_eq!(spec["sheet"]["preferred_max_size"], "A3");
+        }
+    }
+}
+
+#[test]
+fn scale_flags_accept_numbers_and_ratios() {
+    let step = fixture("parts/plate.step");
+    for (value, expected) in [("5", "5:1"), ("5:1", "5:1"), ("0.5", "1:2"), ("1:2", "1:2")] {
+        let stem = scratch(&format!("scale-ratio-{}", value.replace(':', "-")));
+        let (code, result) = run(&[
+            "render",
+            step.to_str().unwrap(),
+            "-o",
+            stem.to_str().unwrap(),
+            "--formats",
+            "svg",
+            "--size",
+            "A0",
+            "--scale",
+            value,
+        ]);
+        assert_eq!(code, Some(0), "{value}: {result}");
+        let (_, spec) = run(&["spec", stem.with_extension("svg").to_str().unwrap()]);
+        assert_eq!(spec["sheet"]["scale"], expected);
+    }
+}
+
+#[test]
+fn set_parses_json_text_repeats_and_escaped_keys() {
+    let step = fixture("parts/plate.step");
+    let (code, result) = run(&[
+        "plan",
+        step.to_str().unwrap(),
+        "--set",
+        "sheet/size=A4",
+        "--set",
+        "sheet/size=\"A3\"",
+        "--set",
+        "views/iso/omit=true",
+        "--set",
+        "sheet/title/title=A=B",
+        "--set",
+        "dimensions/d:f:hole:f6~1bore.diameter/omit=true",
+    ]);
+    assert_eq!(code, Some(0), "{result}");
+    assert_eq!(result["sheet"]["size"], "A3");
+    assert_eq!(result["spec"]["views"]["iso"]["omit"], true);
+    assert_eq!(result["spec"]["sheet"]["title"]["title"], "A=B");
+    assert_eq!(
+        result["spec"]["dimensions"]["d:f:hole:f6/bore.diameter"]["omit"],
+        true
+    );
+    for name in ["ANSI B", "ARCH B"] {
+        let (code, result) = run(&["plan", step.to_str().unwrap(), "--size", name]);
+        assert_eq!(code, Some(0), "{result}");
+        assert_eq!(result["sheet"]["size"], name);
+    }
+}
+
+#[test]
+fn sheet_overrides_refuse_bad_paths_values_and_conflicts_readably() {
+    let step = fixture("parts/plate.step");
+    for form in ["plan", "review", "render", "bare"] {
+        let stem = scratch(&format!("sheet-refusal-{form}"));
+        let mut base = Vec::new();
+        if form != "bare" {
+            base.push(form);
+        }
+        base.push(step.to_str().unwrap());
+        if form == "render" {
+            base.extend(["-o", stem.to_str().unwrap()]);
+        }
+        if form == "bare" {
+            base.extend(["--out", stem.to_str().unwrap()]);
+        }
+        for (options, path, reason) in [
+            (
+                vec!["--set", "sheet/typo=A3"],
+                "sheet/typo",
+                "unknown field",
+            ),
+            (
+                vec!["--set", "views/iso/omit=perhaps"],
+                "views/iso/omit",
+                "invalid type",
+            ),
+            (vec!["--set", "sheet/size=bad"], "sheet/size", "sheet size"),
+            (vec!["--size", "bad"], "sheet/size", "sheet size"),
+            (
+                vec!["--max-size", "bad"],
+                "sheet/preferred_max_size",
+                "sheet size",
+            ),
+            (vec!["--set", "sheet/size"], "sheet/size", "PATH=VALUE"),
+            (
+                vec!["--set", "sheet/size=A4", "--size", "A3"],
+                "sheet/size",
+                "conflicts",
+            ),
+            (
+                vec!["--size", "A3", "--set", "sheet/size=A4"],
+                "sheet/size",
+                "conflicts",
+            ),
+            (
+                vec!["--set", "sheet={}", "--size", "A3"],
+                "sheet",
+                "conflicts",
+            ),
+        ] {
+            let mut args = base.clone();
+            args.extend(options);
+            let error = cli::failure(&args, 2);
+            assert!(
+                error.contains(path) && error.contains(reason),
+                "{args:?}: {error}"
+            );
+        }
+    }
+}
