@@ -727,13 +727,25 @@ pub(super) fn place(
                 .any(|m| m.parameter == "notch.angle")
                 && notch_void(view, c)
         };
+        // Only PMI nominals change width when dimension_label trims rounded
+        // zeroes (#505). Native notch angles retain their established corridor
+        // selection; applying this extra gap to them can create leader crossings.
+        let pmi_angle = items[i]
+            .measurements
+            .iter()
+            .any(|m| m.parameter == "angular" && m.feature.starts_with("pmi:"));
         let furniture = |c: &Placed| {
+            let label = if pmi_angle {
+                clear_box(c.label_box)
+            } else {
+                c.label_box
+            };
             !boxes_overlap(c.label_box, page.title_block())
                 // A disjoint box can still leave the first glyph visually
                 // touching the part (#505). Require the same reading gap as
                 // other settled text, including on fallback candidates.
                 && page.views().iter().all(|(id, b)| {
-                    (*id == own && in_void(c)) || !boxes_overlap(clear_box(c.label_box), *b)
+                    (*id == own && in_void(c)) || !boxes_overlap(label, *b)
                 })
                 && !c.lines.iter().any(|l| crosses(*l, page.title_block()))
                 && (!exterior

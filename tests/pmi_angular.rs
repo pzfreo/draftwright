@@ -12,6 +12,9 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
+#[path = "common/corpus.rs"]
+mod corpus;
+
 use draftwright::dims::PlannedDimension;
 use draftwright::haecceity::hlr::View;
 use draftwright::model::{self, Analysis, Plan, PlannedView, Spec};
@@ -24,6 +27,45 @@ const FEATURE: &str = "pmi:dimension.angular:f15,17";
 const VERTEX: [f64; 3] = [110.0, -75.0, -25.0];
 const FIRST: [f64; 3] = [128.76388374866252, -107.5, -25.0];
 const SECOND: [f64; 3] = [91.23611625133717, -107.49999999999974, -25.0];
+
+#[test]
+fn issue505_pmi_clearance_preserves_native_notch_leader_corridors() {
+    let Some(dir) = corpus::dir() else { return };
+    let (part, analysis) = model::analyse_native(&dir.join("mfcadpp_holdout/520.step")).unwrap();
+    let plan = model::plan_recovered(&analysis, &Spec::default()).unwrap();
+    let angle = "d:envelope/notch.angle.f1_e7_e8";
+    let slot = "d:f:section_recess:f21/round_bottom_blind_slot_flat_width.length";
+    let dimension = plan.dimensions.iter().find(|d| d.id == angle).unwrap();
+    assert_eq!(dimension.label, "133.681°");
+    assert!(dimension.placed.is_some());
+    assert!(
+        plan.dimensions
+            .iter()
+            .any(|d| d.id == slot && d.placed.is_some())
+    );
+    let font = draftwright::text::Font::open(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fonts")
+            .join(draftwright::dims::FONT),
+    )
+    .unwrap();
+    let drawing = model::render(&part, &analysis, &plan, &font).unwrap();
+    for id in [angle, slot] {
+        assert!(
+            drawing.annotations.iter().any(|a| a.name == id),
+            "{id} must remain drawn"
+        );
+    }
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .chain(&drawing.problems)
+            .any(|p| p.code == "annotation_leader_crossing"),
+        "{:?}",
+        plan.problems
+    );
+}
 
 /// The analysed fixture *name*, decompressed into a directory of the calling *test*'s own: the
 /// tests run in parallel, and one must not rewrite the file another is reading.
