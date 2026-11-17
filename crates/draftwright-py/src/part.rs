@@ -978,6 +978,12 @@ mod tests {
             })
             .unwrap();
         assert_eq!(angle.label, "25° ±0.5°");
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.code == "nominal_rounded" && p.subjects.contains(&angle.id)),
+            "rounding evidence must survive trimming zeroes"
+        );
         let placed = angle.placed.as_ref().unwrap();
         let view = plan.views.iter().find(|v| v.id == angle.view).unwrap();
         let camera = haecceity::hlr::View::new(view.direction, view.up).unwrap();

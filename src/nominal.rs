@@ -100,6 +100,7 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             {
                 continue;
             }
+            let angular = m.parameter.contains("angle") || m.parameter.starts_with("angular");
             let units = if m.parameter.contains("angle") {
                 crate::units::Units::Mm
             } else {
@@ -108,15 +109,18 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             let printed = units.format(m.value);
             // Symbolic thread designations and table references can replace a nominal.
             // Report only a numeric term that is actually printed on this carrier.
+            // Trimming an angle's trailing zeroes changes spelling, not its
+            // rounded numeric value, and must not hide rounding evidence.
             let printed_here = text
                 .split(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
-                .any(|token| {
-                    token == printed
-                        || (m.feature.starts_with("f:modelled_thread:")
-                            && m.parameter == "thread"
+                .find(|token| {
+                    *token == printed
+                        || ((angular
+                            || (m.feature.starts_with("f:modelled_thread:")
+                                && m.parameter == "thread"))
                             && token.parse::<f64>().ok() == printed.parse::<f64>().ok())
                 });
-            if printed_here
+            if let Some(shown) = printed_here
                 && printed
                     .parse::<f64>()
                     .is_ok_and(|v| (v - clean(units.from_mm(m.value))).abs() > 1e-6 + 1e-12)
@@ -125,9 +129,9 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
                     id: format!("p:nominal_rounded:{id}:{measurement}"),
                     code: "nominal_rounded".into(), severity: "info".into(),
                     message: if plan.sheet.units.is_mm() {
-                        format!("The dimension {text:?} has modelled nominal {} but prints {printed} at the default three-place limit.", clean(m.value))
+                        format!("The dimension {text:?} has modelled nominal {} but prints {shown} at the default three-place limit.", clean(m.value))
                     } else {
-                        format!("The dimension {text:?}: modelled nominal {} mm prints {printed} in at the default three-place limit.", clean(m.value))
+                        format!("The dimension {text:?}: modelled nominal {} mm prints {shown} in at the default three-place limit.", clean(m.value))
                     },
                     subjects: vec![id.into()], ..Default::default()
                 });

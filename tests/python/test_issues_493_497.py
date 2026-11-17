@@ -106,6 +106,7 @@ class PythonIssues(unittest.TestCase):
             for text in (svg, pdf):
                 self.assertIn(expected, text)
                 self.assertNotIn("25.000", text)
+            self.assertTrue(any(p["code"] == "nominal_rounded" for p in drawing.problems), drawing.problems)
             self.assertFalse([p for p in drawing.problems if p["code"] in (
                 "pmi_not_lowered", "pmi_not_rendered", "annotation_over_view", "annotation_ink_overlap",
                 "annotation_overlap", "annotation_leader_crossing")], drawing.problems)
