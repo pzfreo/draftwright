@@ -1,7 +1,7 @@
 """Run the Unix installer and assert success/refusal from the published asset list.
 
-In particular, old glibc and Intel Mac must refuse v0.6.0, then succeed when
-their static / Intel assets are published. An expected refusal is never a skip.
+Old glibc and missing targets must refuse v0.6.0, then succeed when the newer
+GNU / Intel assets are published. Alpine must refuse. A refusal is never a skip.
 """
 
 import argparse
@@ -39,23 +39,32 @@ def main():
         ).stdout.strip() == "1"
         target = "aarch64-apple-darwin" if arm64 else "x86_64-apple-darwin"
     elif system == "Linux":
-        target = {"x86_64": "x86_64", "aarch64": "aarch64"}[arch] + "-unknown-linux-musl"
+        target = {"x86_64": "x86_64", "aarch64": "aarch64"}[arch] + "-unknown-linux-gnu"
     else:
         raise AssertionError("This smoke test is for Unix")
 
     def has_asset(triple):
         return "draftwright-{}-{}.tar.gz".format(tag, triple) in assets
 
+    if system == "Linux" and arch == "x86_64":
+        assert has_asset(target), "Release has no x86_64 GNU Linux archive"
     expected_error = None
-    if not has_asset(target):
-        if system == "Linux" and arch == "x86_64":
-            assert has_asset("x86_64-unknown-linux-gnu"), "Release has neither x86_64 Linux asset"
+    if system == "Linux":
+        try:
             libc = os.confstr("CS_GNU_LIBC_VERSION")
-            glibc = tuple(int(part) for part in libc.split()[1].split(".")[:2])
-            if glibc < (2, 35):
-                expected_error = "glibc >= 2.35"
+        except (ValueError, OSError):
+            libc = None
+        if not libc or not libc.startswith("glibc "):
+            expected_error = "No glibc detected"
         else:
-            expected_error = "No archive for {} in {}".format(target, tag)
+            glibc = tuple(int(part) for part in libc.split()[1].split(".")[:2])
+            match = re.match(r"^v(\d+)\.(\d+)\.(\d+)", tag)
+            assert match, "Unrecognized release version: " + tag
+            floor = (2, 17) if tuple(int(part) for part in match.groups()) > (0, 6, 0) else (2, 35)
+            if glibc < floor:
+                expected_error = "glibc >= {}.{}".format(*floor)
+    if not expected_error and not has_asset(target):
+        expected_error = "No archive for {} in {}".format(target, tag)
     print("Published {} assets: {}".format(tag, ", ".join(sorted(assets))), flush=True)
     print("Expected: " + ("refusal: " + expected_error if expected_error else "successful install"), flush=True)
 

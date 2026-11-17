@@ -72,12 +72,13 @@ On Windows, set `$env:DRAFTWRIGHT_VERSION` / `$env:DRAFTWRIGHT_INSTALL_DIR` befo
 | --- | --- | --- |
 | macOS arm64 (including a Rosetta shell) | `aarch64-apple-darwin` | `~/.local/bin` |
 | macOS Intel | `x86_64-apple-darwin` | `~/.local/bin` |
-| Linux x86_64 | Static `x86_64-unknown-linux-musl`; older releases fall back to GNU with glibc >= 2.35 | `~/.local/bin` |
-| Linux arm64 | Static `aarch64-unknown-linux-musl` | `~/.local/bin` |
+| Linux x86_64 | `x86_64-unknown-linux-gnu`, glibc >= 2.17 for releases newer than v0.6.0 | `~/.local/bin` |
+| Linux arm64 | `aarch64-unknown-linux-gnu`, glibc >= 2.17 | `~/.local/bin` |
 | Windows x64 / ARM64 | `x86_64-pc-windows-msvc` (x64 emulation on ARM64) | `%LOCALAPPDATA%\Programs\draftwright\bin`, added to USER PATH |
 
-Older releases such as v0.6.0 have no Intel Mac or static Linux archives; the installers
-report unavailable targets explicitly. The GNU Linux x86_64 archive remains available.
+Releases through v0.6.0 require glibc >= 2.35 on Linux x86_64; v0.6.0 has no
+Linux arm64 or Intel Mac archive. The installers report unavailable targets explicitly.
+Linux archives require glibc; on Alpine/musl, use the Python package or build with Cargo.
 For other platforms or unavailable older targets, use `uv tool install draftwright`
 or `cargo install draftwright`, or see [Releases](https://github.com/pzfreo/draftwright/releases).
 

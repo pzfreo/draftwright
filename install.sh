@@ -14,7 +14,7 @@ if [ "$#" -gt 0 ]; then
     [ "$#" -eq 1 ] && [ "$1" = --help ] || die 'Usage: sh install.sh [--help]'
     cat <<'EOF'
 Install draftwright and draftwright-mcp for macOS or Linux (arm64 / x86_64).
-Linux uses static binaries; older x86_64 releases require glibc >= 2.35.
+Linux requires glibc >= 2.17 (v0.6.0 and older require >= 2.35).
 
 Usage: sh install.sh [--help]
   DRAFTWRIGHT_VERSION      Release to install, e.g. v0.6.0 or 0.6.0 (default: latest stable)
@@ -34,12 +34,12 @@ case "$os/$arch" in
             target=x86_64-apple-darwin
         fi
         ;;
-    Linux/x86_64) target=x86_64-unknown-linux-musl ;;
-    Linux/aarch64|Linux/arm64) target=aarch64-unknown-linux-musl ;;
+    Linux/x86_64) target=x86_64-unknown-linux-gnu ;;
+    Linux/aarch64|Linux/arm64) target=aarch64-unknown-linux-gnu ;;
     *) die "Unsupported platform: $os/$arch. See $releases or use 'uv tool install draftwright' / 'cargo install draftwright'." ;;
 esac
 
-check_glibc() {
+detect_glibc() {
     glibc_version=
     if command -v getconf >/dev/null 2>&1; then
         libc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
@@ -49,15 +49,11 @@ check_glibc() {
         libc=$(ldd --version 2>&1 || true)
         glibc_version=$(printf '%s\n' "$libc" | awk 'NR == 1 && /GLIBC|GNU libc/ { print $NF }')
     fi
-    if ! printf '%s\n' "$glibc_version" | awk -F. '
-        NF >= 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {
-            if ($1 > 2 || ($1 == 2 && $2 >= 35)) exit 0
-        }
-        { exit 1 }
-    '; then
-        die "This release has no static Linux archive. Its GNU build requires glibc >= 2.35 (detected: ${glibc_version:-unknown}). Use a newer release with static binaries or the Python package: uv tool install draftwright."
+    if ! printf '%s\n' "$glibc_version" | awk -F. 'NF >= 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { valid = 1 } END { exit !valid }'; then
+        die "No glibc detected. Linux archives require glibc; Alpine/musl systems can use 'uv tool install draftwright' / 'cargo install draftwright'."
     fi
 }
+if [ "$os" = Linux ]; then detect_glibc; fi
 
 if command -v curl >/dev/null 2>&1; then
     downloader=curl
@@ -120,26 +116,31 @@ case "$version" in v*) ;; *) version=v$version ;; esac
 case "$version" in v[0-9]*) ;; *) die "Invalid release version: $version" ;; esac
 case "$version" in *[!a-zA-Z0-9.+-]*) die "Invalid release version: $version" ;; esac
 
-set_asset() {
-    name=draftwright-$version-$target
-    asset=$name.tar.gz
-}
-set_asset
+# Releases through v0.6.0 used Ubuntu 22.04. Newer releases target glibc 2.17.
+if [ "$os" = Linux ]; then
+    glibc_floor=2.35
+    if printf '%s\n' "${version#v}" | awk -F'[.+-]' '
+        $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {
+            if ($1 > 0 || ($1 == 0 && ($2 > 6 || ($2 == 6 && $3 > 0)))) exit 0
+        }
+        { exit 1 }
+    '; then glibc_floor=2.17; fi
+    if ! printf '%s\n' "$glibc_version" | awk -F. -v floor="$glibc_floor" '
+        BEGIN { split(floor, minimum, ".") }
+        { exit !(($1 > minimum[1]) || ($1 == minimum[1] && $2 >= minimum[2])) }
+    '; then
+        die "Release $version requires glibc >= $glibc_floor (detected: $glibc_version). Use 'uv tool install draftwright' / 'cargo install draftwright'."
+    fi
+fi
+name=draftwright-$version-$target
+asset=$name.tar.gz
 printf 'Installing draftwright %s for %s\n' "$version" "$target"
 if download "$releases/download/$version/$asset" "$asset"; then
     :
 else
     result=$?
     [ "$result" -eq 44 ] || die "Could not download $asset"
-    if [ "$os/$arch" = Linux/x86_64 ]; then
-        check_glibc
-        target=x86_64-unknown-linux-gnu
-        set_asset
-        printf 'No static archive in %s; falling back to %s\n' "$version" "$target"
-        download "$releases/download/$version/$asset" "$asset" || die "Could not download $asset. See $releases"
-    else
-        die "No archive for $target in $version. See $releases or use 'uv tool install draftwright' / 'cargo install draftwright'."
-    fi
+    die "No archive for $target in $version. See $releases or use 'uv tool install draftwright' / 'cargo install draftwright'."
 fi
 download "$releases/download/$version/$asset.sha256" "$asset.sha256" || die "Could not download the checksum for $asset"
 

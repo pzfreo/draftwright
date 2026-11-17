@@ -57,6 +57,7 @@ if '--help' in sys.argv:
     print('--https-only' if os.environ.get('TEST_WGET_HTTPS_SUPPORT', '1') == '1' else '-S -O')
     sys.exit(0)
 url = sys.argv[-1]
+latest = os.environ.get('TEST_LATEST_VERSION', 'v0.6.0')
 if '-o' in sys.argv:
     assert '--tlsv1.2' in sys.argv and sys.argv[sys.argv.index('--proto') + 1] == '=https'
 else:
@@ -68,14 +69,14 @@ if os.environ.get('TEST_WGET_DNS_FAILURE'):
     sys.exit(4)
 if url.endswith('/latest'):
     if '-S' in sys.argv:
-        sys.stderr.write('  HTTP/1.1 302 Found\\n  Location: RELEASES/tag/v0.6.0\\r\\n  HTTP/1.1 200 OK\\n')
+        sys.stderr.write('  HTTP/1.1 302 Found\\n  Location: RELEASES/tag/' + latest + '\\r\\n  HTTP/1.1 200 OK\\n')
     else:
-        print('RELEASES/tag/v0.6.0', end='')
+        print('RELEASES/tag/' + latest, end='')
 else:
     flag = '-O' if '-O' in sys.argv else '-o'
     dest = sys.argv[sys.argv.index(flag) + 1]
     source = pathlib.Path(os.environ['TEST_ASSETS']) / url.rsplit('/', 1)[1]
-    code = os.environ.get('TEST_MUSL_HTTP_ERROR', '') if '-linux-musl.' in url else ''
+    code = os.environ.get('TEST_HTTP_ERROR', '') if '-linux-gnu.' in url else ''
     if code or not source.exists():
         code = code or '404'
         if flag == '-O':
@@ -91,20 +92,22 @@ else:
         self.command("wget", downloader)
         for target in ("x86_64-unknown-linux-gnu", "aarch64-apple-darwin"):
             self.archive(target)
+        for target in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"):
+            self.archive(target, version="v0.6.1")
 
     def command(self, name, body):
         path = self.bin / name
         path.write_text(f"#!{sys.executable}\n{body}\n")
         path.chmod(0o755)
 
-    def archive(self, target, missing_mcp=False):
-        name = f"draftwright-v0.6.0-{target}"
+    def archive(self, target, missing_mcp=False, version="v0.6.0"):
+        name = f"draftwright-{version}-{target}"
         asset = self.assets / f"{name}.tar.gz"
         with tarfile.open(asset, "w:gz") as tar:
             for binary in ("draftwright", "draftwright-mcp", "README.md"):
                 if missing_mcp and binary == "draftwright-mcp":
                     continue
-                content = f"#!/bin/sh\nprintf '{binary} 0.6.0\\n'\n".encode()
+                content = f"#!/bin/sh\nprintf '{binary} {version[1:]}\\n'\n".encode()
                 info = tarfile.TarInfo(f"{name}/{binary}")
                 info.size = len(content)
                 info.mode = 0o644  # Installer must make both binaries executable.
@@ -124,9 +127,9 @@ else:
         self.assertEqual(list(self.root.glob('draftwright-install.*')), [], 'Download staging was not cleaned')
         return result
 
-    def assert_installed(self, result):
+    def assert_installed(self, result, version="0.6.0"):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("draftwright 0.6.0", result.stdout)
+        self.assertIn("draftwright " + version, result.stdout)
         self.assertIn("Add ", result.stdout)
         self.assertIn("draftwright completions zsh  > ~/.zfunc/_draftwright", result.stdout)
         self.assertEqual(sorted(p.name for p in self.dest.iterdir()), ["draftwright", "draftwright-mcp"])
@@ -149,11 +152,10 @@ else:
         self.assert_installed(self.run_installer())
         urls = self.log.read_text().splitlines()
         self.assertEqual(urls[0], f"{RELEASES}/latest")
-        self.assertEqual(len(urls), 4)
-        self.assertTrue(urls[1].endswith('-x86_64-unknown-linux-musl.tar.gz'))
-        self.assertTrue(urls[2].endswith('-x86_64-unknown-linux-gnu.tar.gz'))
-        self.assertEqual(urls[3], urls[2] + ".sha256")
-        self.assertIn('falling back', self.run_installer().stdout)
+        self.assertEqual(len(urls), 3)
+        self.assertTrue(urls[1].endswith('-x86_64-unknown-linux-gnu.tar.gz'))
+        self.assertEqual(urls[2], urls[1] + ".sha256")
+        self.assertNotIn('musl', self.log.read_text())
 
     def test_pinned_versions_replace_existing_binaries(self):
         self.seed_install()
@@ -162,17 +164,30 @@ else:
                 self.assert_installed(self.run_installer(DRAFTWRIGHT_VERSION=version))
         self.assertNotIn("/latest", self.log.read_text())
 
+    def test_latest_new_release_uses_new_floor(self):
+        for downloader in ('curl', 'wget'):
+            with self.subTest(downloader=downloader):
+                if downloader == 'wget':
+                    (self.bin / 'curl').unlink()
+                self.log.unlink(missing_ok=True)
+                self.assert_installed(self.run_installer(TEST_LATEST_VERSION='v0.6.1',
+                                      TEST_GLIBC='glibc 2.17'), version='0.6.1')
+                urls = self.log.read_text().splitlines()
+                self.assertEqual(len(urls), 3)
+                self.assertEqual(urls[0], RELEASES + '/latest')
+                self.assertIn('/download/v0.6.1/', urls[1])
+
     def test_wget_and_shasum_fallbacks_on_mac(self):
         (self.bin / "curl").unlink()
         (self.bin / "sha256sum").unlink(missing_ok=True)
         self.assertTrue((self.bin / "shasum").exists(), "shasum is required for this test")
         self.assert_installed(self.run_installer(TEST_OS="Darwin", TEST_ARCH="arm64"))
 
-    def test_wget_old_release_gnu_fallback(self):
+    def test_wget_old_release_gnu(self):
         (self.bin / "curl").unlink()
         result = self.run_installer()
         self.assert_installed(result)
-        self.assertIn('falling back', result.stdout)
+        self.assertNotIn('falling back', result.stdout)
 
     def test_checksum_mismatch_preserves_existing_binaries(self):
         self.seed_install()
@@ -206,24 +221,55 @@ else:
                 self.assertFalse(self.dest.exists())
 
     def test_old_and_unknown_libc(self):
-        for libc, ldd in (("glibc 2.34", ""), ("glibc 2.9", ""),
-                          ("", "musl libc (x86_64) 1.2.5")):
+        for libc, ldd in (("glibc 2.34", ""), ("glibc 2.9", ""), ("", "")):
             with self.subTest(libc=libc, ldd=ldd):
                 result = self.run_installer(TEST_GLIBC=libc, TEST_LDD=ldd)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("glibc >= 2.35", result.stderr)
+                self.assertIn("glibc >= 2.35" if libc else "No glibc detected", result.stderr)
                 self.assertIn("uv tool install draftwright", result.stderr)
                 self.assertFalse(self.dest.exists())
 
     def test_ldd_fallback(self):
         self.assert_installed(self.run_installer(TEST_GLIBC="", TEST_LDD="ldd (Debian GLIBC 2.36-9) 2.36"))
 
-    def test_static_linux_without_glibc(self):
-        for arch, target in (("x86_64", "x86_64-unknown-linux-musl"),
-                             ("aarch64", "aarch64-unknown-linux-musl")):
+    def test_linux_without_glibc_refuses(self):
+        for arch in ("x86_64", "aarch64"):
             with self.subTest(arch=arch):
-                self.archive(target)
-                self.assert_installed(self.run_installer(TEST_ARCH=arch, TEST_GLIBC="", TEST_LDD="musl libc 1.2.5"))
+                result = self.run_installer(TEST_ARCH=arch, TEST_GLIBC="", TEST_LDD="musl libc 1.2.5")
+                self.assertNotEqual(result.returncode, 0)
+                for text in ('No glibc detected', 'Alpine/musl', 'uv tool install draftwright', 'cargo install draftwright'):
+                    self.assertIn(text, result.stderr)
+                self.assertFalse(self.dest.exists())
+                self.assertFalse(self.log.exists(), 'No-glibc refusal should precede network requests')
+
+    def test_new_linux_release_floor_on_both_architectures(self):
+        for arch, target in (("x86_64", "x86_64-unknown-linux-gnu"),
+                             ("aarch64", "aarch64-unknown-linux-gnu")):
+            for libc in ('glibc 2.17', 'glibc 2.28', 'glibc 2.31'):
+                with self.subTest(arch=arch, libc=libc):
+                    self.log.unlink(missing_ok=True)
+                    self.assert_installed(self.run_installer(TEST_ARCH=arch, TEST_GLIBC=libc,
+                                          DRAFTWRIGHT_VERSION='v0.6.1'), version='0.6.1')
+                    urls = self.log.read_text().splitlines()
+                    self.assertEqual(len(urls), 2)
+                    self.assertIn(f'-{target}.tar.gz', urls[0])
+                    self.assertEqual(urls[1], urls[0] + '.sha256')
+        result = self.run_installer(TEST_GLIBC='glibc 2.16', DRAFTWRIGHT_VERSION='v0.6.1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('glibc >= 2.17', result.stderr)
+
+    def test_release_floor_version_boundaries(self):
+        for version in ('v0.5.9', 'v0.6.0-alpha.1', 'v0.6.0', 'v0.6.0+build.1'):
+            with self.subTest(version=version):
+                result = self.run_installer(DRAFTWRIGHT_VERSION=version, TEST_GLIBC='glibc 2.17')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('glibc >= 2.35', result.stderr)
+                self.assertFalse(self.dest.exists())
+        for version in ('v0.6.1-alpha.1', 'v0.7.0', 'v0.10.0', 'v1.0.0'):
+            with self.subTest(version=version):
+                self.archive('x86_64-unknown-linux-gnu', version=version)
+                self.assert_installed(self.run_installer(DRAFTWRIGHT_VERSION=version,
+                                      TEST_GLIBC='glibc 2.17'), version=version[1:])
 
     def test_intel_mac_and_rosetta(self):
         self.archive("x86_64-apple-darwin")
@@ -235,7 +281,7 @@ else:
 
     def test_old_release_missing_targets(self):
         for os_name, arch, target in (("Darwin", "x86_64", "x86_64-apple-darwin"),
-                                      ("Linux", "aarch64", "aarch64-unknown-linux-musl")):
+                                      ("Linux", "aarch64", "aarch64-unknown-linux-gnu")):
             with self.subTest(target=target):
                 result = self.run_installer(TEST_OS=os_name, TEST_ARCH=arch)
                 self.assertNotEqual(result.returncode, 0)
@@ -247,28 +293,31 @@ else:
         for code in ('403', '500', '000'):
             with self.subTest(code=code):
                 self.log.unlink(missing_ok=True)
-                result = self.run_installer(TEST_MUSL_HTTP_ERROR=code)
+                result = self.run_installer(TEST_HTTP_ERROR=code)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertNotIn('-linux-gnu', self.log.read_text())
+                self.assertEqual(len(self.log.read_text().splitlines()), 2)
+                self.assertIn('Could not download', result.stderr)
                 self.assertFalse(self.dest.exists())
 
-    def test_static_checksum_failure_never_falls_back(self):
+    def test_new_linux_checksum_failure_never_falls_back(self):
         self.seed_install()
-        asset = self.archive('x86_64-unknown-linux-musl')
+        asset = self.archive('aarch64-unknown-linux-gnu', version='v0.6.1')
         asset.write_bytes(asset.read_bytes() + b'tampered')
-        result = self.run_installer()
+        result = self.run_installer(TEST_ARCH='aarch64', DRAFTWRIGHT_VERSION='v0.6.1', TEST_GLIBC='glibc 2.17')
         self.assert_preserved(result)
         self.assertIn('Checksum mismatch', result.stderr)
-        self.assertNotIn('-linux-gnu', self.log.read_text())
+        self.assertEqual(len(self.log.read_text().splitlines()), 2)
+        self.assertNotIn('x86_64', self.log.read_text())
 
-    def test_missing_static_checksum_never_falls_back(self):
+    def test_missing_gnu_checksum_never_falls_back(self):
         self.seed_install()
-        asset = self.archive('x86_64-unknown-linux-musl')
+        asset = self.archive('aarch64-unknown-linux-gnu', version='v0.6.1')
         asset.with_suffix('.gz.sha256').unlink()
-        result = self.run_installer()
+        result = self.run_installer(TEST_ARCH='aarch64', DRAFTWRIGHT_VERSION='v0.6.1', TEST_GLIBC='glibc 2.17')
         self.assert_preserved(result)
         self.assertIn('Could not download the checksum', result.stderr)
-        self.assertNotIn('-linux-gnu', self.log.read_text())
+        self.assertEqual(len(self.log.read_text().splitlines()), 2)
+        self.assertNotIn('x86_64', self.log.read_text())
 
     def test_help_and_unknown_flag(self):
         self.assertEqual(self.run_installer("--help").returncode, 0)
@@ -342,7 +391,7 @@ sys.exit(subprocess.call([{real_mv!r}, *sys.argv[1:]]))
                 result = self.run_installer(DRAFTWRIGHT_VERSION=version, TEST_WGET_DNS_FAILURE='1')
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('unable to resolve host address', result.stderr)
-        result = self.run_installer(DRAFTWRIGHT_VERSION='v0.6.0', TEST_MUSL_HTTP_ERROR='500')
+        result = self.run_installer(DRAFTWRIGHT_VERSION='v0.6.0', TEST_HTTP_ERROR='500')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('HTTP/1.1 500 Error', result.stderr)
 
