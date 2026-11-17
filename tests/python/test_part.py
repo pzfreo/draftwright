@@ -240,6 +240,119 @@ class PartAPI(unittest.TestCase):
             p.drawing().section("B", through=object())
         self.assertIs(type(error.exception), TypeError)
 
+    def test_pictorial_colour_aliases(self):
+        _, p = build_plate()
+        for options in ({"colour": "#b8c4cc"}, {"colour": "b8c4cc"},
+                        {"color": "#B8C4CC"}, {"color": "b8c4cc"},
+                        {"colour": "#b8c4cc", "color": "B8C4CC"}):
+            with self.subTest(options=options):
+                drawing = p.drawing()
+                self.assertIs(drawing.views(shaded=True, below=True, **options), drawing)
+                self.assertEqual(drawing.spec()["views"], {
+                    "iso": {"style": "shaded", "colour": [184, 196, 204]},
+                    "iso_below": {"omit": False, "style": "shaded", "colour": [184, 196, 204]},
+                })
+        self.assertEqual(p.drawing().views(shaded=True, colour="000000").spec()["views"], {
+            "iso": {"style": "shaded", "colour": [0, 0, 0]},
+        })
+
+    def test_pictorial_below_and_chained_calls(self):
+        _, p = build_plate()
+        drawing = p.drawing().views(below=True)
+        self.assertEqual(drawing.spec()["views"], {
+            "iso_below": {"omit": False, "style": "wireframe"},
+        })
+        drawing.views(shaded=True).views(colour="#ccaa88")
+        expected = {
+            "iso": {"style": "shaded", "colour": [204, 170, 136]},
+            "iso_below": {"omit": False, "style": "shaded", "colour": [204, 170, 136]},
+        }
+        self.assertEqual(drawing.spec()["views"], expected)
+        chained = p.drawing().views(shaded=True).views(below=True, colour="#ccaa88")
+        self.assertEqual(chained.spec()["views"], expected)
+        drawing.views(below=False, colour="112233")
+        expected["iso"]["colour"] = [17, 34, 51]
+        expected["iso_below"]["omit"] = True
+        self.assertEqual(drawing.spec()["views"], expected)
+        drawing.views(below=True).views(shaded=False)
+        expected["iso"]["style"] = expected["iso_below"]["style"] = "wireframe"
+        expected["iso_below"]["omit"] = False
+        self.assertEqual(drawing.spec()["views"], expected)
+        self.assertEqual(p.drawing().views(below=False).spec()["views"], {
+            "iso_below": {"omit": True},
+        })
+
+    def test_pictorial_uses_authored_spec_and_omissions(self):
+        _, p = build_plate()
+        drawing = p.drawing().update({"views": {
+            "iso": {"style": "shaded"}, "iso_below": {"omit": False},
+        }}).views(colour="ccaa88", omit=("side",))
+        self.assertEqual(drawing.spec()["views"]["iso_below"], {
+            "omit": False, "style": "shaded", "colour": [204, 170, 136],
+        })
+        self.assertEqual(drawing.spec()["views"]["side"], {"omit": True})
+        drawing.views(below=True, omit=("iso_below",), colour="112233")
+        self.assertEqual(drawing.spec()["views"]["iso_below"], {
+            "omit": True, "style": "shaded", "colour": [204, 170, 136],
+        })
+
+    def test_pictorial_colour_requires_shading(self):
+        _, p = build_plate()
+        for options in ({"colour": "#b8c4cc"}, {"color": "b8c4cc", "below": True},
+                        {"colour": "bad"}, {"colour": "b8c4cc", "shaded": False}):
+            with self.subTest(options=options):
+                drawing = p.drawing()
+                before = drawing.spec()
+                with self.assertRaisesRegex(ValueError, "^--colour/--color requires --shaded$"):
+                    drawing.views(**options)
+                self.assertEqual(drawing.spec(), before)
+        drawing = p.drawing().views(shaded=True)
+        before = drawing.spec()
+        with self.assertRaisesRegex(ValueError, "requires --shaded"):
+            drawing.views(shaded=False, colour="b8c4cc")
+        self.assertEqual(drawing.spec(), before)
+
+    def test_pictorial_bad_hex_and_conflicting_aliases(self):
+        _, p = build_plate()
+        for alias in ("colour", "color"):
+            for value in ("", "#abc", "12345", "1234567", "gg1122", "##112233",
+                          " 112233", "112233\n", "１２３４５６", 123456):
+                with self.subTest(alias=alias, value=value):
+                    drawing = p.drawing().views(shaded=True)
+                    before = drawing.spec()
+                    with self.assertRaises(ValueError) as raised:
+                        drawing.views(below=True, **{alias: value})
+                    got = json.dumps(value) if isinstance(value, str) else repr(value)
+                    self.assertEqual(str(raised.exception),
+                                     "--colour/--color expects six hexadecimal digits, "
+                                     f"e.g. '#b8c4cc' or b8c4cc; got {got}")
+                    self.assertEqual(drawing.spec(), before)
+        drawing = p.drawing()
+        before = drawing.spec()
+        with self.assertRaisesRegex(ValueError, "colour= and color= must match"):
+            drawing.views(shaded=True, colour="112233", color="445566")
+        self.assertEqual(drawing.spec(), before)
+
+    def test_render_coloured_below_view(self):
+        _, p = build_plate()
+        svg, = p.drawing(sheet="A3").views(shaded=True, below=True, colour="#c86432").render(
+            self.directory / "coloured", formats=("svg",))
+        root = ET.parse(svg).getroot()
+        ns = {"svg": "http://www.w3.org/2000/svg"}
+        for name in ("iso", "iso_below"):
+            groups = root.findall(f".//svg:g[@id='shaded-{name}-view']", ns)
+            self.assertEqual(len(groups), 1, name)
+            paths = groups[0].findall(".//svg:path", ns)
+            self.assertTrue(paths, name)
+            fills = [element.attrib["fill"] for element in groups[0].iter()
+                     if re.fullmatch(r"#[0-9a-fA-F]{6}", element.get("fill", ""))]
+            self.assertTrue(fills, name)
+            for fill in fills:
+                r, g, b = (int(fill[i:i + 2], 16) for i in (1, 3, 5))
+                self.assertTrue(0 < b < g < r <= 200, fill)
+                self.assertLessEqual(abs(2 * g - r), 1, fill)
+                self.assertLessEqual(abs(4 * b - r), 2, fill)
+
     def test_render(self):
         _, p = build_plate()
         svg, dxf = p.drawing(sheet="A3").views(shaded=True).render(self.directory / "plate")

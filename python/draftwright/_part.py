@@ -725,13 +725,44 @@ class Drawing:
             else:
                 self._scale = float(scale)
 
-    def views(self, shaded=None, omit=()):
-        """``shaded=True`` shades the isometric; ``omit=("side",)`` drops named views."""
-        views = self._spec.setdefault("views", {})
+    def views(self, shaded=None, omit=(), *, colour=None, color=None, below=None):
+        """Set pictorial shading, hex colour (alias ``color``), and a below view.
+
+        ``colour`` accepts six hex digits with an optional ``#`` and requires
+        shading. ``below=True`` adds a view matching the isometric's style;
+        ``below=False`` omits it. ``omit=("side",)`` drops named views.
+        Chained calls use the resulting Spec's shading and below-view state,
+        e.g. ``views(shaded=True).views(below=True, colour="#ccaa88")``.
+        """
+        views = self.spec().get("views", {})
         if shaded is not None:
             views.setdefault("iso", {})["style"] = "shaded" if shaded else "wireframe"
+        if below is not None:
+            views.setdefault("iso_below", {})["omit"] = not below
         for name in omit:
             views.setdefault(name, {})["omit"] = True
+        is_shaded = views.get("iso", {}).get("style") == "shaded"
+        colours = []
+        for value in (colour, color):
+            if value is None:
+                continue
+            if not is_shaded:
+                raise ValueError("--colour/--color requires --shaded")
+            if not isinstance(value, str) or not re.fullmatch(r"#?[0-9a-fA-F]{6}", value):
+                got = json.dumps(value) if isinstance(value, str) else repr(value)
+                raise ValueError("--colour/--color expects six hexadecimal digits, "
+                                 f"e.g. '#b8c4cc' or b8c4cc; got {got}")
+            hex_value = value.lstrip("#")
+            colours.append([int(hex_value[i:i + 2], 16) for i in (0, 2, 4)])
+        if len(colours) == 2 and colours[0] != colours[1]:
+            raise ValueError("colour= and color= must match")
+        if colours:
+            views.setdefault("iso", {})["colour"] = colours[0]
+        if "iso_below" in views and not views["iso_below"].get("omit", False):
+            views["iso_below"]["style"] = "shaded" if is_shaded else "wireframe"
+            if colours:
+                views["iso_below"]["colour"] = colours[0]
+        self._spec["views"] = views
         return self
 
     def section(self, id="A", through=None):

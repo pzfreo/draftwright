@@ -119,6 +119,8 @@ svg, pdf = dwg.render("plate", formats=("svg", "pdf"))
 print(dwg.problems)  # the engine's findings as dictionaries
 ```
 
+Add `colour="#b8c4cc"` (alias `color=`) and `below=True` to `views(shaded=True)` to colour both pictorial views.
+
 The mapping uses haecceity's native types:
 
 | Part call | In-memory semantic PMI |
@@ -313,9 +315,10 @@ change its separate native PMI model without re-exporting geometry. No PMI is
 serialized to STEP or read back to draw it. A direct OCCT-handle import is not
 available in the pure Rust kernel.
 
-`drawing()` edits layout: `sheet=`, `scale=`, `units=`, `views(shaded=, omit=)` and
+`drawing()` edits layout: `sheet=`, `scale=`, `units=`, `views(shaded=, colour=, color=, below=, omit=)` and
 `section(id, through=...)`. Sections accept a fluent reference, build123d object,
-or drawing feature ID. The bridge to stable drawing keys is:
+or drawing feature ID. `colour=` requires shading; `below=` and shading retain
+their state across chained `views()` calls. The bridge to stable drawing keys is:
 
 ```python
 feature = p.feature_id(bearing)  # f:hole:... from the drawing's Analysis
