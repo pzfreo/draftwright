@@ -1,0 +1,63 @@
+name: Installer
+
+on:
+  push:
+    branches: [main]
+    paths: ['install.sh', 'tools/test_install.py', '.github/workflows/installer.yml']
+  pull_request:
+    paths: ['install.sh', 'tools/test_install.py', '.github/workflows/installer.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: shellcheck -s sh install.sh
+      - run: python3 tools/test_install.py
+      - name: Latest release on Debian 12 (glibc 2.36)
+        run: |
+          docker run --rm -v "$PWD:/src:ro" debian:12 sh -eu -c '
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends ca-certificates curl
+            DRAFTWRIGHT_INSTALL_DIR=$(mktemp -d)
+            export DRAFTWRIGHT_INSTALL_DIR
+            sh /src/install.sh
+            "$DRAFTWRIGHT_INSTALL_DIR/draftwright" --version
+            "$DRAFTWRIGHT_INSTALL_DIR/draftwright-mcp" --version
+          '
+
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Latest stable release
+        shell: sh
+        run: |
+          DRAFTWRIGHT_INSTALL_DIR=$(mktemp -d)
+          export DRAFTWRIGHT_INSTALL_DIR
+          trap 'rm -rf "$DRAFTWRIGHT_INSTALL_DIR"' 0
+          sh install.sh
+          "$DRAFTWRIGHT_INSTALL_DIR/draftwright" --version
+          "$DRAFTWRIGHT_INSTALL_DIR/draftwright-mcp" --version
+      - name: Pinned v0.6.0 release
+        if: runner.os == 'Linux'
+        shell: sh
+        env:
+          DRAFTWRIGHT_VERSION: v0.6.0
+        run: |
+          DRAFTWRIGHT_INSTALL_DIR=$(mktemp -d)
+          export DRAFTWRIGHT_INSTALL_DIR
+          trap 'rm -rf "$DRAFTWRIGHT_INSTALL_DIR"' 0
+          sh install.sh
+          "$DRAFTWRIGHT_INSTALL_DIR/draftwright" --version | grep -E '^draftwright 0\.6\.0([[:space:]]|$)'
+          "$DRAFTWRIGHT_INSTALL_DIR/draftwright-mcp" --version
