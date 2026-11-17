@@ -612,8 +612,10 @@ fn cli_part_keys_and_indices_use_the_same_selection_for_all_drawing_commands() {
         assert!(Path::new(result["written"][0].as_str().unwrap()).is_file());
     }
     let result = cli::failure(&["plan", &step, "--part", "missing"], 2);
-    assert!(result.contains("draftwright parts"), "{result}");
-    assert!(result.contains("\n  choose from: plate, pin\n"), "{result}");
+    assert_eq!(
+        result,
+        "error: part \"missing\" is not a part key; use draftwright parts <step> to list the persistent keys.\n  entry: part\n"
+    );
     // Repeated product names receive distinct persistent keys. Their bare name
     // must never select the first match, in either the CLI or the Spec.
     let bytes = std::fs::read_to_string(&step)
