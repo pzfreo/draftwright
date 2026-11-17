@@ -806,11 +806,13 @@ class Drawing:
         """Set title-block fields, e.g. drawn_by, date, revision, company, approved_by."""
         return self.update({"sheet": {"title": fields}})
 
-    def render(self, out=None, *, formats=("svg", "dxf"), spec=None):
+    def render(self, out=None, *, formats=("svg", "dxf"), spec=None, dpi=None):
         """Return every requested output path; a PDF contains all sheets.
 
         ``spec`` is a one-render layout patch. Findings are in ``drawing.problems``, each with the engine
         ``tier`` (``fix_before_printing``, ``tidy``, or ``information``).
+        ``dpi`` sets PNG pixels per inch (None uses 150); it must be positive
+        and finite for PNG and is otherwise ignored after numeric validation.
         PMI stays in memory and is never written to the drawing Spec.
         """
         if isinstance(formats, str):
@@ -818,6 +820,13 @@ class Drawing:
         formats = tuple(formats)
         if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
+        if dpi is not None:
+            try:
+                dpi = float(dpi)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("dpi must be a number") from None
+            if "png" in formats and not (dpi > 0 and math.isfinite(dpi)):
+                raise ValueError("PNG dpi must be positive and finite")
         self._problems = None
         base_spec, scale = self.spec(), self._scale
         layout = _native.layout_spec(json.dumps(base_spec), json.dumps({} if spec is None else spec))
@@ -830,7 +839,7 @@ class Drawing:
             layout.setdefault("sheet", {})["scale"] = f"{scale:g}:1" if scale >= 1 else f"1:{1 / scale:g}"
             layout = json.dumps(layout)
         pmi = part._pmi.snapshot()
-        result = json.loads(part._geometry().render(pmi, layout, str(out), list(formats)))
+        result = json.loads(part._geometry().render(pmi, layout, str(out), list(formats), dpi))
         self._problems = result["problems"]
         self._rendered_pmi = pmi
         self._rendered_layout = (base_spec, scale)

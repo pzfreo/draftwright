@@ -6,6 +6,8 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Python `Drawing.render(dpi=...)` sets PNG resolution (default 150 pixels per inch).
+
 - Python `Drawing.views()` accepts `colour=` (alias `color=`) for shaded pictorials
   and `below=` to show or omit the view from below, including across fluent calls.
 

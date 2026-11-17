@@ -6,6 +6,7 @@ python -m unittest discover -s tests/python -v
 import json
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -359,6 +360,45 @@ class PartAPI(unittest.TestCase):
         self.assertEqual(Path(svg), self.directory / "plate.svg")
         self.assertIn("<svg", Path(svg).read_text())
         self.assertTrue(Path(dxf).exists())
+
+    def test_render_png_dpi_scales_pixel_size(self):
+        p = draftwright.Part(bd.Box(30, 20, 5), "dpi")
+        drawing = p.drawing(sheet="ANSI A")
+
+        def size(path):
+            header = Path(path).read_bytes()[:24]
+            self.assertEqual(header[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(header[12:16], b"IHDR")
+            return struct.unpack(">II", header[16:24])
+
+        default, = drawing.render(self.directory / "default", formats=("png",))
+        doubled, = drawing.render(self.directory / "doubled", formats=("png",), dpi=300)
+        # Inch-sized paper avoids ceil-to-pixel rounding at either resolution.
+        self.assertEqual(size(default), (1650, 1275))
+        self.assertEqual(size(doubled), tuple(2 * n for n in size(default)))
+        # The optional native argument preserves the previous four-argument call.
+        legacy = json.loads(p._geometry().render(p._pmi, json.dumps(drawing.spec()),
+                                                str(self.directory / "legacy"), ["png"]))
+        self.assertEqual(size(legacy["written"][0]), size(default))
+
+    def test_render_dpi_refusals_and_non_png_behaviour(self):
+        p = draftwright.Part(bd.Box(30, 20, 5), "dpi")
+        drawing = p.drawing(sheet="ANSI A")
+        for dpi in (0, -1, float("nan"), float("inf"), -float("inf")):
+            with self.subTest(dpi=dpi), self.assertRaisesRegex(
+                    ValueError, "PNG dpi must be positive and finite"):
+                drawing.render(self.directory / "bad", formats=("png",), dpi=dpi)
+        for formats in (("png",), ("svg",)):
+            for dpi in ("bad", object(), [], 10 ** 400):
+                with self.subTest(formats=formats, dpi=dpi), self.assertRaisesRegex(
+                        ValueError, "dpi must be a number"):
+                    drawing.render(self.directory / "bad", formats=formats, dpi=dpi)
+        self.assertEqual(list(self.directory.iterdir()), [])
+        for index, dpi in enumerate((300, 0, -1, float("nan"), float("inf"))):
+            with self.subTest(dpi=dpi):
+                svg, = drawing.render(self.directory / f"ignored{index}", formats=("svg",), dpi=dpi)
+                self.assertEqual(ET.parse(svg).getroot().tag, "{http://www.w3.org/2000/svg}svg")
+        self.assertEqual(list(self.directory.glob("*.png")), [])
 
     def test_plain_proposal_plate_draws_its_requirements(self):
         _, p = build_plate()

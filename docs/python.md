@@ -353,7 +353,9 @@ layout edits.
 `render()` defaults to `(svg_path, dxf_path)`. `formats=("svg", "pdf", "png", "dxf")`
 selects any distinct subset and returns a tuple of **all** written paths, in format
 order. SVG, PNG and DXF have one file per sheet (`name.sheet2.svg`, etc.); PDF is
-one document containing every sheet. PNG uses the engine's default resolution.
+one document containing every sheet. `dpi=300` sets PNG pixels per inch;
+`dpi=None` uses the engine default of 150. PNG requires positive, finite DPI;
+numeric DPI is ignored when PNG is not requested.
 `drawing.problems` contains the current successful render's findings. It raises
 `DraftwrightError` before `render()` or after Part PMI/layout edits, until rendered again;
 Drawing plans during render, so reading findings never silently starts a render.

@@ -834,6 +834,7 @@ impl Geometry {
         *pmi = candidate;
         Ok(degrees)
     }
+    #[pyo3(signature = (pmi, spec, out, formats, dpi=None))]
     fn render(
         &self,
         py: Python<'_>,
@@ -841,6 +842,7 @@ impl Geometry {
         spec: &str,
         out: String,
         formats: Vec<String>,
+        dpi: Option<f64>,
     ) -> PyResult<String> {
         let model = self.bound(pmi)?;
         let spec: draftwright::model::Spec = serde_json::from_str(spec).map_err(raised)?;
@@ -852,7 +854,7 @@ impl Geometry {
                 &model,
                 &spec,
                 &formats,
-                draftwright::api::DPI,
+                dpi.unwrap_or(draftwright::api::DPI),
             )
             .map_err(raised)?;
             let written =
