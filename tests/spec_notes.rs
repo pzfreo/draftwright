@@ -648,7 +648,8 @@ fn spec_finish_threads_and_knurls_win_over_step_pmi_with_a_problem() {
         dimension(&plan, "d:f:hole:f3/bore.diameter").label,
         // quiddity 0.5.0 (#244) recognises the hole's 0.8 × 45° mouth chamfer; the callout states it, and
         // the depth runs from the surface the hole opens on: the 9.2 cylinder and the 0.8 entry.
-        "M5-6H ↧ 8\n⌀4.2 ↧ 10 C0.8"
+        // The winning Spec keeps its explicit coarse pitch (#464), along with the drill data.
+        "M5x0.8-6H ↧ 8\n⌀4.2 ↧ 10 C0.8"
     );
     let finishes: Vec<_> = plan
         .requirements
