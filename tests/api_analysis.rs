@@ -8,6 +8,9 @@ mod corpus;
 #[path = "common/facts.rs"]
 mod facts;
 
+#[path = "common/cli.rs"]
+mod cli;
+
 use std::path::{Path, PathBuf};
 
 use draftwright::api::{self, DPI};
@@ -289,19 +292,24 @@ fn the_command_line_takes_an_analysis_file() {
         run(&["review", &step, "--analysis", &file]),
         (Some(0), review)
     );
-    let (code, both) = run(&[
-        "review",
-        &step,
-        "--features",
-        &features,
-        "--analysis",
-        &file,
-    ]);
-    assert_eq!(code, Some(2), "{both}");
+    let both = cli::failure(
+        &[
+            "review",
+            &step,
+            "--features",
+            &features,
+            "--analysis",
+            &file,
+        ],
+        2,
+    );
+    assert!(
+        both.contains("takes \"analysis\" or \"features\", not both"),
+        "{both}"
+    );
     let other = fixture("parts/prismatic.step").display().to_string();
-    let (code, refused) = run(&["review", &other, "--analysis", &file]);
-    assert_eq!(code, Some(2), "{refused}");
-    assert_eq!(refused["error"]["code"], "invalid");
+    let refused = cli::failure(&["review", &other, "--analysis", &file], 2);
+    assert!(refused.contains("analysis"), "{refused}");
 }
 
 /// Reproduce edge-mouth variants through the public --analysis path. The

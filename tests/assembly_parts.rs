@@ -4,6 +4,9 @@
 //! file with PMI written onto the pin alone by haecceity (quiddity-rust's
 //! `editor_assembly_pin_alone`): datums A and B, a position and a circular runout.
 
+#[path = "common/cli.rs"]
+mod cli;
+
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -455,9 +458,7 @@ fn coincident_bodies_are_read_alone_again_from_the_caches() {
 
 #[test]
 fn a_part_the_file_does_not_have_is_refused_naming_the_parts() {
-    let (code, out) = run(&["analyse", &assembly(), "--part", "2", "--no-features"]);
-    assert_eq!(code, Some(2), "{out}");
-    let message = out["error"]["message"].as_str().unwrap();
+    let message = cli::failure(&["analyse", &assembly(), "--part", "2", "--no-features"], 2);
     assert!(message.contains("0: plate, 1: pin"), "{message}");
 }
 
@@ -610,13 +611,10 @@ fn cli_part_keys_and_indices_use_the_same_selection_for_all_drawing_commands() {
         assert_eq!(code, Some(0), "{result}");
         assert!(Path::new(result["written"][0].as_str().unwrap()).is_file());
     }
-    let (code, result) = run(&["plan", &step, "--part", "missing"]);
-    assert_eq!(code, Some(2));
-    assert!(
-        result["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("draftwright parts")
+    let result = cli::failure(&["plan", &step, "--part", "missing"], 2);
+    assert_eq!(
+        result,
+        "error: part \"missing\" is not a part key; use draftwright parts <step> to list the persistent keys.\n  entry: part\n"
     );
     // Repeated product names receive distinct persistent keys. Their bare name
     // must never select the first match, in either the CLI or the Spec.
@@ -631,15 +629,8 @@ fn cli_part_keys_and_indices_use_the_same_selection_for_all_drawing_commands() {
         if command == "render" {
             args.extend(["-o", out.to_str().unwrap()]);
         }
-        let (code, result) = run(&args);
-        assert_eq!(code, Some(2), "{result}");
-        assert!(
-            result["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("ambiguous"),
-            "{result}"
-        );
+        let result = cli::failure(&args, 2);
+        assert!(result.contains("ambiguous"), "{result}");
     }
 }
 

@@ -6,6 +6,9 @@
 #[path = "common/corpus.rs"]
 mod corpus;
 
+#[path = "common/cli.rs"]
+mod cli;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -172,9 +175,8 @@ fn features_still_takes_python_quidditys_json_and_no_features_none() {
         ["analyse", step, "--no-features", "--features", features],
         ["plan", step, "--no-features", "--analysis", features],
     ] {
-        let (code, e) = run(&both);
-        assert_eq!(code, Some(2), "{both:?}: {e}");
-        assert_eq!(e["error"]["code"], "invalid");
+        let e = cli::failure(&both, 2);
+        assert!(e.contains("--no-features is not taken with"), "{e}");
     }
 }
 
@@ -205,9 +207,11 @@ fn a_native_analysis_is_taken_back_and_an_older_one_refused_for_drawing() {
     let file = file.to_str().unwrap();
     let (code, _) = run(&["plan", "--analysis", file]);
     assert_eq!(code, Some(0));
-    let (code, e) = run(&["review", step, "--analysis", file]);
-    assert_eq!(code, Some(2), "{e}");
-    assert_eq!(e["error"]["choices"][0], ANALYSIS_SCHEMA);
+    let e = cli::failure(&["review", step, "--analysis", file], 2);
+    assert!(
+        e.contains(&format!("\n  choose from: {ANALYSIS_SCHEMA}\n")),
+        "{e}"
+    );
 }
 
 /// A recognition document the native reader refuses is reported, never read as a part without
@@ -224,22 +228,80 @@ fn a_refusal_is_reported_not_drawn_without_features() {
     assert!(analysis.unrecognised.is_empty());
 
     let out = scratch("unresolved");
-    let (code, e) = run(&[
-        "render",
-        fixture("parts/unresolved.step").to_str().unwrap(),
-        "-o",
-        out.to_str().unwrap(),
-    ]);
-    assert_eq!(code, Some(1), "{e}");
-    assert_eq!(e["ok"], false);
+    let e = cli::failure(
+        &[
+            "render",
+            fixture("parts/unresolved.step").to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ],
+        1,
+    );
+    assert!(e.contains("unresolved.step"), "{e}");
+    assert!(!out.with_extension("svg").exists());
+}
+
+#[test]
+fn file_errors_are_text_on_stderr_for_one_shot_commands() {
+    let missing_step = scratch("missing.step");
+    let missing_spec = scratch("missing-spec.json");
+    let missing_drawing = scratch("missing.svg");
+    let not_step = scratch("not.step");
+    std::fs::write(&not_step, "This is not a STEP file.\n").unwrap();
+    let output = scratch("invalid-output");
+    let step = missing_step.to_str().unwrap();
+    let spec = missing_spec.to_str().unwrap();
+    let drawing = missing_drawing.to_str().unwrap();
+    let not_step = not_step.to_str().unwrap();
+    let output = output.to_str().unwrap();
+    for (args, name, reason) in [
+        (vec![step], step, "cannot read"),
+        (vec!["render", step, "-o", output], step, "cannot read"),
+        (vec![not_step], not_step, "as STEP: STEP parse error"),
+        (vec!["parts", step], step, "cannot read"),
+        (vec!["spec", drawing], drawing, "cannot read"),
+        (vec!["edit", spec, "unused-ops.json"], spec, "cannot read"),
+    ] {
+        let e = cli::failure(&args, 2);
+        assert!(e.contains(name) && e.contains(reason), "{args:?}: {e}");
+        assert_eq!(e.lines().count(), 1, "{e}");
+    }
+    assert!(!Path::new(output).with_extension("svg").exists());
+}
+
+#[test]
+fn refusals_print_choices_and_the_spec_entry_on_separate_lines() {
+    let spec = scratch("error-spec.json");
+    let ops = scratch("error-ops.json");
+    std::fs::write(&spec, "{}").unwrap();
+    std::fs::write(&ops, r#"[{"op":"bogus","path":"sheet/size","value":"A4"}]"#).unwrap();
+    let e = cli::failure(&["edit", spec.to_str().unwrap(), ops.to_str().unwrap()], 2);
+    assert_eq!(
+        e,
+        "error: \"bogus\" is not an edit.\n  choose from: set, remove, add\n"
+    );
+
+    std::fs::write(&spec, r#"{"views":{"gone":{"omit":true}}}"#).unwrap();
+    let e = cli::failure(
+        &[
+            "plan",
+            fixture("parts/plate.step").to_str().unwrap(),
+            "--spec",
+            spec.to_str().unwrap(),
+        ],
+        2,
+    );
     assert!(
-        e["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("unresolved.step"),
+        e.starts_with("error: There is no view called \"gone\";"),
         "{e}"
     );
-    assert!(!out.with_extension("svg").exists());
+    assert_eq!(
+        e.lines().skip(1).collect::<Vec<_>>(),
+        [
+            "  choose from: front, plan, side, iso, section_aa, iso_below",
+            "  entry: views/gone",
+        ]
+    );
 }
 
 /// Two corpus parts rendered as the command line renders them by default: drawn, with every
@@ -333,7 +395,7 @@ fn sheet_recognition(name: &str) -> Option<PathBuf> {
 
 /// The command line is clap's (#345): `completions` prints a script for each shell, every
 /// subcommand bash selects has its case, and a bad command line is clap's usage error (exit 2,
-/// on stderr), while a bad value is still refused as JSON.
+/// on stderr), while a bad value is also refused as text on stderr.
 #[test]
 fn the_command_line_completes_and_refuses_bad_usage() {
     let raw = |args: &[&str]| {
@@ -406,15 +468,8 @@ fn the_command_line_completes_and_refuses_bad_usage() {
     }
     // Values that look like negative numbers reach the command's own check.
     let step = fixture("parts/plate.step");
-    let (code, e) = run(&["plan", step.to_str().unwrap(), "--part", "-1"]);
-    assert_eq!(code, Some(2));
-    assert!(
-        e["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("is not a part's index"),
-        "{e}"
-    );
+    let e = cli::failure(&["plan", step.to_str().unwrap(), "--part", "-1"], 2);
+    assert!(e.contains("is not a part's index"), "{e}");
 }
 
 #[test]
@@ -515,9 +570,8 @@ fn bare_form_refuses_old_options_with_migration_guidance() {
         assert!(out.stdout.is_empty());
     }
     // A missing bare path is accepted syntactically, then refused by the engine.
-    let (code, error) = run(&["bogus"]);
-    assert_eq!(code, Some(2), "{error}");
-    assert!(!error["error"]["message"].as_str().unwrap().is_empty());
+    let error = cli::failure(&["bogus"], 2);
+    assert!(error.contains("cannot read bogus:"), "{error}");
 }
 
 #[test]
@@ -833,16 +887,8 @@ fn below_requests_lines_and_shaded_alone_keeps_other_view_settings() {
 #[test]
 fn pictorial_colour_errors_are_clear_and_precede_step_io() {
     for alias in ["--colour", "--color"] {
-        let (code, e) = run(&["plan", "does-not-exist.step", alias, "b8c4cc"]);
-        assert_eq!(code, Some(2), "{e}");
-        assert_eq!(e["error"]["code"], "invalid");
-        assert!(
-            e["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("requires --shaded"),
-            "{e}"
-        );
+        let e = cli::failure(&["plan", "does-not-exist.step", alias, "b8c4cc"], 2);
+        assert!(e.contains("requires --shaded"), "{e}");
         for value in [
             "123",
             "#12345",
@@ -852,35 +898,27 @@ fn pictorial_colour_errors_are_clear_and_precede_step_io() {
             "-1",
             "#12345678",
         ] {
-            let (code, e) = run(&["plan", "does-not-exist.step", "--shaded", alias, value]);
-            assert_eq!(code, Some(2), "{value}: {e}");
-            assert_eq!(e["error"]["code"], "invalid");
-            assert!(
-                e["error"]["message"]
-                    .as_str()
-                    .unwrap()
-                    .contains("six hexadecimal digits"),
-                "{e}"
+            let e = cli::failure(
+                &["plan", "does-not-exist.step", "--shaded", alias, value],
+                2,
             );
+            assert!(e.contains("six hexadecimal digits"), "{e}");
         }
     }
     let file = scratch("pictorial-already-shaded.json");
     std::fs::write(&file, r#"{"views":{"iso":{"style":"shaded"}}}"#).unwrap();
-    let (code, e) = run(&[
-        "plan",
-        "does-not-exist.step",
-        "--spec",
-        file.to_str().unwrap(),
-        "--colour",
-        "b8c4cc",
-    ]);
-    assert_eq!(code, Some(2), "{e}");
-    assert!(
-        e["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("requires --shaded")
+    let e = cli::failure(
+        &[
+            "plan",
+            "does-not-exist.step",
+            "--spec",
+            file.to_str().unwrap(),
+            "--colour",
+            "b8c4cc",
+        ],
+        2,
     );
+    assert!(e.contains("requires --shaded"), "{e}");
 }
 
 #[test]

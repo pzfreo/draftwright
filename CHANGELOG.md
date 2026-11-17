@@ -4,6 +4,13 @@ All notable changes to draftwright are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- One-shot CLI commands, including bare render, now print refusals as plain `error:` lines on
+  stderr with empty stdout, followed by choices and an entry path when present. Exit codes stay
+  2 for invalid input and 1 for failures. Successful results remain JSON on stdout; `serve`
+  and MCP replies remain JSON.
+
 ## 0.6.0 (2026-11-17)
 
 - Add Python `Pack` drawing sets with in-memory PMI, shared `PackSpec::title`
