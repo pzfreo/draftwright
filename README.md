@@ -93,9 +93,10 @@ draftwright review part.step
 ```
 
 `review` prints JSON containing the drawing as SVG text, the problems and lint's findings.
-The [engine guide](docs/engine.md#using-it) covers the full command line, including
-`--shaded`, `--below` and paper choices. `draftwright completions zsh` prints a completion
-script; the same guide gives installation commands and the other supported shells.
+The [command-line reference](docs/cli.md) lists commands, common options and tested
+`--set` settings, including paper and pictorial choices. `draftwright completions zsh`
+prints a completion script; see [shell completion](docs/cli.md#shell-completion) for
+installation and the other supported shells.
 
 ## Output and the Spec
 
@@ -175,7 +176,8 @@ Code, copy a folder to `.claude/skills/` in your project or to `~/.claude/skills
 
 ## Documentation
 
-- [Engine guide](docs/engine.md): building, the full command line, what is and isn't supported,
+- [Command-line reference](docs/cli.md): commands, common options, `--set` settings and shell completion
+- [Engine guide](docs/engine.md): building, recognition and revision workflows, what is and isn't supported,
   known limitations, checking a change
 - [Model and Spec reference](docs/model.md): the Analysis, Spec and Plan, and every setting
 - [Drawings from build123d: support and how-to](docs/build123d.md)

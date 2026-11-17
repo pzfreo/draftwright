@@ -46,8 +46,13 @@ fn run(args: &[&str]) -> (Option<i32>, Value) {
         .args(args)
         .output()
         .unwrap();
-    let json = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+    let json = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "{args:?}: {e}\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
     (out.status.code(), json)
 }
 

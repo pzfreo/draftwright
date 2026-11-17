@@ -939,6 +939,11 @@ fn cli_writes_requested_pack_files_and_refuses_unknown_format() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: pack formats must be pdf,csv,json\n  choose from: pdf, csv, json\n"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

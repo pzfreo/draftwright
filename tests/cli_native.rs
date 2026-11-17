@@ -37,8 +37,13 @@ fn run(args: &[&str]) -> (Option<i32>, Value) {
         .args(args)
         .output()
         .unwrap();
-    let json = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+    let json = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "{args:?}: {e}\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
     (out.status.code(), json)
 }
 
@@ -1236,6 +1241,61 @@ fn sheet_overrides_refuse_bad_paths_values_and_conflicts_readably() {
                 error.contains(path) && error.contains(reason),
                 "{args:?}: {error}"
             );
+        }
+    }
+}
+
+/// Every example in the reference table is executable CLI input, not a second list
+/// maintained here. Each row is independent, including optional pack drawing paths.
+#[test]
+fn cli_reference_set_examples_are_accepted() {
+    let doc = include_str!("../docs/cli.md");
+    let table = doc
+        .split_once("<!-- tested-set-examples -->")
+        .unwrap()
+        .1
+        .split_once("<!-- /tested-set-examples -->")
+        .unwrap()
+        .0;
+    let rows: Vec<_> = table
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(rows[0], "| Path | Values | Effect | Example |");
+    assert_eq!(rows[1], "| --- | --- | --- | --- |");
+    let examples = &rows[2..];
+    assert!((15..=25).contains(&examples.len()), "common settings table");
+    let part = fixture("parts/plate.step");
+    let assembly = fixture("assembly/pack-small.step.gz");
+    for (index, row) in examples.iter().enumerate() {
+        assert!(row.starts_with('|') && row.ends_with('|'), "{row}");
+        let columns: Vec<_> = row.trim_matches('|').split('|').map(str::trim).collect();
+        assert_eq!(columns.len(), 4, "{row}");
+        let assignment = columns[3]
+            .strip_prefix("`--set '")
+            .and_then(|s| s.strip_suffix("'`"))
+            .unwrap_or_else(|| panic!("expected one quoted --set argument: {row}"));
+        let pack = assignment.starts_with("ga/") || assignment.starts_with("parts/");
+        let out = scratch(&format!("reference-pack-{index}"));
+        let mut args = if pack {
+            vec![
+                "pack",
+                assembly.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+                "--formats",
+                "json",
+            ]
+        } else {
+            vec!["plan", part.to_str().unwrap()]
+        };
+        args.extend(["--set", assignment]);
+        let (code, result) = run(&args);
+        assert_eq!(code, Some(0), "{row}: {result}");
+        assert!(result.is_object(), "{row}: {result}");
+        if pack {
+            std::fs::remove_dir_all(out).unwrap();
         }
     }
 }

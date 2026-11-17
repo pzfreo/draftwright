@@ -42,6 +42,12 @@ pub const SPEC_SCHEMA: &str = "draftwright.pack-spec/1";
 pub const REPORT_SCHEMA: &str = "draftwright.pack/1";
 pub const FORMATS: [&str; 3] = ["pdf", "csv", "json"];
 
+fn invalid_formats() -> Error {
+    let mut error = Error::invalid("pack formats must be pdf,csv,json");
+    error.choices = FORMATS.iter().map(|f| (*f).into()).collect();
+    error
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Supply {
@@ -1290,7 +1296,7 @@ pub fn render_profiled(
     formats: &[&str],
 ) -> Result<(Report, Files, Timings), Error> {
     if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
-        return Err(Error::invalid("pack formats must be pdf,csv,json"));
+        return Err(invalid_formats());
     }
     let bytes = model::read_step_file(step).map_err(Error::invalid)?;
     render_bytes_profiled(&step.display().to_string(), &bytes, spec, formats)
@@ -1305,7 +1311,7 @@ pub(crate) fn render_profiled_cli(
     max_size: Option<&str>,
 ) -> Result<(Report, Files, Timings), Error> {
     if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
-        return Err(Error::invalid("pack formats must be pdf,csv,json"));
+        return Err(invalid_formats());
     }
     let bytes = model::read_step_file(step).map_err(Error::invalid)?;
     let pack = build_bytes_with_options(
@@ -1337,7 +1343,7 @@ fn render_bytes_profiled(
     formats: &[&str],
 ) -> Result<(Report, Files, Timings), Error> {
     if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
-        return Err(Error::invalid("pack formats must be pdf,csv,json"));
+        return Err(invalid_formats());
     }
     let pack = build_bytes(name, bytes, spec)?;
     let files = pack.encode(formats)?;
@@ -1348,7 +1354,7 @@ impl Pack {
     /// Encode this completed pack without building it a second time.
     pub fn encode(&self, formats: &[&str]) -> Result<Files, Error> {
         if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
-            return Err(Error::invalid("pack formats must be pdf,csv,json"));
+            return Err(invalid_formats());
         }
         Ok(formats
             .iter()
