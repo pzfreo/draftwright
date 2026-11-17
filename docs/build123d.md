@@ -143,6 +143,10 @@ dwg.update({"sheet": {"zones": False}})            # any Spec setting
 dwg.render("review", formats=("pdf",), spec={"sheet": {"title": {"revision": "B"}}})
 ```
 
+`views(shaded=True)` also takes `colour="#b8c4cc"` (alias `color=`) for the shaded colour and
+`below=True` for a view from below; `render(..., formats=("png",), dpi=300)` sets a PNG's
+resolution.
+
 `update()` accepts any [Spec](model.md) setting and checks it against the schema.
 Requirements such as material, fits and GD&T are refused there, with a pointer to
 the matching Part call, so each fact has one home.
