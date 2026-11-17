@@ -8,7 +8,8 @@ All notable changes to draftwright are recorded here, in the style of
 
 - PMI finish attachments try intact cylindrical stations beyond grooves (#461).
   Spec thread designations retain explicit coarse pitches as authored (#464).
-  Recessed through taps use native face ownership; AP242 reference dimensions
+  Recessed through taps use native face ownership; mixed-axis bore locations
+  use their proven common datum-normal station. AP242 reference dimensions
   draw in parentheses, and unavailable oblique datums name dependent dimensions
   (#466). Repeated reader paths produce one finding with all reasons retained.
 

@@ -862,6 +862,7 @@ fn issue466_pack_keeps_the_recessed_tap_and_reference_dimension() {
     let pack = pack::build(&fixture("issue466-gramil-pmi.step.gz"), &spec).unwrap();
     for (name, source) in [
         ("GRM-01 shank", "manufacturing_requirement:#10445"),
+        ("GRM-01 shank", "dimension:#10411"),
         ("GRM-04 drive plate", "dimension:#12041"),
     ] {
         let row = pack.report.rows.iter().find(|r| r.name == name).unwrap();

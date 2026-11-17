@@ -2256,6 +2256,11 @@ parentheses, with the same proven witnesses as a controlling dimension. It stays
 reference through planning; it cannot supply a controlling hole depth or diameter
 tolerance, or be treated as a replaceable general-tolerance nominal.
 
+A compound bore group whose internal axes all lie in one plane parallel to its
+datum has one proven datum-normal distance, even when those axes have different
+directions. Only that common coordinate is measured; the group does not acquire
+an invented common axis. The source nominal must agree with the measured span.
+
 Measured angular nominals use up to three decimal places and omit trailing zeroes
 after rounding (`24.9999°` displays as `25°`). The measured value remains available
 for geometric checks, independently of the displayed value and tolerance. Angular

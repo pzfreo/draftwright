@@ -125,12 +125,11 @@ fn issue466_original_shank_thread_attaches_after_the_counterbore() {
         svg.contains("6.35") && svg.contains("5.5"),
         "counterbore must still be stated"
     );
-    // These source records do not uniquely state the intended counterbore size,
-    // straight depth and single bore location. Preserve their explicit findings.
+    // These source records do not uniquely state the intended counterbore size
+    // and straight depth. Preserve their explicit findings.
     for (source, why) in [
         ("dimension:#10391", "along a curve"),
         ("dimension:#10395", "differ from nominal"),
-        ("dimension:#10411", "no proven face-supported axis witness"),
     ] {
         assert!(
             plan.problems.iter().any(|p| p.code == "pmi_not_lowered"
@@ -140,6 +139,31 @@ fn issue466_original_shank_thread_attaches_after_the_counterbore() {
             plan.problems
         );
     }
+    assert!(!plan.problems.iter().any(|p| matches!(
+        p.code.as_str(),
+        "pmi_not_lowered" | "pmi_not_rendered"
+    ) && p.refs.iter().any(|r| r == "dimension:#10411")));
+    let Some(draftwright::pmi::Reading::Read(report)) = &a.pmi else {
+        panic!("PMI read")
+    };
+    let location = report
+        .records
+        .iter()
+        .find(|r| r.source_id == "dimension:#10411")
+        .unwrap();
+    let geometry = location.geometry.as_ref().unwrap();
+    assert!(geometry.reasons.is_empty());
+    assert_eq!(geometry.axis.as_deref(), Some("Y"));
+    assert!((geometry.stations[0][1] + 5.5).abs() < 1e-6);
+    assert!(geometry.stations[1][1].abs() < 1e-6);
+    let mut mismatched = location.clone();
+    mismatched.value = Some(6.);
+    let measured = draftwright::pmi_lowering::dimension_geometry(&part, &mismatched);
+    assert_eq!(measured.axis.as_deref(), Some("Y"));
+    assert!(
+        !measured.reasons.is_empty(),
+        "a nominal cannot choose the group's station"
+    );
     // A shared face ID alone cannot justify moving the tap onto a different
     // axial span. The canonical native cylinder must prove that span too.
     let mut wrong_span = a.clone();

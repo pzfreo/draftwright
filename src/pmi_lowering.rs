@@ -2613,6 +2613,17 @@ fn projected_plane_to_bore(
             // nor a box diagonal is used to select a witness.
             let k = exact_axis(n)?;
             let first = cylinders.first()?;
+            // Differently oriented bores may still share one normal station
+            // (#466: cross holes and a counterbored axial hole all at Y=0).
+            // Prove that every axis lies in that plane. Only its normal
+            // coordinate is measured; no common bore axis is invented.
+            if cylinders.iter().all(|c| {
+                c.internal
+                    && c.direction[k].abs() < 1e-9
+                    && (c.origin[k] - first.origin[k]).abs() < 1e-6
+            }) {
+                return Some((cylinders.iter().collect(), Some((k, first.origin[k]))));
+            }
             if cylinders.iter().any(|c| {
                 !c.internal
                     || c.direction
@@ -2674,7 +2685,8 @@ fn projected_plane_to_bore(
             if let Some((k, middle)) = centre_station {
                 // Transverse coordinates only place the witness on the drawing.
                 // Use the group's support midpoint, as the pattern planner does;
-                // only k is proven by reflection and measured by plane_axis.
+                // Only k is proven by reflection or a shared normal station,
+                // and measured by plane_axis.
                 q = [0, 1, 2].map(|i| {
                     let lo = boxes[bi].iter().map(|b| b[i]).fold(f64::INFINITY, f64::min);
                     let hi = boxes[bi]
