@@ -13,8 +13,7 @@ All notable changes to draftwright are recorded here, in the style of
   draw in parentheses, and unavailable oblique datums name dependent dimensions
   (#466). Repeated reader paths produce one finding with all reasons retained.
 
-- Python `Part.angle()` trims rounded trailing zeroes and keeps angular labels
-  clear of the part's line-work (#505).
+- Python `Part.angle()` trims rounded trailing zeroes (#505).
 
 - Python pictorials carry colour to below views enabled later and preserve authored
   below styles on unrelated view edits; DPI rejects booleans and reports overflow as non-finite.

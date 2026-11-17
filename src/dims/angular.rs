@@ -729,9 +729,10 @@ pub(super) fn place(
         };
         let furniture = |c: &Placed| {
             !boxes_overlap(c.label_box, page.title_block())
-                && page.views().iter().all(|(id, b)| {
-                    (*id == own && in_void(c)) || !boxes_overlap(clear_box(c.label_box), *b)
-                })
+                && page
+                    .views()
+                    .iter()
+                    .all(|(id, b)| (*id == own && in_void(c)) || !boxes_overlap(c.label_box, *b))
                 && !c.lines.iter().any(|l| crosses(*l, page.title_block()))
                 && (!exterior
                     || c.lines

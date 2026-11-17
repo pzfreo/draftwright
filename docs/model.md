@@ -2263,8 +2263,7 @@ an invented common axis. The source nominal must agree with the measured span.
 
 Measured angular nominals use up to three decimal places and omit trailing zeroes
 after rounding (`24.9999°` displays as `25°`). The measured value remains available
-for geometric checks, independently of the displayed value and tolerance. Angular
-labels keep the ordinary 0.5 mm text clearance from view line-work.
+for geometric checks, independently of the displayed value and tolerance.
 
 `src/dims/pmi_dimensions.rs` lowers each AP242 dimension record as draftwright's
 `lower_ap242_*_tolerances`/`_nominal_*` and `render_pmi` do, from where its faces put it (the
