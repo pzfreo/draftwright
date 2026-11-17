@@ -57,7 +57,7 @@ url = sys.argv[-1]
 with open(os.environ['TEST_DOWNLOAD_LOG'], 'a') as log:
     log.write(url + '\\n')
 if url.endswith('/latest'):
-    if '--server-response' in sys.argv:
+    if '-S' in sys.argv:
         sys.stderr.write('  HTTP/1.1 302 Found\\n  Location: RELEASES/tag/v0.6.0\\r\\n  HTTP/1.1 200 OK\\n')
     else:
         print('RELEASES/tag/v0.6.0', end='')

@@ -88,7 +88,7 @@ download() {
         [ "$status" != 404 ] || return 44
         cat download.error >&2
     else
-        if wget -q --server-response -O "$2" "$1" 2>download.headers; then return 0; fi
+        if wget -q -S -O "$2" "$1" 2>download.headers; then return 0; fi
         status=$(awk '/^[[:space:]]*HTTP\// { code = $2 } END { print code }' download.headers)
         [ "$status" != 404 ] || return 44
     fi
@@ -100,7 +100,7 @@ if [ -z "$version" ]; then
     if [ "$downloader" = curl ]; then
         latest_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$releases/latest") || die 'Could not resolve the latest release.'
     else
-        wget -q --server-response -O /dev/null "$releases/latest" 2>latest.headers || die 'Could not resolve the latest release.'
+        wget -q -S -O /dev/null "$releases/latest" 2>latest.headers || die 'Could not resolve the latest release.'
         latest_url=$(awk 'tolower($1) == "location:" { sub("\r$", "", $2); url = $2 } END { print url }' latest.headers)
     fi
     case "$latest_url" in
