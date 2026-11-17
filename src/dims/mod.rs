@@ -171,6 +171,17 @@ pub(crate) fn finish_texture_lanes(
             };
             let mut trial = plan.clone();
             trial.dimensions[i].placed = Some(candidate);
+            // The original reservation followed the original strip. Reclaim
+            // only unused paper for the moved dimension, retaining every
+            // neighbouring view's complete ink, before judging its new lane.
+            crate::sheet_fit::reserve_bounds(
+                analysis,
+                &trial.sheet,
+                &mut trial.views,
+                &trial.dimensions,
+                &trial.gdt,
+                Some(&BTreeSet::from([trial.dimensions[i].id.clone()])),
+            );
             let before = recheck_cached(analysis, plan, &cache);
             let after = recheck_cached(analysis, &trial, &cache);
             let codes: BTreeSet<_> = before.iter().chain(&after).map(|p| &p.code).collect();
