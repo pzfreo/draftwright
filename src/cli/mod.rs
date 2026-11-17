@@ -1,5 +1,5 @@
 //! The command line over the document model (ADR R1), through [`crate::api`]. Each command
-//! prints JSON.
+//! prints its result as JSON on stdout, or a plain `error:` refusal on stderr.
 //!
 //! - `draftwright analyse part.step [--features r.json | --no-features]`: the Analysis
 //! - `draftwright plan part.step [--features r.json | --no-features] [--spec s.json]`: the Plan;
@@ -31,7 +31,7 @@
 //!   elvish, on stdout
 //!
 //! The command line is parsed by clap: `--help` (on any command), `--version`, and clap's usage
-//! errors on stderr. Values are checked here, so a bad `--part` or `--dpi` is refused as JSON.
+//! errors on stderr. Values are checked here; a bad `--part` or `--dpi` is also refused on stderr.
 //!
 //! The features come from Rust quiddity's recognition, run on the part
 //! ([`crate::api::Features::Native`]), unless one of these says otherwise. A part whose
@@ -52,7 +52,7 @@
 //! when every body coincides with one part's (`coincident_bodies`), or lies within the largest
 //! body's box (`assembly_principal_drawn`), that part is drawn alone.
 //!
-//! Exit codes: 0 done; 2 the request is invalid (the JSON error says what would be accepted), or
+//! Exit codes: 0 done; 2 the request is invalid (the error says what would be accepted), or
 //! the command line is (clap's usage error); 1 something failed and nothing was written in its
 //! place.
 
@@ -80,8 +80,7 @@ Pictorial options for render, review, plan and bare render:
 JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_options use the MCP argument shapes.";
 
 /// The command line. Values are kept as text and checked by [`run`], so a bad `--part` or
-/// `--dpi` is refused with the JSON error it has always had; only the shape of the command line
-/// is clap's.
+/// `--dpi` is refused on stderr; only the shape of the command line is clap's.
 #[derive(Parser)]
 #[command(
     name = "draftwright",
@@ -505,11 +504,13 @@ fn finish(name: &str, given: &Given) -> u8 {
             0
         }
         Err(error) => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({ "ok": false, "error": error }))
-                    .expect("JSON")
-            );
+            eprintln!("error: {}", error.message);
+            if !error.choices.is_empty() {
+                eprintln!("  choose from: {}", error.choices.join(", "));
+            }
+            if let Some(path) = &error.path {
+                eprintln!("  entry: {path}");
+            }
             if error.code == "invalid" { 2 } else { 1 }
         }
     }

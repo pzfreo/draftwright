@@ -205,8 +205,10 @@ fn a_corrupt_gzip_is_refused_with_a_clear_error() {
         err.message.contains("gzip but cannot be decompressed"),
         "{err}"
     );
-    let (code, out, _) = run(&["analyse", s(&gz)]);
-    assert_eq!(code, Some(2), "{out}");
-    assert!(out.contains("gzip but cannot be decompressed"), "{out}");
+    let (code, out, err) = run(&["analyse", s(&gz)]);
+    assert_eq!(code, Some(2), "{err}");
+    assert!(out.is_empty(), "{out}");
+    assert!(err.starts_with("error: "), "{err}");
+    assert!(err.contains("gzip but cannot be decompressed"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }

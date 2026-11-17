@@ -38,7 +38,8 @@ pipx install specify-core                   # only for requirements (step 3)
 draftwright --version
 ```
 
-Commands print JSON on stdout. Read it; do not scrape the SVG.
+A command's result is JSON on stdout. Read it; do not scrape the SVG. A refusal is a plain
+`error:` line on stderr, with empty stdout and exit 2 (invalid) or 1 (failed).
 
 ## 1. Look before drawing
 

@@ -15,6 +15,9 @@ mod corpus;
 #[path = "common/facts.rs"]
 mod facts;
 
+#[path = "common/cli.rs"]
+mod cli;
+
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -300,9 +303,8 @@ fn the_command_line_takes_features() {
     let (code, _) = run(&["plan", step, "--features", features]);
     assert_eq!(code, Some(0));
     let wrong = fixture("recognition/turned.json");
-    let (code, e) = run(&["analyse", step, "--features", wrong.to_str().unwrap()]);
-    assert_eq!(code, Some(2));
-    assert_eq!(e["error"]["code"], "invalid");
+    let e = cli::failure(&["analyse", step, "--features", wrong.to_str().unwrap()], 2);
+    assert!(e.contains("recognition"), "{e}");
 }
 
 /// The AAG neighbourhood: repeats of one feature in like surroundings share it (position tells

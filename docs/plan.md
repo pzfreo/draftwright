@@ -51,7 +51,7 @@ You're mostly right.
 - `review(plan) → image + problems`, for an LLM's visual check.
 
 **Adapters, thin over the core, as specify-core's are:**
-- **CLI:** `draftwright analyse part.step`, `draftwright plan part.step --spec s.json`, `draftwright render … -o out.pdf`, `draftwright serve` (JSON lines). Output is JSON throughout, with exit codes 2 for invalid or incomplete input and 1 for a failed write.
+- **CLI:** `draftwright analyse part.step`, `draftwright plan part.step --spec s.json`, `draftwright render … -o out.pdf`, `draftwright serve` (JSON lines). A command's result is JSON on stdout; a refusal is a plain `error:` line on stderr with empty stdout and exit 2 for invalid or incomplete input or 1 for a failure. The JSON-lines service keeps JSON replies.
 - **MCP server:** tools map one-to-one onto the operations (analyse, plan, edit, render, review). A tool call sends the spec, so the server keeps nothing; it can also hold a session spec by handle for convenience.
 
 **Fit with the existing plan:** this replaces stage 2's "views only" target with "views only through the API". Stage 2 builds `analyse`, `plan` (views, scale, placement) and `render` end to end, with the CLI first and MCP as soon as the CLI works. Annotations (stage 4) are then added as plan items with IDs, defaults and basis, never as code.

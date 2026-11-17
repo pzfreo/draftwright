@@ -762,7 +762,9 @@ fn a_projection_is_refused_before_the_part_is_read() {
             .output()
             .unwrap();
         assert_eq!(out.status.code(), Some(2));
-        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(out.stdout.is_empty(), "{out:?}");
+        let text = String::from_utf8_lossy(&out.stderr);
+        assert!(text.starts_with("error: "), "{text}");
         assert!(text.contains("projection"), "{text}");
         assert_eq!(listing(&dir), ["spec.json"]);
     }

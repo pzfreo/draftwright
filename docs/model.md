@@ -2571,10 +2571,12 @@ output is byte-identical to analysing the same STEP with the same features.
   with), and so is an Analysis that does not parse (unknown or missing fields, not an object).
 
 - **CLI.** `draftwright analyse part.step`, `draftwright plan part.step --spec part.drawing.json`,
-  `draftwright review …` and `draftwright render … -o out` all print JSON. `--analysis a.json`
+  `draftwright review …` and `draftwright render … -o out` print a command's result as JSON on
+  stdout. A refusal prints a plain `error:` line on stderr, with no stdout, and exits 2 for
+  invalid input or 1 for a failure. Choices and a refused entry path, when present, follow as
+  `  choose from: a, b, c` and `  entry: <path>` lines. `--analysis a.json`
   names an Analysis file in place of `--features` (`draftwright plan --analysis a.json` needs no
-  STEP file). Exit code 2 means
-  invalid input; exit code 1 means a write failed without that invocation replacing its destination.
+  STEP file). A failed write leaves its destination unreplaced by that invocation.
   Earlier formats in the same export may already have been published.
 - **JSON-lines service.** `draftwright serve` takes one request and gives one reply per line, in
   the shape of specify-core's `serve`: `{"id": 1, "op": "plan", "step": "part.step", "spec": {…}}`
@@ -3870,4 +3872,4 @@ See [the exhaustive code table](finding-impact.md) for each tier and the explici
 rule for coverage and PMI diagnostics. Severity, impact, finding order and drawing output
 retain their existing meaning. MCP, WASM/JS JSON, and Python `drawing.problems` expose the
 same field. Tiers group issues; they never block export. They set which editor Issues group
-opens first, while printing and export remain available at every tier. CLI output stays JSON.
+opens first, while printing and export remain available at every tier. CLI results stay JSON on stdout; refusals are plain `error:` lines on stderr (exit 2 for invalid input, 1 for a failure).
