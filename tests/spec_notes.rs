@@ -22,6 +22,86 @@ fn plate() -> (Part, Analysis) {
     model::analyse_native(&root().join("tests/fixtures/parts/plate.step")).unwrap()
 }
 
+#[test]
+fn issue461_finish_uses_intact_cylinder_beyond_the_groove() {
+    for name in ["issue461-whole.step", "issue461-grooved.step"] {
+        let (part, a) = model::analyse_native(&root().join("tests/fixtures/pmi").join(name)).unwrap();
+        let feature = a.features.iter().find(|f| f.kind == "cylindrical_profile").unwrap();
+        assert_eq!(feature.parameters["radius"], json!(8.11));
+        assert_eq!(feature.parameters["side"], "convex");
+        for target in ["features", "faces"] {
+            let key = if target == "features" { feature.id.clone() } else { format!("face:{}", feature.faces[0]) };
+            let s = spec(json!({"sheet":{"title":{"tolerance":"±0.1"}}, target: {key: {"finish":{"ra":0.8}}}}));
+            let plan = model::plan_recovered(&a, &s).unwrap();
+            no_pmi_problems(&plan);
+            let finishes = gdt(&plan, "surface_finish");
+            assert_eq!(finishes.len(), 1);
+            let finish = finishes[0];
+            assert!(finish.placed.is_some());
+            assert_eq!(finish.faces, feature.faces);
+            let drawing = model::render(&part, &a, &plan, &font()).unwrap();
+            assert_eq!(runs(&drawing, &finish.id), ["Ra 0.8"]);
+            assert!(pmi_lint(&a, &drawing).is_empty());
+        }
+    }
+}
+
+#[test]
+fn issue464_explicit_coarse_pitch_survives_every_callout_style() {
+    let (part, a) = model::analyse_native(&root().join("tests/fixtures/pmi/issue464-tap.step")).unwrap();
+    let hole = a.features.iter().find(|f| f.kind == "hole").unwrap();
+    assert_eq!(hole.parameters["diameter"], json!(2.5));
+    for designation in ["M3x0.5-6H", "M3 x 0.5-6H", "M3x0.35-6H", "M3-6H"] {
+        for style in ["auto", "compact", "full", "note"] {
+            let s = spec(json!({"features":{&hole.id:{"thread":{"designation":designation},"callouts":{"style":style}}}}));
+            let plan = model::plan_recovered(&a, &s).unwrap();
+            no_pmi_problems(&plan);
+            let drawing = model::render(&part, &a, &plan, &font()).unwrap();
+            assert!(drawing.svg().contains(designation), "{designation} ({style}) absent");
+        }
+    }
+}
+
+#[test]
+fn issue466_original_shank_thread_attaches_after_the_counterbore() {
+    let path = root().join("tests/fixtures/assembly/issue466-gramil-pmi.step.gz");
+    let (part, a) = model::analyse_native_part(&path, Some(0)).unwrap();
+    let hole = a.features.iter().find(|f| f.id == "f:hole:f20").unwrap();
+    assert_eq!(hole.faces, [20, 25]);
+    assert_eq!(hole.parameters["diameter"], json!(5.0));
+    assert_eq!(hole.parameters["cbore"]["diameter"], json!(6.35));
+    assert_eq!(hole.parameters["cbore"]["depth"], json!(5.5));
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    assert!(!plan.problems.iter().any(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "manufacturing_requirement:#10445")), "{:?}", plan.problems);
+    let owned = draftwright::pmi_lowering::manufacturing(&a);
+    let thread = owned.owned.iter().find(|o| o.source == "manufacturing_requirement:#10445").unwrap();
+    assert_eq!(thread.owner, hole.id);
+    let drawing = model::render(&part, &a, &plan, &font()).unwrap();
+    let svg = drawing.svg();
+    assert!(svg.contains("M6-6H THRU"));
+    assert!(svg.contains("6.35") && svg.contains("5.5"), "counterbore must still be stated");
+    // These source records do not uniquely state the intended counterbore size,
+    // straight depth and single bore location. Preserve their explicit findings.
+    for (source, why) in [("dimension:#10391", "along a curve"), ("dimension:#10395", "differ from nominal"), ("dimension:#10411", "no proven face-supported axis witness")] {
+        assert!(plan.problems.iter().any(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == source) && p.message.contains(why)), "{source}: {:?}", plan.problems);
+    }
+}
+
+#[test]
+fn issue466_original_plate_reference_and_unavailable_datum_consequences() {
+    let path = root().join("tests/fixtures/assembly/issue466-gramil-pmi.step.gz");
+    let (part, a) = model::analyse_native_part(&path, Some(5)).unwrap();
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let reference = plan.dimensions.iter().find(|d| d.label == "(4.5)").expect("source reference dimension");
+    assert!(reference.reference && reference.placed.is_some());
+    assert!(!plan.problems.iter().any(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "dimension:#12041")));
+    let problem = plan.problems.iter().find(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "datum:#11997")).unwrap();
+    assert!(problem.message.contains("dimension:#12046") && problem.message.contains("dimension:#12050"), "{}", problem.message);
+    assert!(problem.message.contains("slanted") && problem.message.contains("datum symbol"), "{}", problem.message);
+    let drawing = model::render(&part, &a, &plan, &font()).unwrap();
+    assert!(drawing.svg().contains("(4.5)"));
+}
+
 /// A gzipped sample, from its own scratch file.
 fn sample(name: &str) -> (Part, Analysis) {
     sample_marked(name, false)

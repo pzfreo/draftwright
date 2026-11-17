@@ -117,6 +117,35 @@ fn records(a: &Analysis) -> &[Record] {
     }
 }
 
+fn unique_problem_ids(plan: &Plan) {
+    let mut seen = BTreeSet::new();
+    for problem in &plan.problems {
+        assert!(seen.insert(&problem.id), "duplicate problem: {problem:?}");
+    }
+}
+
+pmi_cases!(ap242_plans_have_unique_problem_ids);
+fn ap242_plans_have_unique_problem_ids(only: &str) {
+    for (file, _, bytes) in inputs(only) {
+        let (_, a) = analysed(&file, &bytes);
+        unique_problem_ids(&cache::default_plan(&a, false));
+    }
+}
+
+quality_cases!(corpus_plans_have_unique_problem_ids);
+fn corpus_plans_have_unique_problem_ids(only: &str) {
+    let Some(dir) = corpus::dir() else { return };
+    let path = dir.join(only);
+    let (_, a) = model::analyse(&path).unwrap();
+    let plan = cache::default_plan(&a, false);
+    unique_problem_ids(&plan);
+    if only.ends_with("nist_ctc_05_asme1_rd.stp") {
+        for finding in ["finding:#935", "finding:#938"] {
+            assert_eq!(plan.problems.iter().filter(|p| p.id == format!("p:pmi_not_extracted:{finding}")).count(), 1);
+        }
+    }
+}
+
 /// The instance number of `#N`.
 fn number(s: &str) -> Option<u64> {
     s.strip_prefix('#')?.parse().ok()
