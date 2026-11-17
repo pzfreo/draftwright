@@ -1131,7 +1131,7 @@ fn scale_flags_accept_numbers_and_ratios() {
             value,
         ]);
         assert_eq!(code, Some(0), "{value}: {result}");
-        let (_, spec) = run(&["spec", stem.with_extension("svg").to_str().unwrap()]);
+        let (_, spec) = run(&["spec", result["written"][0].as_str().unwrap()]);
         assert_eq!(spec["sheet"]["scale"], expected);
     }
 }
