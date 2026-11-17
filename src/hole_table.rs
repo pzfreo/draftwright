@@ -1366,13 +1366,58 @@ impl Grid {
 
     /// Whether *ok* holds for every segment whose cells meet box *b* (each judged once,
     /// stopping at the first that fails).
-    fn all_clear(&self, b: Rect, mut ok: impl FnMut(Segment) -> bool) -> bool {
+    fn all_clear(&self, b: Rect, ok: impl FnMut(Segment) -> bool) -> bool {
+        self.all_clear_where(b, |_, _| true, ok)
+    }
+
+    /// A leader can cross only segments in cells it reaches. Its bounding box also
+    /// covers unrelated dense curves beside a diagonal, which need no judgement.
+    fn all_clear_along(&self, leader: Segment, ok: impl FnMut(Segment) -> bool) -> bool {
+        let b = [
+            leader[0][0].min(leader[1][0]),
+            leader[0][1].min(leader[1][1]),
+            leader[0][0].max(leader[1][0]),
+            leader[0][1].max(leader[1][1]),
+        ];
+        let (lo, hi) = (Self::key(b[0], b[1]), Self::key(b[2], b[3]));
+        if lo.0 == hi.0 || lo.1 == hi.1 {
+            return self.all_clear(b, ok);
+        }
+        // Include cell edges and corners conservatively, even after round-off.
+        let pad = 1e-7
+            + 32.0 * f64::EPSILON * leader.iter().flatten().map(|x| x.abs()).fold(1.0, f64::max);
+        self.all_clear_where(
+            b,
+            |x, y| {
+                crosses(
+                    leader,
+                    [
+                        x as f64 * Self::CELL - pad,
+                        y as f64 * Self::CELL - pad,
+                        (x as f64 + 1.0) * Self::CELL + pad,
+                        (y as f64 + 1.0) * Self::CELL + pad,
+                    ],
+                )
+            },
+            ok,
+        )
+    }
+
+    fn all_clear_where(
+        &self,
+        b: Rect,
+        include: impl Fn(i64, i64) -> bool,
+        mut ok: impl FnMut(Segment) -> bool,
+    ) -> bool {
         let (lo, hi) = (Self::key(b[0], b[1]), Self::key(b[2], b[3]));
         let mut seen = self.seen.borrow_mut();
         let (query, last) = &mut *seen;
         *query += 1;
         for x in lo.0..=hi.0 {
             for y in lo.1..=hi.1 {
+                if !include(x, y) {
+                    continue;
+                }
                 for &i in self.cells.get(&(x, y)).into_iter().flatten() {
                     if last[i] == *query {
                         continue;
@@ -1410,13 +1455,7 @@ fn bounded_tag_cost(
         return saved.value;
     }
     let mut cost = base;
-    let span = [
-        leader[0][0].min(leader[1][0]),
-        leader[0][1].min(leader[1][1]),
-        leader[0][0].max(leader[1][0]),
-        leader[0][1].max(leader[1][1]),
-    ];
-    let complete = lines.all_clear(span, |edge| {
+    let complete = lines.all_clear_along(leader, |edge| {
         if segments_cross(leader, edge) {
             cost += TAG_CROSSING;
         }
@@ -2092,6 +2131,44 @@ mod tests {
                     segments.iter().all(|line| !crosses(*line, bounds)),
                     "origin box {bounds:?}",
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn leader_grid_keeps_crossings_at_cell_edges_corners_and_short_spans() {
+        let points: Vec<_> = [-20.0, -5.0, 0.0, 5.0, 20.0]
+            .into_iter()
+            .flat_map(|x| [-20.0, -5.0, 0.0, 5.0, 20.0].map(|y| [x, y]))
+            .collect();
+        let segments: Vec<_> = [-5.000_000_001, -5.0, 0.0, 5.0, 5.000_000_001]
+            .into_iter()
+            .flat_map(|k| {
+                [
+                    [[k, -25.0], [k, 25.0]],
+                    [[-25.0, k], [25.0, k]],
+                    [[-25.0, k - 25.0], [25.0, k + 25.0]],
+                    [[k, k], [k, k]],
+                ]
+            })
+            .collect();
+        let lines = Grid::new(segments.iter().copied());
+        for &a in &points {
+            for &b in &points {
+                let leader = [a, b];
+                let crossings = segments
+                    .iter()
+                    .filter(|&&edge| segments_cross(leader, edge))
+                    .count();
+                let full = 2.0 + crossings as f64 * TAG_CROSSING;
+                let memo = std::cell::Cell::new(None);
+                for bound in [3.0, 7.0, 4.0, 100.0, 0.0] {
+                    let cost = bounded_tag_cost(&lines, leader, 2.0, bound, &memo);
+                    assert_eq!(cost >= bound, full >= bound, "leader {leader:?}");
+                    if cost < bound {
+                        assert_eq!(cost, full, "an admitted route needs every crossing");
+                    }
+                }
             }
         }
     }
