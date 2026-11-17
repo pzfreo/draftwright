@@ -276,11 +276,32 @@ fn prepared_proofs(
                 return None;
             }
             // A cutting-plane line this view marks is fixed ink; its letters are boxes.
-            for cut in views.iter().filter_map(|q| q.cut.as_ref()) {
-                let name = v.id.trim_start_matches("v:");
-                if cut.marked_in != v.id && cut.marked_in != name {
-                    continue;
-                }
+            let name = v.id.trim_start_matches("v:");
+            let cuts: Vec<_> = views
+                .iter()
+                .filter_map(|q| q.cut.as_ref())
+                .filter(|cut| cut.marked_in == v.id || cut.marked_in == name)
+                .collect();
+            if cuts.is_empty() {
+                return Some((v.id.clone(), proof));
+            }
+            // Markings depend on the camera, frame, attachment policy and cuts.
+            // Share that immutable evidence across candidate inventories.
+            let cache =
+                crate::planning::memo(analysis, "marked-interior-cache", Vec::new(), || {
+                    std::rc::Rc::new(crate::planning::BoundedMemo::<std::rc::Rc<Proof>>::new(8))
+                });
+            use sha2::{Digest, Sha256};
+            // Invariant: Projection coordinates and Cut metadata have JSON representations.
+            let key: [u8; 32] = Sha256::digest(
+                serde_json::to_vec(&(v.direction, v.up, v.at, v.scale, canonical, exterior, &cuts))
+                    .expect("marked projection inputs serialize"),
+            )
+            .into();
+            if let Some(proof) = cache.get(&key) {
+                return Some((v.id.clone(), proof));
+            }
+            for cut in cuts {
                 let proof = std::rc::Rc::make_mut(&mut proof);
                 let (x0, x1, y) = crate::model::cutting_line(analysis, v, &view, cut);
                 let (items, letters) = crate::section::cutting_plane(x0, x1, y);
@@ -305,6 +326,7 @@ fn prepared_proofs(
                 }
                 proof.grid = Grid::new(&proof.segments);
             }
+            cache.insert(key, std::rc::Rc::clone(&proof));
             Some((v.id.clone(), proof))
         })
         .collect()
@@ -2887,6 +2909,58 @@ mod tests {
 
     fn proof(ink: &EdgeInk) -> Proof {
         build(ink, &view(), [0., 0.]).unwrap()
+    }
+
+    #[test]
+    fn marked_proofs_follow_changed_cuts_scale_camera_and_attachment_policy() {
+        let mut analysis: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+            "envelope":[[-50,-50,-1],[50,50,1]], "iso_bounds":[-50,-50,50,50]
+        }))
+        .unwrap();
+        analysis.edge_ink = Some(ink(vec![]));
+        let mut section = view();
+        section.id = "v:section".into();
+        section.cut = Some(crate::model::Cut {
+            xref: None,
+            label: "A".into(),
+            origin: [0., 0., 0.],
+            normal: [0., 1., 0.],
+            marked_in: "v:plan".into(),
+        });
+        let mut views = vec![view(), section];
+        crate::planning::with(&analysis, || {
+            let first = std::rc::Rc::clone(&proofs(&analysis, &views)["v:plan"]);
+            assert!(!first.blank(&views[0], [-10., -1., 10., 1.]));
+            assert!(first.blank(&views[0], [-10., 19., 10., 21.]));
+            views[1].cut.as_mut().unwrap().origin[1] = 20.;
+            let moved = std::rc::Rc::clone(&proofs(&analysis, &views)["v:plan"]);
+            assert!(moved.blank(&views[0], [-10., -1., 10., 1.]));
+            assert!(!moved.blank(&views[0], [-10., 19., 10., 21.]));
+            let farthest = |p: &Proof| {
+                p.segments
+                    .iter()
+                    .flatten()
+                    .map(|p| p[0])
+                    .fold(f64::NEG_INFINITY, f64::max)
+            };
+            views[0].scale = 2.;
+            let scaled = std::rc::Rc::clone(&proofs(&analysis, &views)["v:plan"]);
+            assert!(
+                farthest(&scaled) < farthest(&moved),
+                "the fixed paper overrun shrinks in model units at larger scale"
+            );
+            assert!(!scaled.blank(&views[0], [-20., 38., 20., 42.]));
+            views[0].up = [0., -1., 0.];
+            let turned = std::rc::Rc::clone(&proofs(&analysis, &views)["v:plan"]);
+            assert!(turned.blank(&views[0], [-20., 38., 20., 42.]));
+            assert!(!turned.blank(&views[0], [-20., -42., 20., -38.]));
+            assert!(turned.require_visible_attachment);
+            crate::planning::store(&analysis, "canonical-circular-recipes", Vec::new(), true);
+            let comparison = proofs(&analysis, &views);
+            assert!(!comparison["v:plan"].require_visible_attachment);
+        });
     }
 
     #[test]
