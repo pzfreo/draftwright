@@ -26,7 +26,8 @@ ocp-gordon 0.3.1 imports `OCP.collections`, absent from 0.10's OCCT 7.8.
 
 **The return value is `(svg_path, dxf_path)`, both strings, as in 0.4.** The DXF is
 editable in CAD: native text, live dimensions, blocks and title-block attributes. For PDF
-or PNG use `draftwright render --formats`. Both files (and additional
+or PNG, draw through `Part` (`render(formats=("pdf", "png"))`, below) or use
+`draftwright render --formats`. Both files (and additional
 sheets, if needed) follow the CLI's bare-render naming rules. An output extension
 such as `.dxf` is removed from the stem. Without `out`, files go beside the input
 STEP; for a shape the default is `drawing` in the working directory. Exceptions
@@ -118,6 +119,11 @@ dwg.title(drawn_by="PA", date="2026-11-14", revision="B")
 svg, pdf = dwg.render("plate", formats=("svg", "pdf"))
 print(dwg.problems)  # the engine's findings as dictionaries
 ```
+
+`views(shaded=True)` shades the isometric. Add `colour="#b8c4cc"` (alias `color=`) to set its
+colour, and `below=True` to add a view from below in the same style and colour:
+`views(shaded=True, colour="#b8c4cc", below=True)`. For a PNG, `render("plate",
+formats=("png",), dpi=300)` sets the resolution.
 
 The mapping uses haecceity's native types:
 
@@ -313,9 +319,10 @@ change its separate native PMI model without re-exporting geometry. No PMI is
 serialized to STEP or read back to draw it. A direct OCCT-handle import is not
 available in the pure Rust kernel.
 
-`drawing()` edits layout: `sheet=`, `scale=`, `units=`, `views(shaded=, omit=)` and
+`drawing()` edits layout: `sheet=`, `scale=`, `units=`, `views(shaded=, colour=, color=, below=, omit=)` and
 `section(id, through=...)`. Sections accept a fluent reference, build123d object,
-or drawing feature ID. The bridge to stable drawing keys is:
+or drawing feature ID. `colour=` requires shading; `below=` and shading retain
+their state across chained `views()` calls. The bridge to stable drawing keys is:
 
 ```python
 feature = p.feature_id(bearing)  # f:hole:... from the drawing's Analysis
@@ -350,7 +357,9 @@ layout edits.
 `render()` defaults to `(svg_path, dxf_path)`. `formats=("svg", "pdf", "png", "dxf")`
 selects any distinct subset and returns a tuple of **all** written paths, in format
 order. SVG, PNG and DXF have one file per sheet (`name.sheet2.svg`, etc.); PDF is
-one document containing every sheet. PNG uses the engine's default resolution.
+one document containing every sheet. `dpi=300` sets PNG pixels per inch;
+`dpi=None` uses the engine default of 150. PNG requires positive, finite DPI;
+numeric DPI is ignored when PNG is not requested.
 `drawing.problems` contains the current successful render's findings. It raises
 `DraftwrightError` before `render()` or after Part PMI/layout edits, until rendered again;
 Drawing plans during render, so reading findings never silently starts a render.

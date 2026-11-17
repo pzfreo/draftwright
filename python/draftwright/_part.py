@@ -725,13 +725,47 @@ class Drawing:
             else:
                 self._scale = float(scale)
 
-    def views(self, shaded=None, omit=()):
-        """``shaded=True`` shades the isometric; ``omit=("side",)`` drops named views."""
-        views = self._spec.setdefault("views", {})
+    def views(self, shaded=None, omit=(), *, colour=None, color=None, below=None):
+        """Set pictorial shading, hex colour (alias ``color``), and a below view.
+
+        ``colour`` accepts six hex digits with an optional ``#`` and requires
+        shading. ``below=True`` adds a view matching the isometric's style;
+        ``below=False`` omits it. ``omit=("side",)`` drops named views.
+        Chained calls use the resulting Spec's shading and below-view state,
+        e.g. ``views(shaded=True).views(below=True, colour="#ccaa88")``.
+        Turning shading off retains colours for when shading is enabled again.
+        """
+        views = self.spec().get("views", {})
         if shaded is not None:
             views.setdefault("iso", {})["style"] = "shaded" if shaded else "wireframe"
+        if below is not None:
+            views.setdefault("iso_below", {})["omit"] = not below
         for name in omit:
             views.setdefault(name, {})["omit"] = True
+        is_shaded = views.get("iso", {}).get("style") == "shaded"
+        colours = []
+        for value in (colour, color):
+            if value is None:
+                continue
+            if not is_shaded:
+                raise ValueError("colour= requires shaded=True")
+            if not isinstance(value, str) or not re.fullmatch(r"#?[0-9a-fA-F]{6}", value):
+                got = json.dumps(value) if isinstance(value, str) else repr(value)
+                raise ValueError("colour= expects six hexadecimal digits, "
+                                 f"e.g. '#b8c4cc' or b8c4cc; got {got}")
+            hex_value = value.lstrip("#")
+            colours.append([int(hex_value[i:i + 2], 16) for i in (0, 2, 4)])
+        if len(colours) == 2 and colours[0] != colours[1]:
+            raise ValueError("colour= and color= must match")
+        if colours:
+            views.setdefault("iso", {})["colour"] = colours[0]
+        if ((shaded is not None or below is not None or colours)
+                and "iso_below" in views and not views["iso_below"].get("omit", False)):
+            views["iso_below"]["style"] = "shaded" if is_shaded else "wireframe"
+            iso_colour = views.get("iso", {}).get("colour")
+            if iso_colour is not None:
+                views["iso_below"]["colour"] = iso_colour.copy()
+        self._spec["views"] = views
         return self
 
     def section(self, id="A", through=None):
@@ -775,11 +809,13 @@ class Drawing:
         """Set title-block fields, e.g. drawn_by, date, revision, company, approved_by."""
         return self.update({"sheet": {"title": fields}})
 
-    def render(self, out=None, *, formats=("svg", "dxf"), spec=None):
+    def render(self, out=None, *, formats=("svg", "dxf"), spec=None, dpi=None):
         """Return every requested output path; a PDF contains all sheets.
 
         ``spec`` is a one-render layout patch. Findings are in ``drawing.problems``, each with the engine
         ``tier`` (``fix_before_printing``, ``tidy``, or ``information``).
+        ``dpi`` sets PNG pixels per inch (None uses 150); it must be positive
+        and finite for PNG and is otherwise ignored after numeric validation.
         PMI stays in memory and is never written to the drawing Spec.
         """
         if isinstance(formats, str):
@@ -787,6 +823,17 @@ class Drawing:
         formats = tuple(formats)
         if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
+        if dpi is not None:
+            if isinstance(dpi, bool):
+                raise ValueError("dpi must be a number, not a bool")
+            try:
+                dpi = float(dpi)
+            except OverflowError:
+                raise ValueError("dpi must be finite") from None
+            except (TypeError, ValueError):
+                raise ValueError("dpi must be a number") from None
+            if "png" in formats and not (dpi > 0 and math.isfinite(dpi)):
+                raise ValueError("PNG dpi must be positive and finite")
         self._problems = None
         base_spec, scale = self.spec(), self._scale
         layout = _native.layout_spec(json.dumps(base_spec), json.dumps({} if spec is None else spec))
@@ -799,7 +846,7 @@ class Drawing:
             layout.setdefault("sheet", {})["scale"] = f"{scale:g}:1" if scale >= 1 else f"1:{1 / scale:g}"
             layout = json.dumps(layout)
         pmi = part._pmi.snapshot()
-        result = json.loads(part._geometry().render(pmi, layout, str(out), list(formats)))
+        result = json.loads(part._geometry().render(pmi, layout, str(out), list(formats), dpi))
         self._problems = result["problems"]
         self._rendered_pmi = pmi
         self._rendered_layout = (base_spec, scale)

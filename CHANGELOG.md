@@ -11,6 +11,14 @@ All notable changes to draftwright are recorded here, in the style of
   drawing. Scale accepts numeric values and ratios. Named flags conflicting with
   `--set` are refused in either order.
 
+- Python pictorials carry colour to below views enabled later and preserve authored
+  below styles on unrelated view edits; DPI rejects booleans and reports overflow as non-finite.
+
+- Python `Drawing.render(dpi=...)` sets PNG resolution (default 150 pixels per inch).
+
+- Python `Drawing.views()` accepts `colour=` (alias `color=`) for shaded pictorials
+  and `below=` to show or omit the view from below, including across fluent calls.
+
 - One-shot CLI commands, including bare render, now print refusals as plain `error:` lines on
   stderr with empty stdout, followed by choices and an entry path when present. Exit codes stay
   2 for invalid input and 1 for failures. Successful results remain JSON on stdout; `serve`
