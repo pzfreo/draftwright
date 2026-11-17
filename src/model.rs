@@ -3533,6 +3533,20 @@ mod complete_candidate_tests {
     }
 }
 
+// A native recess owner is necessary for any established scale cap in this
+// analysis or its historical comparisons. Without one, lifting a cap cannot
+// change the candidates, so an exhausted search need not be repeated.
+fn recess_cap_possible(analysis: &Analysis) -> bool {
+    analysis
+        .recognition
+        .as_ref()
+        .is_some_and(|r| r.recogniser.starts_with("quiddity-rust "))
+        && analysis
+            .features
+            .iter()
+            .any(|f| f.id.starts_with("f:section_recess:"))
+}
+
 fn recover_uncached(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
     // A first estimate without a table whose search under the established drawing's scale cap
     // is exhausted gets [`recover_tables`]'s last resort too: the cap has removed every scale,
@@ -3544,6 +3558,7 @@ fn recover_uncached(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
     // keeps is gone, and the cap would only hold the scale on a near-empty sheet (STC-08 with
     // #217's chamfer callouts: A1 at 1:2, 19% fill, beside the established A2 at 1:2).
     let open = (!UNCAPPED.get()
+        && recess_cap_possible(analysis)
         && first.hole_tables.is_empty()
         && spec.hole_table != crate::hole_table::Setting::Never)
         .then(|| first.clone());
@@ -5935,7 +5950,10 @@ fn recover_tables(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan,
     // corridor, so search the scales the ordinary ladder reaches without it, from the
     // estimate without a table, as when the first estimate has none (STC-08). Its drawing
     // is taken when it reads better than the schedule on the first estimate's sheet.
-    if unrecovered && exhausted(&recover(analysis, spec, unscheduled.clone())?) {
+    if unrecovered
+        && recess_cap_possible(analysis)
+        && exhausted(&recover(analysis, spec, unscheduled.clone())?)
+    {
         let ordinary = with_uncapped(true, || recover(analysis, spec, unscheduled))?;
         let rank = |p: &Plan| recovery_rank(analysis, p);
         if !exhausted(&ordinary) && rank(&ordinary) < rank(&scheduled) {
