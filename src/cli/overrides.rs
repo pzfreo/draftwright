@@ -52,6 +52,26 @@ fn size(value: &Value, path: &str) -> Result<(), Error> {
     Ok(())
 }
 
+// Planning also checks these values, but a pack must refuse invalid edits rather
+// than bury them in a failed part row. Check object-valued edits as well as leaves.
+fn check_sheet(spec: &Spec) -> Result<(), Error> {
+    if let Some(value) = &spec.sheet.size {
+        size(&json!(value), "sheet/size")?;
+    }
+    if let Some(scale) = &spec.sheet.scale
+        && !spec
+            .scales()
+            .iter()
+            .any(|&s| crate::model::scale_name(s) == *scale)
+    {
+        return Err(at_path(
+            Error::invalid(format!("{scale:?} is not a standard scale")),
+            "sheet/scale",
+        ));
+    }
+    Ok(())
+}
+
 impl Overrides {
     pub(super) fn requested(&self) -> bool {
         self.size.is_some() || self.max_size.is_some() || !self.sets.is_empty()
@@ -111,6 +131,7 @@ impl Overrides {
         for edit in edits {
             let path = edit["path"].as_str().expect("edit path");
             spec = api::edit(&spec, &json!([edit.clone()])).map_err(|e| at_path(e, path))?;
+            check_sheet(&spec).map_err(|e| at_path(e, path))?;
         }
         let mut named = Vec::new();
         for (key, value) in [("size", &self.size), ("preferred_max_size", &self.max_size)] {
@@ -136,8 +157,14 @@ impl Overrides {
             let path = edit["path"].as_str().expect("edit path");
             set(&mut doc, &components(path), edit["value"].clone())
                 .map_err(|e| at_path(e, path))?;
-            let _: PackSpec = serde_json::from_value(doc.clone())
+            let edited: PackSpec = serde_json::from_value(doc.clone())
                 .map_err(|e| at_path(Error::invalid(format!("invalid pack Spec: {e}")), path))?;
+            check_sheet(&edited.ga.drawing).map_err(|e| at_path(e, path))?;
+            for part in edited.parts.values() {
+                if let Some(drawing) = &part.drawing {
+                    check_sheet(drawing).map_err(|e| at_path(e, path))?;
+                }
+            }
         }
         let mut spec: PackSpec = serde_json::from_value(doc)
             .map_err(|e| Error::invalid(format!("invalid pack Spec: {e}")))?;

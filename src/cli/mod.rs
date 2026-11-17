@@ -558,11 +558,11 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
         if command == "render" {
             paths.extend(given.sheet.paths());
         }
+        given.pictorial.apply(&mut typed)?;
         typed = given.pictorial.overrides.drawing(&typed, &paths)?;
         if command == "render" {
             given.sheet.apply(&mut typed)?;
         }
-        given.pictorial.apply(&mut typed)?;
         spec = json_of(&typed);
     }
     let render_output = if command == "render" && (given.bare || given.out_dir.is_some()) {

@@ -2589,6 +2589,11 @@ output is byte-identical to analysing the same STEP with the same features.
   names an Analysis file in place of `--features` (`draftwright plan --analysis a.json` needs no
   STEP file). A failed write leaves its destination unreplaced by that invocation.
   Earlier formats in the same export may already have been published.
+  Render, review, plan and bare render take `--size NAME`, `--max-size NAME` and
+  repeatable `--set PATH=VALUE`; render also accepts numeric or ratio `--scale`.
+  Pack takes all four: size/scale constrain the GA, max-size reaches every drawing,
+  and `--set` addresses the pack Spec. Named flags override the Spec file; overlap
+  with a `--set` path is refused in either order.
 - **JSON-lines service.** `draftwright serve` takes one request and gives one reply per line, in
   the shape of specify-core's `serve`: `{"id": 1, "op": "plan", "step": "part.step", "spec": {…}}`
   gives `{"id": 1, "ok": true, "result": …}` or `{"id": 1, "ok": false, "error": {…}}`, and

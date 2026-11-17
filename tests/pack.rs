@@ -2258,6 +2258,16 @@ fn cli_pack_set_refuses_bad_paths_values_and_named_conflicts() {
     for (options, path, reason) in [
         (vec!["--set", "ga/typo=true"], "ga/typo", "unknown field"),
         (
+            vec!["--set", "parts/pin A/drawing/sheet={\"size\":\"bad\"}"],
+            "parts/pin A/drawing/sheet",
+            "sheet size",
+        ),
+        (
+            vec!["--set", "parts/pin A/drawing/sheet/scale=bogus"],
+            "parts/pin A/drawing/sheet/scale",
+            "standard scale",
+        ),
+        (
             vec!["--set", "ga/drawing/sheet/size=bad"],
             "ga/drawing/sheet/size",
             "sheet size",
@@ -2314,4 +2324,35 @@ fn cli_pack_set_refuses_bad_paths_values_and_named_conflicts() {
             "{options:?}: {error}"
         );
     }
+}
+
+#[test]
+fn cli_pack_set_addresses_part_names_with_spaces_and_escaped_drawing_keys() {
+    let dir =
+        std::env::temp_dir().join(format!("draftwright-pack-part-set-{}", std::process::id()));
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .arg("pack")
+        .arg(fixture("pack-small.step.gz"))
+        .arg("-o")
+        .arg(&dir)
+        .args([
+            "--set",
+            "ga/include=false",
+            "--set",
+            "parts/plate/supply=buy",
+            "--set",
+            "parts/pin A/drawing/sheet/scale=1:2",
+            "--set",
+            "parts/pin A/drawing/sheet/title/company=PIN",
+            "--set",
+            "parts/pin A/drawing/dimensions/d:custom~1diameter/omit=true",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let embedded = draftwright::api::spec(&dir.join("pack.pdf")).unwrap();
+    assert_eq!(embedded.sheet.scale.as_deref(), Some("1:2"));
+    assert_eq!(embedded.sheet.title["company"], "PIN");
+    assert!(embedded.dimensions["d:custom/diameter"].omit);
+    std::fs::remove_dir_all(dir).unwrap();
 }

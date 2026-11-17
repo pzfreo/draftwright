@@ -1097,13 +1097,13 @@ fn sheet_overrides_apply_to_every_drawing_cli_form() {
                 }
                 "review" => {
                     let svg = result["svg"].as_str().unwrap();
-                    assert!(svg.contains("width=\"420mm\""), "{svg}");
+                    assert!(svg.contains("width=\"420.000mm\""), "{svg}");
                     serde_json::to_value(model::embedded_spec(svg.as_bytes()).unwrap().unwrap())
                         .unwrap()
                 }
                 _ => {
                     let svg = std::fs::read_to_string(stem.with_extension("svg")).unwrap();
-                    assert!(svg.contains("width=\"420mm\""), "{svg}");
+                    assert!(svg.contains("width=\"420.000mm\""), "{svg}");
                     run(&["spec", stem.with_extension("svg").to_str().unwrap()]).1
                 }
             };
@@ -1194,6 +1194,16 @@ fn sheet_overrides_refuse_bad_paths_values_and_conflicts_readably() {
                 vec!["--set", "views/iso/omit=perhaps"],
                 "views/iso/omit",
                 "invalid type",
+            ),
+            (
+                vec!["--set", "sheet={\"size\":\"bad\"}"],
+                "sheet",
+                "sheet size",
+            ),
+            (
+                vec!["--set", "sheet/scale=bogus"],
+                "sheet/scale",
+                "standard scale",
             ),
             (vec!["--set", "sheet/size=bad"], "sheet/size", "sheet size"),
             (vec!["--size", "bad"], "sheet/size", "sheet size"),
