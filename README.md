@@ -50,7 +50,7 @@ pinned draftwright release is bumped.
 
 | You use | Install | Platforms |
 | --- | --- | --- |
-| **Python 3.9+ (abi3)** | `pip install draftwright` ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
+| **Python 3.9+ (abi3)** | `pip install draftwright`, or `uv add draftwright` in a uv project ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
 | **Command line** | `uv tool install draftwright`; installs `draftwright` and `draftwright-mcp` | The same five wheel platforms |
 | **Rust crate** | `cargo install draftwright` for both binaries; `draftwright = "0.6"` for the library ([operations](docs/model.md#the-five-operations)) | Native Rust toolchain |
 | **Prebuilt archives** | Download a CLI archive from [Releases](https://github.com/pzfreo/draftwright/releases); includes both binaries, schemas and agent docs | macOS arm64, Linux x86_64, Windows x64 |
@@ -65,12 +65,22 @@ one first, then install 0.6:
 ```sh
 uv tool uninstall draftwright        # if you used uv
 pipx uninstall draftwright           # if you used pipx
-pipx install draftwright             # or: uv tool install draftwright
+uv tool install draftwright          # or: pipx install draftwright
 draftwright --version                # should print 0.6.0 or later
 ```
 
 If pipx says the command "is not on your PATH" or points elsewhere, `pipx install --force` takes
 the link over. An older Rust build in `~/.cargo/bin` can also shadow it: `cargo uninstall draftwright`.
+
+If you installed shell completion for the old command (`--install-completion`), pressing Tab after
+`draftwright` prints a mess until you replace it. Write the new script over the old one, then open a
+new shell:
+
+```sh
+draftwright completions zsh  > ~/.zfunc/_draftwright                       # zsh
+draftwright completions bash > ~/.bash_completions/draftwright.sh          # bash
+draftwright completions fish > ~/.config/fish/completions/draftwright.fish # fish
+```
 
 ## Command line
 
