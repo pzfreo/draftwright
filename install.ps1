@@ -75,7 +75,8 @@ The destination is added to the USER PATH; no administrator access is needed.
         Invoke-WebRequest -UseBasicParsing -Uri "$releases/download/$version/$asset" -OutFile $archive
         Invoke-WebRequest -UseBasicParsing -Uri "$releases/download/$version/$asset.sha256" -OutFile $checksumFile
 
-        $pattern = '\A([a-fA-F0-9]{64})[ \t]+' + [regex]::Escape($asset) + '\r?\n?\z'
+        # sha256sum uses a '*' binary-mode marker on Windows, a space in text mode.
+        $pattern = '\A([a-fA-F0-9]{64})[ \t]+\*?' + [regex]::Escape($asset) + '\r?\n?\z'
         $manifest = [regex]::Match([IO.File]::ReadAllText($checksumFile), $pattern)
         if (-not $manifest.Success) { throw "Invalid checksum file for $asset" }
         $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash

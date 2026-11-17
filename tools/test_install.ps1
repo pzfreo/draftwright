@@ -20,7 +20,7 @@ $null = [IO.Directory]::CreateDirectory($payload)
 [IO.File]::WriteAllText((Join-Path $payload 'draftwright.exe'), 'not executed')
 $fixture = Join-Path $testRoot $asset
 Compress-Archive -Path $payload -DestinationPath $fixture
-$testState = @{ ManifestMode = 'mismatch'; Requests = @(); Output = @() }
+$testState = @{ ManifestMode = 'mismatch'; Marker = '*'; Requests = @(); Output = @() }
 
 function Invoke-WebRequest {
     param([switch]$UseBasicParsing, [string]$Uri, [int]$MaximumRedirection, [string]$OutFile)
@@ -36,7 +36,7 @@ function Invoke-WebRequest {
         $filename = $asset
         if ($testState.ManifestMode -eq 'mismatch') { $hash = '0' * 64 }
         if ($testState.ManifestMode -eq 'filename') { $filename = 'other.zip' }
-        [IO.File]::WriteAllText($OutFile, "$hash  $filename`n")
+        [IO.File]::WriteAllText($OutFile, "$hash $($testState.Marker)$filename`n")
     } else {
         Copy-Item -LiteralPath $fixture -Destination $OutFile
     }
@@ -82,6 +82,8 @@ try {
     Test-Refusal 'Invalid checksum file'
     $testState.ManifestMode = 'valid'
     Test-Refusal 'Archive is missing a regular file: draftwright-mcp.exe'
+    $testState.Marker = ' '
+    Test-Refusal 'Archive is missing a regular file: draftwright-mcp.exe'
     $testState.ManifestMode = 'mismatch'
     $env:PROCESSOR_ARCHITECTURE = 'ARM64'
     Test-Refusal 'Checksum mismatch'
@@ -94,7 +96,7 @@ try {
     Test-Refusal 'Invalid release version'
     if ($testState.Requests.Count) { throw 'Invalid version downloaded files' }
     & $installer -Help
-    Write-Output 'PASS: all 7 Windows refusal tests and help'
+    Write-Output 'PASS: all 8 Windows refusal tests and help'
 } finally {
     foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key]) }
     Remove-Item -LiteralPath $testRoot -Recurse -Force
