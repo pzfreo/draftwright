@@ -6,8 +6,10 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('draftwright-test-' + [guid]::
 $null = [IO.Directory]::CreateDirectory($testRoot)
 $destination = Join-Path $testRoot 'bin with spaces'
 $null = [IO.Directory]::CreateDirectory($destination)
+$downloadTemp = Join-Path $testRoot 'temp'
+$null = [IO.Directory]::CreateDirectory($downloadTemp)
 $saved = @{}
-foreach ($key in @('OS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432', 'DRAFTWRIGHT_VERSION', 'DRAFTWRIGHT_INSTALL_DIR')) {
+foreach ($key in @('OS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432', 'DRAFTWRIGHT_VERSION', 'DRAFTWRIGHT_INSTALL_DIR', 'TMPDIR', 'TMP', 'TEMP')) {
     $saved[$key] = [Environment]::GetEnvironmentVariable($key)
 }
 $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -56,6 +58,7 @@ function Test-Refusal {
         }
     }
     if (@(Get-ChildItem -LiteralPath $destination -Force).Count -ne 2) { throw 'Staging was not cleaned' }
+    if (@(Get-ChildItem -LiteralPath $downloadTemp -Force).Count) { throw 'Download staging was not cleaned' }
     if ([Environment]::GetEnvironmentVariable('Path', 'User') -cne $originalUserPath) { throw 'Refusal changed USER PATH' }
     Write-Output "PASS: $Expected; existing binaries and USER PATH preserved"
 }
@@ -66,6 +69,9 @@ try {
     $env:PROCESSOR_ARCHITEW6432 = ''
     $env:DRAFTWRIGHT_VERSION = '0.6.0'
     $env:DRAFTWRIGHT_INSTALL_DIR = $destination
+    $env:TMPDIR = $downloadTemp
+    $env:TMP = $downloadTemp
+    $env:TEMP = $downloadTemp
     Test-Refusal 'Checksum mismatch'
     if ($testState.Requests.Count -ne 2 -or $testState.Requests[0] -notlike '*/download/v0.6.0/*') { throw 'Unprefixed version was not normalized' }
     $env:DRAFTWRIGHT_VERSION = ''

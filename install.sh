@@ -75,6 +75,7 @@ fi
 install_dir=${DRAFTWRIGHT_INSTALL_DIR:-$HOME/.local/bin}
 case "$install_dir" in /*) ;; *) install_dir=$(pwd)/$install_dir ;; esac
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/draftwright-install.XXXXXX")
+tmp_dir=$(cd "$tmp_dir" && pwd -P)
 stage_dir=
 trap 'rm -rf "$tmp_dir"; if [ -n "$stage_dir" ]; then rm -rf "$stage_dir"; fi' 0
 trap 'exit 1' HUP INT TERM
@@ -83,8 +84,9 @@ cd "$tmp_dir"
 download() {
     # Only HTTP 404 means an old release lacks this target. Never mask other errors.
     if [ "$downloader" = curl ]; then
-        if status=$(curl -fsSL -o "$2" -w '%{http_code}' "$1"); then return 0; fi
+        if status=$(curl -fsSL -o "$2" -w '%{http_code}' "$1" 2>download.error); then return 0; fi
         [ "$status" != 404 ] || return 44
+        cat download.error >&2
     else
         if wget -q --server-response -O "$2" "$1" 2>download.headers; then return 0; fi
         status=$(awk '/^[[:space:]]*HTTP\// { code = $2 } END { print code }' download.headers)

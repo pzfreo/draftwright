@@ -3,9 +3,9 @@ name: Installer
 on:
   push:
     branches: [main]
-    paths: ['install.sh', 'tools/test_install.py', '.github/workflows/installer.yml']
+    paths: ['install.sh', 'install.ps1', 'tools/*install*', '.github/workflows/installer.yml']
   pull_request:
-    paths: ['install.sh', 'tools/test_install.py', '.github/workflows/installer.yml']
+    paths: ['install.sh', 'install.ps1', 'tools/*install*', '.github/workflows/installer.yml']
   workflow_dispatch:
 
 permissions:
@@ -19,45 +19,96 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: shellcheck -s sh install.sh
       - run: python3 tools/test_install.py
-      - name: Latest release on Debian 12 (glibc 2.36)
-        run: |
-          docker run --rm -v "$PWD:/src:ro" debian:12 sh -eu -c '
-            apt-get update -qq
-            apt-get install -y -qq --no-install-recommends ca-certificates curl
-            DRAFTWRIGHT_INSTALL_DIR=$(mktemp -d)
-            export DRAFTWRIGHT_INSTALL_DIR
-            sh /src/install.sh
-            "$DRAFTWRIGHT_INSTALL_DIR/draftwright" --version
-            "$DRAFTWRIGHT_INSTALL_DIR/draftwright-mcp" --version
-          '
 
-  install:
+  unix:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macos-13 is retired; macos-15-intel is the supported Intel runner.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Latest stable release
-        shell: sh
-        run: |
-          DRAFTWRIGHT_INSTALL_DIR=$(mktemp -d)
-          export DRAFTWRIGHT_INSTALL_DIR
-          trap 'rm -rf "$DRAFTWRIGHT_INSTALL_DIR"' 0
-          sh install.sh
-          "$DRAFTWRIGHT_INSTALL_DIR/draftwright" --version
-          "$DRAFTWRIGHT_INSTALL_DIR/draftwright-mcp" --version
+      - name: Latest release (assert available target or explicit old-release refusal)
+        run: python3 tools/check_installer_release.py
       - name: Pinned v0.6.0 release
-        if: runner.os == 'Linux'
-        shell: sh
-        env:
-          DRAFTWRIGHT_VERSION: v0.6.0
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 tools/check_installer_release.py --version v0.6.0
+
+  containers:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['debian:12', 'ubuntu:20.04']
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Assert success or glibc refusal from the release asset list
         run: |
-          DRAFTWRIGHT_INSTALL_DIR=$(mktemp -d)
-          export DRAFTWRIGHT_INSTALL_DIR
-          trap 'rm -rf "$DRAFTWRIGHT_INSTALL_DIR"' 0
-          sh install.sh
-          "$DRAFTWRIGHT_INSTALL_DIR/draftwright" --version | grep -E '^draftwright 0\.6\.0([[:space:]]|$)'
-          "$DRAFTWRIGHT_INSTALL_DIR/draftwright-mcp" --version
+          docker run --rm -e GH_TOKEN -e DEBIAN_FRONTEND=noninteractive -v "$PWD:/src:ro" '${{ matrix.image }}' sh -eu -c '
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends ca-certificates curl python3
+            python3 /src/tools/check_installer_release.py
+          '
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: PSScriptAnalyzer
+        if: matrix.shell == 'pwsh'
+        run: |
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.24.0
+          $issues = @(Invoke-ScriptAnalyzer -Path ./install.ps1 -Severity Error,Warning)
+          $issues | Format-Table -AutoSize
+          if ($issues.Count) { throw 'PSScriptAnalyzer found issues' }
+      - name: Offline integrity and refusal tests
+        run: ./tools/test_install.ps1
+      - name: Latest via iex, then pinned v0.6.0 (replace and deduplicate USER PATH)
+        run: |
+          $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $processPath = $env:Path
+          $env:DRAFTWRIGHT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP ('draftwright test ' + [guid]::NewGuid().ToString('N'))
+          try {
+            $env:DRAFTWRIGHT_VERSION = ''
+            Get-Content -Raw ./install.ps1 | Invoke-Expression
+            foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+              & (Join-Path $env:DRAFTWRIGHT_INSTALL_DIR $binary) --version
+              if ($LASTEXITCODE -ne 0) { throw "$binary --version failed" }
+            }
+            $env:DRAFTWRIGHT_VERSION = 'v0.6.0'
+            ./install.ps1
+            foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+              $version = & (Join-Path $env:DRAFTWRIGHT_INSTALL_DIR $binary) --version
+              if ($LASTEXITCODE -ne 0 -or $version -notmatch ' 0\.6\.0(\s|$)') { throw "Wrong pinned version: $version" }
+              Write-Output $version
+            }
+            $userEntries = [Environment]::GetEnvironmentVariable('Path', 'User') -split ';'
+            if (@($userEntries | Where-Object { $_ -ieq $env:DRAFTWRIGHT_INSTALL_DIR }).Count -ne 1) {
+              throw 'USER PATH must contain the install directory exactly once'
+            }
+            if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -cne $machinePath) { throw 'Machine PATH changed' }
+            if (@(Get-ChildItem -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR -Force).Count -ne 2) { throw 'Staging was not cleaned' }
+          } finally {
+            [Environment]::SetEnvironmentVariable('Path', $originalUserPath, 'User')
+            $env:Path = $processPath
+            if (Test-Path -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR) {
+              Remove-Item -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR -Recurse -Force
+            }
+          }

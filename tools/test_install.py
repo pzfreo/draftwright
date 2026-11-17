@@ -104,10 +104,12 @@ else:
         return asset
 
     def run_installer(self, *args, **env):
-        return subprocess.run(
+        result = subprocess.run(
             [str(self.bin / "sh"), str(INSTALLER), *args],
             env={**self.env, **env}, text=True, capture_output=True, timeout=20,
         )
+        self.assertEqual(list(self.root.glob('draftwright-install.*')), [], 'Download staging was not cleaned')
+        return result
 
     def assert_installed(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -151,6 +153,12 @@ else:
         (self.bin / "sha256sum").unlink(missing_ok=True)
         self.assertTrue((self.bin / "shasum").exists(), "shasum is required for this test")
         self.assert_installed(self.run_installer(TEST_OS="Darwin", TEST_ARCH="arm64"))
+
+    def test_wget_old_release_gnu_fallback(self):
+        (self.bin / "curl").unlink()
+        result = self.run_installer()
+        self.assert_installed(result)
+        self.assertIn('falling back', result.stdout)
 
     def test_checksum_mismatch_preserves_existing_binaries(self):
         self.seed_install()
@@ -237,6 +245,15 @@ else:
         result = self.run_installer()
         self.assert_preserved(result)
         self.assertIn('Checksum mismatch', result.stderr)
+        self.assertNotIn('-linux-gnu', self.log.read_text())
+
+    def test_missing_static_checksum_never_falls_back(self):
+        self.seed_install()
+        asset = self.archive('x86_64-unknown-linux-musl')
+        asset.with_suffix('.gz.sha256').unlink()
+        result = self.run_installer()
+        self.assert_preserved(result)
+        self.assertIn('Could not download the checksum', result.stderr)
         self.assertNotIn('-linux-gnu', self.log.read_text())
 
     def test_help_and_unknown_flag(self):
