@@ -747,10 +747,10 @@ class Drawing:
             if value is None:
                 continue
             if not is_shaded:
-                raise ValueError("--colour/--color requires --shaded")
+                raise ValueError("colour= requires shaded=True")
             if not isinstance(value, str) or not re.fullmatch(r"#?[0-9a-fA-F]{6}", value):
                 got = json.dumps(value) if isinstance(value, str) else repr(value)
-                raise ValueError("--colour/--color expects six hexadecimal digits, "
+                raise ValueError("colour= expects six hexadecimal digits, "
                                  f"e.g. '#b8c4cc' or b8c4cc; got {got}")
             hex_value = value.lstrip("#")
             colours.append([int(hex_value[i:i + 2], 16) for i in (0, 2, 4)])

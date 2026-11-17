@@ -304,12 +304,12 @@ class PartAPI(unittest.TestCase):
             with self.subTest(options=options):
                 drawing = p.drawing()
                 before = drawing.spec()
-                with self.assertRaisesRegex(ValueError, "^--colour/--color requires --shaded$"):
+                with self.assertRaisesRegex(ValueError, "^colour= requires shaded=True$"):
                     drawing.views(**options)
                 self.assertEqual(drawing.spec(), before)
         drawing = p.drawing().views(shaded=True)
         before = drawing.spec()
-        with self.assertRaisesRegex(ValueError, "requires --shaded"):
+        with self.assertRaisesRegex(ValueError, "requires shaded=True"):
             drawing.views(shaded=False, colour="b8c4cc")
         self.assertEqual(drawing.spec(), before)
 
@@ -325,7 +325,7 @@ class PartAPI(unittest.TestCase):
                         drawing.views(below=True, **{alias: value})
                     got = json.dumps(value) if isinstance(value, str) else repr(value)
                     self.assertEqual(str(raised.exception),
-                                     "--colour/--color expects six hexadecimal digits, "
+                                     "colour= expects six hexadecimal digits, "
                                      f"e.g. '#b8c4cc' or b8c4cc; got {got}")
                     self.assertEqual(drawing.spec(), before)
         drawing = p.drawing()
