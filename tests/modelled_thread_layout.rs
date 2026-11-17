@@ -106,7 +106,8 @@ fn a_thread_on_a_lone_boss_states_its_diameter() {
         .iter()
         .find(|d| d.id == "d:f:boss:f129/boss.diameter")
         .expect("the boss's callout is planned");
-    assert_eq!(boss.label, "M90 x 2");
+    // #464: a Spec designation keeps the author's spacing.
+    assert_eq!(boss.label, "M90x2");
     assert!(
         plan.problems.iter().all(|p| p.code != "pmi_not_lowered"),
         "{:?}",

@@ -1338,7 +1338,8 @@ fn identical_threads_on_distinct_owners_keep_two_callouts() {
     let threaded: Vec<(&str, &str)> = plan
         .dimensions
         .iter()
-        .filter(|d| d.label.contains("M12-6H"))
+        // #464: the two authored taps retain their explicit coarse pitch.
+        .filter(|d| d.label.contains("M12x1.75-6H"))
         .map(|d| (d.id.as_str(), d.label.as_str()))
         .collect();
     let ids: Vec<&str> = threaded.iter().map(|t| t.0).collect();
@@ -1349,7 +1350,7 @@ fn identical_threads_on_distinct_owners_keep_two_callouts() {
     );
     for (_, label) in &threaded {
         assert!(
-            label.starts_with("M12-6H THRU\n⌀10 ") && label.ends_with(" THRU"),
+            label.starts_with("M12x1.75-6H THRU\n⌀10 ") && label.ends_with(" THRU"),
             "{label:?}"
         );
     }
