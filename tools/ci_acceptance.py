@@ -70,9 +70,9 @@ def names(files):
 def survey_names():
     corpus = manifest('repeated_span_parts.txt')
     fixtures = sorted((ROOT / 'tests/fixtures/pmi/step').glob('*.gz'))
-    require(len(corpus) == 45 and len(fixtures) == 23, 'incomplete survey fixture manifest (45 + 23 required)')
+    require(len(corpus) == 46 and len(fixtures) == 23, 'incomplete survey fixture manifest (46 + 23 required)')
     result = names(corpus) | names(p.name[:-3] for p in fixtures)
-    require(len(result) == 68, 'incomplete/ambiguous 68-part survey')
+    require(len(result) == 69, 'incomplete/ambiguous 69-part survey')
     return result
 
 
@@ -381,7 +381,7 @@ class Run:
                            'observed_exit_code': rejected.returncode, 'expected_exit_code': 1})
         self.step('label-lane-locality', [*py, ROOT / 'tools/check_label_lanes.py',
                   '--current', quality_out, '--after-binary', binary])
-        # The repeated-span survey: no placed linear span repeats on any of its 68 parts.
+        # The repeated-span survey: no placed linear span repeats on any of its 69 parts.
         verdicts = read(ROOT / 'tests/fixtures/known_repeated_spans.json')
         surveyed = {**merged['quality'], **merged['ap242'], **merged['survey']}
         (out / 'survey').mkdir()
