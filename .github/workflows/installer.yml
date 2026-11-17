@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: shellcheck -s sh install.sh
       - run: python3 tools/test_install.py
+      - run: TEST_INSTALL_SHELL=/bin/dash python3 tools/test_install.py
 
   unix:
     strategy:
@@ -54,6 +55,10 @@ jobs:
           docker run --rm -e GH_TOKEN -e DEBIAN_FRONTEND=noninteractive -v "$PWD:/src:ro" '${{ matrix.image }}' sh -eu -c '
             apt-get update -qq
             apt-get install -y -qq --no-install-recommends ca-certificates curl python3
+            if [ "${{ matrix.image }}" = debian:12 ]; then
+              apt-get install -y -qq --no-install-recommends perl
+              TEST_INSTALL_SHELL=/bin/dash python3 /src/tools/test_install.py
+            fi
             python3 /src/tools/check_installer_release.py
           '
 
@@ -81,7 +86,10 @@ jobs:
         run: ./tools/test_install.ps1
       - name: Latest via iex, then pinned v0.6.0 (replace and deduplicate USER PATH)
         run: |
-          $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $userKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+          $hadUserPath = $userKey.GetValueNames() -contains 'Path'
+          $originalUserPath = $userKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+          $originalKind = if ($hadUserPath) { $userKey.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
           $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
           $processPath = $env:Path
           $env:DRAFTWRIGHT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP ('draftwright test ' + [guid]::NewGuid().ToString('N'))
@@ -106,7 +114,8 @@ jobs:
             if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -cne $machinePath) { throw 'Machine PATH changed' }
             if (@(Get-ChildItem -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR -Force).Count -ne 2) { throw 'Staging was not cleaned' }
           } finally {
-            [Environment]::SetEnvironmentVariable('Path', $originalUserPath, 'User')
+            if ($hadUserPath) { $userKey.SetValue('Path', $originalUserPath, $originalKind) } else { $userKey.DeleteValue('Path', $false) }
+            $userKey.Dispose()
             $env:Path = $processPath
             if (Test-Path -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR) {
               Remove-Item -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR -Recurse -Force

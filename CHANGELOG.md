@@ -6,9 +6,7 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
-- Add a one-line `install.sh` installer for the macOS arm64 and Linux x86_64 CLI binaries, with release pinning and SHA-256 verification.
-
-- Extend CLI releases and `install.sh` to Intel Mac, Rosetta detection and static musl Linux x86_64 / arm64; retain GNU fallback for older x86_64 releases.
+- Add a one-line `install.sh` installer with release pinning and SHA-256 verification for macOS arm64 / Intel (including Rosetta detection) and static musl Linux x86_64 / arm64; retain GNU fallback for older x86_64 releases.
 - Add a verified Windows PowerShell installer with USER PATH setup and x64 emulation support on ARM64.
 
 - Add CLI `--size`, `--max-size` and repeatable `--set PATH=VALUE` drawing overrides,

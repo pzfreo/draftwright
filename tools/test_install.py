@@ -1,4 +1,4 @@
-"""Offline installer regression tests; fake download commands need no installer hook."""
+"""Offline installer tests; TEST_INSTALL_SHELL selects sh/dash without installer hooks."""
 
 import hashlib
 import io
@@ -39,8 +39,8 @@ class InstallerTests(unittest.TestCase):
         self.env.pop("DRAFTWRIGHT_VERSION", None)
         # An isolated PATH lets tests exercise missing tools and wget-only installs.
         for name in ("sh", "cat", "mkdir", "mktemp", "rm", "awk", "tar", "gzip",
-                     "chmod", "mv", "sha256sum", "shasum"):
-            command = shutil.which(name)
+                     "chmod", "cp", "mv", "sha256sum", "shasum"):
+            command = shutil.which(os.environ.get('TEST_INSTALL_SHELL', 'sh') if name == 'sh' else name)
             if command:
                 (self.bin / name).symlink_to(command)
         self.command("uname", """
@@ -53,9 +53,19 @@ print(os.environ.get('TEST_OS', 'Linux') if sys.argv[1] == '-s'
         self.command("sysctl", "import os; print(os.environ.get('TEST_APPLE_ARM64', '0'))")
         downloader = """
 import os, pathlib, shutil, sys
+if '--help' in sys.argv:
+    print('--https-only' if os.environ.get('TEST_WGET_HTTPS_SUPPORT', '1') == '1' else '-S -O')
+    sys.exit(0)
 url = sys.argv[-1]
+if '-o' in sys.argv:
+    assert '--tlsv1.2' in sys.argv and sys.argv[sys.argv.index('--proto') + 1] == '=https'
+else:
+    assert ('--https-only' in sys.argv) == (os.environ.get('TEST_WGET_HTTPS_SUPPORT', '1') == '1')
 with open(os.environ['TEST_DOWNLOAD_LOG'], 'a') as log:
     log.write(url + '\\n')
+if os.environ.get('TEST_WGET_DNS_FAILURE'):
+    sys.stderr.write('wget: unable to resolve host address github.com\\n')
+    sys.exit(4)
 if url.endswith('/latest'):
     if '-S' in sys.argv:
         sys.stderr.write('  HTTP/1.1 302 Found\\n  Location: RELEASES/tag/v0.6.0\\r\\n  HTTP/1.1 200 OK\\n')
@@ -98,6 +108,9 @@ else:
                 info = tarfile.TarInfo(f"{name}/{binary}")
                 info.size = len(content)
                 info.mode = 0o644  # Installer must make both binaries executable.
+                info.uid = 1001 if os.geteuid() != 1001 else 2002
+                info.gid = info.uid
+                info.uname = info.gname = 'release-runner'
                 tar.addfile(info, io.BytesIO(content))
         digest = hashlib.sha256(asset.read_bytes()).hexdigest()
         asset.with_suffix(".gz.sha256").write_text(f"{digest}  {asset.name}\n")
@@ -119,6 +132,7 @@ else:
         self.assertEqual(sorted(p.name for p in self.dest.iterdir()), ["draftwright", "draftwright-mcp"])
         for binary in ("draftwright", "draftwright-mcp"):
             self.assertTrue(os.access(self.dest / binary, os.X_OK))
+            self.assertEqual((self.dest / binary).stat().st_uid, os.geteuid())
 
     def seed_install(self):
         self.dest.mkdir()
@@ -260,6 +274,77 @@ else:
         self.assertEqual(self.run_installer("--help").returncode, 0)
         self.assertNotEqual(self.run_installer("--unknown").returncode, 0)
         self.assertFalse(self.dest.exists())
+
+    def test_archive_owner_is_not_restored(self):
+        self.assert_installed(self.run_installer())
+
+    def test_truncated_pipe_performs_no_work(self):
+        source = INSTALLER.read_text()
+        self.assertEqual(source.splitlines()[-1], 'main "$@"')
+        body_end = source.rfind('\nmain "$@"')
+        for end in (source.index('os=$(uname'), source.index('download()'), source.index('tar -xzof'), body_end):
+            with self.subTest(end=end):
+                subprocess.run([str(self.bin / 'sh')], input=source[:end], env=self.env,
+                               text=True, capture_output=True, timeout=20)
+                self.assertFalse(self.log.exists())
+                self.assertFalse(self.dest.exists())
+                self.assertEqual(list(self.root.glob('draftwright-install.*')), [])
+
+    def test_second_destination_directory_preserves_first(self):
+        self.dest.mkdir()
+        (self.dest / 'draftwright').write_text('previous installation')
+        (self.dest / 'draftwright-mcp').mkdir()
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Destination is a directory', result.stderr)
+        self.assertEqual((self.dest / 'draftwright').read_text(), 'previous installation')
+
+    def test_second_rename_failure_rolls_back_first(self):
+        self.seed_install()
+        (self.bin / 'mv').unlink()
+        real_mv = shutil.which('mv')
+        self.command('mv', f"""
+import subprocess, sys
+if sys.argv[-1].endswith('/draftwright-mcp'):
+    sys.stderr.write('mv: simulated rename denial\\n')
+    sys.exit(1)
+sys.exit(subprocess.call([{real_mv!r}, *sys.argv[1:]]))
+""")
+        result = self.run_installer()
+        self.assert_preserved(result)
+        self.assertIn('close any MCP client using draftwright-mcp', result.stderr)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux executable write-lock semantics')
+    def test_running_mcp_refused_before_replacing_cli(self):
+        self.seed_install()
+        mcp = self.dest / 'draftwright-mcp'
+        shutil.copyfile(shutil.which('sleep'), mcp)
+        mcp.chmod(0o755)
+        previous = mcp.read_bytes()
+        process = subprocess.Popen([str(mcp), '60'])
+        try:
+            result = self.run_installer()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('close any MCP client using draftwright-mcp', result.stderr)
+            self.assertEqual((self.dest / 'draftwright').read_text(), 'previous installation')
+            self.assertEqual(mcp.read_bytes(), previous)
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+
+    def test_wget_failure_reason_and_optional_https_flag(self):
+        (self.bin / 'curl').unlink()
+        for support in ('0', '1'):
+            with self.subTest(https_only=support):
+                self.assert_installed(self.run_installer(TEST_WGET_HTTPS_SUPPORT=support))
+        for version in ('', 'v0.6.0'):
+            with self.subTest(version=version):
+                result = self.run_installer(DRAFTWRIGHT_VERSION=version, TEST_WGET_DNS_FAILURE='1')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('unable to resolve host address', result.stderr)
+        result = self.run_installer(DRAFTWRIGHT_VERSION='v0.6.0', TEST_MUSL_HTTP_ERROR='500')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('HTTP/1.1 500 Error', result.stderr)
 
 
 if __name__ == "__main__":

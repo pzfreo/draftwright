@@ -45,9 +45,59 @@ The destination is added to the USER PATH; no administrator access is needed.
         return $false
     }
 
+    function Add-UserPathEntry {
+        param($Key, [string]$Directory)
+        # Preserve expandable references and the original REG_SZ / REG_EXPAND_SZ kind.
+        $rawPath = [string]$Key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        if ($Key.GetValueNames() -contains 'Path') { $kind = $Key.GetValueKind('Path') }
+        if ($kind -ne [Microsoft.Win32.RegistryValueKind]::String -and
+            $kind -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw 'USER PATH is not a string registry value.' }
+        if (Test-PathEntry $rawPath $Directory) { return $false }
+        $newPath = if ($rawPath) { "$($rawPath.TrimEnd(';'));$Directory" } else { $Directory }
+        $Key.SetValue('Path', $newPath, $kind)
+        return $true
+    }
+
+    function Initialize-WindowsInterop {
+        if ('DraftwrightInstaller.NativeWindows' -as [type]) { return }
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+namespace DraftwrightInstaller {
+    public static class NativeWindows {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFile(string name, uint access, uint share,
+            IntPtr security, uint creation, uint flags, IntPtr template);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
+            UIntPtr wParam, string lParam, uint flags, uint timeout, out UIntPtr result);
+        public static SafeFileHandle OpenForReplacement(string path) {
+            // Request READ, WRITE and DELETE, allowing sharing of all three.
+            // This checks delete-sharing locks as well as running executable images.
+            SafeFileHandle handle = CreateFile(path, 0xc0010000, 7, IntPtr.Zero, 3, 0x80, IntPtr.Zero);
+            if (handle.IsInvalid) {
+                int error = Marshal.GetLastWin32Error();
+                handle.Dispose();
+                throw new Win32Exception(error);
+            }
+            return handle;
+        }
+        public static void BroadcastEnvironmentChange() {
+            UIntPtr result;
+            SendMessageTimeout(new IntPtr(0xffff), 0x1a, UIntPtr.Zero, "Environment", 2, 5000, out result);
+        }
+    }
+}
+'@
+    }
+
     $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
     $tempDir = $null
     $stageDir = $null
+    $replaceHandles = @()
     try {
         [Net.ServicePointManager]::SecurityProtocol = $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
         $version = $env:DRAFTWRIGHT_VERSION
@@ -109,22 +159,43 @@ The destination is added to the USER PATH; no administrator access is needed.
             }
         }
         foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
-            $source = Join-Path $payload $binary
             $destination = Join-Path $installDir $binary
-            if ([IO.File]::Exists($destination)) {
-                # PowerShell coerces $null to an empty string for this .NET overload.
-                [IO.File]::Replace($source, $destination, [NullString]::Value)
-            } else {
-                [IO.File]::Move($source, $destination)
+            if ([IO.File]::Exists($destination) -and
+                ((Get-Item -LiteralPath $destination -Force).Attributes -band [IO.FileAttributes]::ReadOnly)) {
+                throw "Cannot replace $binary; close any MCP client using draftwright-mcp and check file permissions."
             }
         }
+        Initialize-WindowsInterop
+        foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+            $destination = Join-Path $installDir $binary
+            if ([IO.File]::Exists($destination)) {
+                try { $replaceHandles += [DraftwrightInstaller.NativeWindows]::OpenForReplacement($destination) }
+                catch { throw "Cannot replace $binary; close any MCP client using draftwright-mcp. $($_.Exception.Message)" }
+            }
+        }
+        # Retain both handles until both replacements finish, preventing new
+        # incompatible sharing locks between preflight and rename.
+        foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+            $source = Join-Path $payload $binary
+            $destination = Join-Path $installDir $binary
+            try {
+                if ([IO.File]::Exists($destination)) {
+                    # PowerShell coerces $null to an empty string for this .NET overload.
+                    [IO.File]::Replace($source, $destination, [NullString]::Value)
+                } else {
+                    [IO.File]::Move($source, $destination)
+                }
+            } catch { throw "Cannot replace $binary; close any MCP client using draftwright-mcp. $($_.Exception.Message)" }
+        }
+        foreach ($handle in $replaceHandles) { $handle.Dispose() }
+        $replaceHandles = @()
         & (Join-Path $installDir 'draftwright.exe') --version
         if ($LASTEXITCODE -ne 0) { throw 'Installed draftwright --version failed.' }
 
-        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if (-not (Test-PathEntry $userPath $installDir)) {
-            $newPath = if ($userPath) { "$($userPath.TrimEnd(';'));$installDir" } else { $installDir }
-            [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+        $userKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+        try { $pathChanged = Add-UserPathEntry $userKey $installDir } finally { $userKey.Dispose() }
+        if ($pathChanged) {
+            [DraftwrightInstaller.NativeWindows]::BroadcastEnvironmentChange()
             Write-Output "Added $installDir to the USER PATH. Open a new terminal to use it there."
         }
         if (-not (Test-PathEntry $env:Path $installDir)) { $env:Path = "$env:Path;$installDir" }
@@ -132,6 +203,7 @@ The destination is added to the USER PATH; no administrator access is needed.
         Write-Output 'PowerShell completions (add this line to $PROFILE to persist):'
         Write-Output 'draftwright completions powershell | Out-String | Invoke-Expression'
     } finally {
+        foreach ($handle in $replaceHandles) { $handle.Dispose() }
         if ($stageDir -and (Test-Path -LiteralPath $stageDir)) { Remove-Item -LiteralPath $stageDir -Recurse -Force }
         if ($tempDir -and (Test-Path -LiteralPath $tempDir)) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
         [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
