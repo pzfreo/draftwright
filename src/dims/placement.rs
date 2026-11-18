@@ -3872,7 +3872,6 @@ fn clear_linear_ordered(
                                 base.write(&mut base_placed);
                                 let mut skew_placed = p.clone();
                                 skew.write(&mut skew_placed);
-
                                 let traversal = |c: &Placed| {
                                     c.lines
                                         .iter()

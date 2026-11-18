@@ -3533,18 +3533,11 @@ mod complete_candidate_tests {
     }
 }
 
-// A native recess owner is necessary for any established scale cap in this
-// analysis or its historical comparisons. Without one, lifting a cap cannot
+// Native recess dimensions are necessary for any established scale cap in this
+// analysis or its historical comparisons. Without them, lifting a cap cannot
 // change the candidates, so an exhausted search need not be repeated.
 fn recess_cap_possible(analysis: &Analysis) -> bool {
-    analysis
-        .recognition
-        .as_ref()
-        .is_some_and(|r| r.recogniser.starts_with("quiddity-rust "))
-        && analysis
-            .features
-            .iter()
-            .any(|f| f.id.starts_with("f:section_recess:"))
+    crate::dims::has_new_native_recess_dimensions(analysis)
 }
 
 fn recover_uncached(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {

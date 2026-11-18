@@ -3993,6 +3993,10 @@ fn install_at_mode(
         // The near pass is immutable during retries; only the appended far tags move.
         let clear_far =
             |g: &Group, b: Rect, station: usize, labels: &[Rect], leaders: &[Segment]| {
+                debug_assert!(
+                    labels.starts_with(&near_labels) && leaders.starts_with(&near_leaders),
+                    "far-pass entries must follow the unchanged near-pass entries"
+                );
                 let padded = [b[0] - 0.6, b[1] - 0.6, b[2] + 0.6, b[3] + 0.6];
                 labels[near_labels.len()..]
                     .iter()
