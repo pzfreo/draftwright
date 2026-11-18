@@ -37,8 +37,13 @@ fn run(args: &[&str]) -> (Option<i32>, Value) {
         .args(args)
         .output()
         .unwrap();
-    let json = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+    let json = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "{args:?}: {e}\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
     (out.status.code(), json)
 }
 
@@ -1050,5 +1055,574 @@ fn bare_and_render_embed_us_unit_and_paper_overrides() {
         assert_eq!(code, Some(0), "{spec}");
         assert_eq!(spec["units"], "in");
         assert_eq!(spec["sheet"]["paper"], "ansi");
+    }
+}
+
+#[test]
+fn sheet_overrides_apply_to_every_drawing_cli_form() {
+    let step = fixture("parts/plate.step");
+    let base = scratch("sheet-flags-base.json");
+    std::fs::write(
+        &base,
+        r#"{"sheet":{"size":"A4","preferred_max_size":"A2"}}"#,
+    )
+    .unwrap();
+    for form in ["render", "bare", "plan", "review"] {
+        for (kind, options) in [
+            ("named", vec!["--size", "A3", "--max-size", "A3"]),
+            (
+                "set",
+                vec![
+                    "--set",
+                    "sheet/size=A3",
+                    "--set",
+                    "sheet/preferred_max_size=A3",
+                ],
+            ),
+        ] {
+            let stem = scratch(&format!("sheet-flags-{form}-{kind}"));
+            let mut args = Vec::new();
+            if form != "bare" {
+                args.push(form);
+            }
+            args.extend([step.to_str().unwrap(), "--spec", base.to_str().unwrap()]);
+            if form == "render" {
+                args.extend(["-o", stem.to_str().unwrap(), "--formats", "svg"]);
+            }
+            if form == "bare" {
+                args.extend(["--out", stem.to_str().unwrap()]);
+            }
+            args.extend(options);
+            let (code, result) = run(&args);
+            assert_eq!(code, Some(0), "{args:?}: {result}");
+            let spec = match form {
+                "plan" => {
+                    assert_eq!(result["sheet"]["size"], "A3", "{result}");
+                    result["spec"].clone()
+                }
+                "review" => {
+                    let svg = result["svg"].as_str().unwrap();
+                    assert!(svg.contains("width=\"420.000mm\""), "{svg}");
+                    serde_json::to_value(model::embedded_spec(svg.as_bytes()).unwrap().unwrap())
+                        .unwrap()
+                }
+                _ => {
+                    let svg = std::fs::read_to_string(stem.with_extension("svg")).unwrap();
+                    assert!(svg.contains("width=\"420.000mm\""), "{svg}");
+                    run(&["spec", stem.with_extension("svg").to_str().unwrap()]).1
+                }
+            };
+            assert_eq!(spec["sheet"]["size"], "A3");
+            assert_eq!(spec["sheet"]["preferred_max_size"], "A3");
+        }
+    }
+}
+
+#[test]
+fn scale_flags_accept_numbers_and_ratios() {
+    let step = fixture("parts/plate.step");
+    for (value, expected) in [("5", "5:1"), ("5:1", "5:1"), ("0.5", "1:2"), ("1:2", "1:2")] {
+        let stem = scratch(&format!("scale-ratio-{}", value.replace(':', "-")));
+        let (code, result) = run(&[
+            "render",
+            step.to_str().unwrap(),
+            "-o",
+            stem.to_str().unwrap(),
+            "--formats",
+            "svg",
+            "--size",
+            "A0",
+            "--scale",
+            value,
+        ]);
+        assert_eq!(code, Some(0), "{value}: {result}");
+        let (_, spec) = run(&["spec", result["written"][0].as_str().unwrap()]);
+        assert_eq!(spec["sheet"]["scale"], expected);
+    }
+}
+
+#[test]
+fn set_parses_json_text_repeats_and_escaped_keys() {
+    let step = fixture("parts/plate.step");
+    let (code, result) = run(&[
+        "plan",
+        step.to_str().unwrap(),
+        "--set",
+        "sheet/size=A4",
+        "--set",
+        "sheet/size=\"A3\"",
+        "--set",
+        "views/iso/omit=true",
+        "--set",
+        "sheet/title/title=A=B",
+        "--set",
+        "dimensions/d:f:hole:f6~1bore.diameter/omit=true",
+    ]);
+    assert_eq!(code, Some(0), "{result}");
+    assert_eq!(result["sheet"]["size"], "A3");
+    assert_eq!(result["spec"]["views"]["iso"]["omit"], true);
+    assert_eq!(result["spec"]["sheet"]["title"]["title"], "A=B");
+    assert_eq!(
+        result["spec"]["dimensions"]["d:f:hole:f6/bore.diameter"]["omit"],
+        true
+    );
+    for name in ["ANSI B", "ARCH B"] {
+        let (code, result) = run(&["plan", step.to_str().unwrap(), "--size", name]);
+        assert_eq!(code, Some(0), "{result}");
+        assert_eq!(result["sheet"]["size"], name);
+    }
+}
+
+#[test]
+fn sheet_overrides_refuse_bad_paths_values_and_conflicts_readably() {
+    let step = fixture("parts/plate.step");
+    for form in ["plan", "review", "render", "bare"] {
+        let stem = scratch(&format!("sheet-refusal-{form}"));
+        let mut base = Vec::new();
+        if form != "bare" {
+            base.push(form);
+        }
+        base.push(step.to_str().unwrap());
+        if form == "render" {
+            base.extend(["-o", stem.to_str().unwrap()]);
+        }
+        if form == "bare" {
+            base.extend(["--out", stem.to_str().unwrap()]);
+        }
+        for (options, path, reason) in [
+            (
+                vec!["--set", "sheet/typo=A3"],
+                "sheet/typo",
+                "unknown field",
+            ),
+            (
+                vec!["--set", "views/iso/omit=perhaps"],
+                "views/iso/omit",
+                "invalid type",
+            ),
+            (
+                vec!["--set", "sheet={\"size\":\"bad\"}"],
+                "sheet",
+                "sheet size",
+            ),
+            (
+                vec!["--set", "sheet/scale=bogus"],
+                "sheet/scale",
+                "standard scale",
+            ),
+            (vec!["--set", "sheet/size=bad"], "sheet/size", "sheet size"),
+            (vec!["--size", "bad"], "sheet/size", "sheet size"),
+            (
+                vec!["--max-size", "bad"],
+                "sheet/preferred_max_size",
+                "sheet size",
+            ),
+            (vec!["--set", "sheet/size"], "sheet/size", "PATH=VALUE"),
+            (
+                vec!["--set", "sheet/size=A4", "--size", "A3"],
+                "sheet/size",
+                "conflicts",
+            ),
+            (
+                vec!["--size", "A3", "--set", "sheet/size=A4"],
+                "sheet/size",
+                "conflicts",
+            ),
+            (
+                vec!["--set", "sheet={}", "--size", "A3"],
+                "sheet",
+                "conflicts",
+            ),
+        ] {
+            let mut args = base.clone();
+            args.extend(options);
+            let error = cli::failure(&args, 2);
+            assert!(
+                error.contains(path) && error.contains(reason),
+                "{args:?}: {error}"
+            );
+        }
+    }
+}
+
+/// Every example in the reference table is executable CLI input, not a second list
+/// maintained here. Each row is independent, including optional pack drawing paths.
+#[test]
+fn cli_reference_set_examples_are_accepted() {
+    let doc = include_str!("../docs/cli.md");
+    let table = doc
+        .split_once("<!-- tested-set-examples -->")
+        .unwrap()
+        .1
+        .split_once("<!-- /tested-set-examples -->")
+        .unwrap()
+        .0;
+    let rows: Vec<_> = table
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(rows[0], "| Path | Values | Effect | Example |");
+    assert_eq!(rows[1], "| --- | --- | --- | --- |");
+    let examples = &rows[2..];
+    assert!((15..=25).contains(&examples.len()), "common settings table");
+    let part = fixture("parts/plate.step");
+    let assembly = fixture("assembly/pack-small.step.gz");
+    let process = std::process::id();
+    for (index, row) in examples.iter().enumerate() {
+        assert!(row.starts_with('|') && row.ends_with('|'), "{row}");
+        let columns: Vec<_> = row.trim_matches('|').split('|').map(str::trim).collect();
+        assert_eq!(columns.len(), 4, "{row}");
+        let assignment = columns[3]
+            .strip_prefix("`--set '")
+            .and_then(|s| s.strip_suffix("'`"))
+            .unwrap_or_else(|| panic!("expected one quoted --set argument: {row}"));
+        let (path, value) = assignment.split_once('=').unwrap();
+        let expected: Value = serde_json::from_str(value).unwrap_or_else(|_| json!(value));
+        let part_path = path
+            .strip_prefix("parts/")
+            .map(|p| p.split_once("/drawing/").unwrap());
+        let drawing_path = part_path
+            .map(|(_, p)| p)
+            .unwrap_or_else(|| path.strip_prefix("ga/drawing/").unwrap_or(path));
+        let pack = part_path.is_some() || path.starts_with("ga/");
+        let out = scratch(&format!("reference-pack-{process}-{index}"));
+        let base_file = scratch(&format!("reference-pack-{process}-{index}.json"));
+        let mut args = if pack {
+            vec![
+                "pack",
+                assembly.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+                "--formats",
+                "pdf,json",
+            ]
+        } else {
+            vec!["plan", part.to_str().unwrap()]
+        };
+        if let Some((key, _)) = part_path {
+            let key = key.replace("~1", "/").replace("~0", "~");
+            let (code, listed) = run(&["parts", assembly.to_str().unwrap()]);
+            assert_eq!(code, Some(0), "{row}: {listed}");
+            let keys: Vec<_> = listed["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["key"].as_str().unwrap().to_owned())
+                .collect();
+            assert!(keys.contains(&key), "{row}");
+            // PDF embeds the first sheet's Spec. Make this target the only made
+            // part, separate from congruent products, with no preceding GA.
+            let mut base = json!({"ga":{"include":false}, "parts":{}});
+            for name in keys {
+                base["parts"][&name] = if name == key {
+                    json!({"supply":"make", "separate":true})
+                } else {
+                    json!({"supply":"buy"})
+                };
+            }
+            std::fs::write(&base_file, base.to_string()).unwrap();
+            args.extend(["--spec", base_file.to_str().unwrap()]);
+        }
+        args.extend(["--set", assignment]);
+        let (code, result) = run(&args);
+        assert_eq!(code, Some(0), "{row}: {result}");
+        assert!(result.is_object(), "{row}: {result}");
+        let spec = if pack {
+            if let Some((key, _)) = part_path {
+                let key = key.replace("~1", "/").replace("~0", "~");
+                let target = result["report"]["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r["products"].as_array().unwrap().contains(&json!(key)))
+                    .unwrap();
+                assert_eq!(target["sheets"], json!([1]), "{row}: {result}");
+                assert!(
+                    result["report"]["general_assembly"].is_null(),
+                    "{row}: {result}"
+                );
+            } else if drawing_path == "sheet/size" || drawing_path == "sheet/scale" {
+                let field = drawing_path.strip_prefix("sheet/").unwrap();
+                assert_eq!(
+                    result["report"]["general_assembly"][field], expected,
+                    "{row}: {result}"
+                );
+            }
+            serde_json::to_value(api::spec(&out.join("pack.pdf")).unwrap()).unwrap()
+        } else {
+            assert_reference_effect(&result, path, &expected);
+            result["spec"].clone()
+        };
+        let actual = if let Some(view) = drawing_path
+            .strip_prefix("views/")
+            .and_then(|p| p.strip_suffix("/omit"))
+        {
+            // False is omitted by ViewSpec's serializer. Require the view entry,
+            // then check its actual typed value instead of treating absence as false.
+            let typed: model::Spec = serde_json::from_value(spec.clone()).unwrap();
+            let key = view.replace("~1", "/").replace("~0", "~");
+            json!(
+                typed
+                    .views
+                    .get(&key)
+                    .expect("the edited view is present")
+                    .omit
+            )
+        } else {
+            spec.pointer(&format!("/{drawing_path}"))
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        assert_reference_value(&actual, &expected, row);
+        if pack {
+            std::fs::remove_dir_all(out).unwrap();
+        }
+        if part_path.is_some() {
+            std::fs::remove_file(base_file).unwrap();
+        }
+    }
+}
+
+// JSON numbers keep their value when a typed Spec serializes e.g. 3 as 3.0.
+fn assert_reference_value(actual: &Value, expected: &Value, row: &str) {
+    match (actual, expected) {
+        (Value::Number(a), Value::Number(b)) if a.is_f64() || b.is_f64() => {
+            assert_eq!(a.as_f64(), b.as_f64(), "{row}");
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            assert_eq!(
+                a.keys().collect::<Vec<_>>(),
+                b.keys().collect::<Vec<_>>(),
+                "{row}"
+            );
+            for (key, value) in b {
+                assert_reference_value(&a[key], value, row);
+            }
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            assert_eq!(a.len(), b.len(), "{row}");
+            for (a, b) in a.iter().zip(b) {
+                assert_reference_value(a, b, row);
+            }
+        }
+        _ => assert_eq!(actual, expected, "{row}"),
+    }
+}
+
+/// Check effects exposed directly by the Plan as well as the stored Spec.
+fn assert_reference_effect(plan: &Value, path: &str, expected: &Value) {
+    match path {
+        "sheet/size" | "sheet/scale" => {
+            assert_eq!(plan.pointer(&format!("/{path}")), Some(expected))
+        }
+        "units" => assert_eq!(&plan["sheet"]["units"], expected),
+        "sheet/paper" => {
+            let prefix = match expected.as_str().unwrap() {
+                "iso" => "A",
+                "ansi" => "ANSI ",
+                "arch" => "ARCH ",
+                _ => unreachable!(),
+            };
+            assert!(plan["sheet"]["size"].as_str().unwrap().starts_with(prefix));
+        }
+        "sheet/projection" => assert_eq!(
+            plan["sheet"]["projection_symbol"]["method"],
+            format!("{}-angle", expected.as_str().unwrap())
+        ),
+        "sheet/zones" => assert_eq!(
+            !plan["sheet"]["zones"].is_null(),
+            expected.as_bool().unwrap()
+        ),
+        "sheet/title" => {
+            for (key, value) in expected.as_object().unwrap() {
+                assert_eq!(&plan["sheet"]["title"][key], value);
+            }
+        }
+        "sheet/default_finish" => {
+            let finish = plan["requirements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["kind"] == "default_surface_finish")
+                .unwrap();
+            assert_eq!(finish["text"], format!("Ra {}", expected["ra"]));
+            assert!(!finish["placed"].is_null());
+        }
+        "sheet/dimension_spacing" => assert_eq!(&plan["sheet"]["dimension_spacing"], expected),
+        "sheets/max" => assert!(
+            plan["sheets"].as_array().map_or(0, Vec::len) < expected.as_u64().unwrap() as usize
+        ),
+        _ => {
+            if let Some(key) = path.strip_prefix("sheet/title/") {
+                assert_eq!(&plan["sheet"]["title"][key], expected);
+            }
+            if let Some(view) = path
+                .strip_prefix("views/")
+                .and_then(|p| p.strip_suffix("/omit"))
+            {
+                let shown = plan["views"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v["id"] == format!("v:{view}"));
+                assert_eq!(shown, !expected.as_bool().unwrap(), "{path}: {plan}");
+            }
+        }
+    }
+}
+
+#[test]
+fn plan_and_review_accept_numeric_and_ratio_scales_and_override_the_spec() {
+    let part = fixture("parts/plate.step");
+    let base = scratch("review-plan-scale-base.json");
+    std::fs::write(&base, r#"{"sheet":{"scale":"1:10"}}"#).unwrap();
+    for command in ["plan", "review"] {
+        let help = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .args([command, "--help"])
+            .output()
+            .unwrap();
+        assert!(help.status.success());
+        let help = String::from_utf8(help.stdout).unwrap();
+        assert!(
+            help.contains("--scale") && help.contains("overrides --spec"),
+            "{help}"
+        );
+        for (value, ratio) in [("5", "5:1"), ("0.5", "1:2"), ("5:1", "5:1"), ("1:2", "1:2")] {
+            for with_spec in [false, true] {
+                let mut args = vec![command, part.to_str().unwrap(), "--scale", value];
+                if with_spec {
+                    args.extend(["--spec", base.to_str().unwrap()]);
+                }
+                let (code, result) = run(&args);
+                assert_eq!(code, Some(0), "{args:?}: {result}");
+                let spec = if command == "plan" {
+                    assert_eq!(result["sheet"]["scale"], ratio);
+                    result["spec"].clone()
+                } else {
+                    let svg = result["svg"].as_str().unwrap();
+                    assert!(
+                        svg.contains(&format!(">SCALE {ratio}<")),
+                        "{args:?}: scale caption"
+                    );
+                    serde_json::to_value(model::embedded_spec(svg.as_bytes()).unwrap().unwrap())
+                        .unwrap()
+                };
+                assert_eq!(spec["sheet"]["scale"], ratio, "{args:?}: {spec}");
+            }
+        }
+        for options in [
+            vec!["--scale", "1:2", "--set", "sheet/scale=1:1"],
+            vec!["--set", "sheet/scale=1:1", "--scale", "1:2"],
+        ] {
+            let mut args = vec![command, part.to_str().unwrap()];
+            args.extend(options);
+            let error = cli::failure(&args, 2);
+            assert!(
+                error.contains("sheet/scale") && error.contains("conflicts"),
+                "{error}"
+            );
+        }
+        for value in ["0", "1:0", "bad"] {
+            let error = cli::failure(&[command, part.to_str().unwrap(), "--scale", value], 2);
+            assert!(error.contains("--scale"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn plan_from_analysis_accepts_scale_without_a_step_or_other_overrides() {
+    let (_, analysis) = run(&["analyse", fixture("parts/plate.step").to_str().unwrap()]);
+    let file = scratch("plan-scale.analysis.json");
+    std::fs::write(&file, analysis.to_string()).unwrap();
+    let (code, plan) = run(&[
+        "plan",
+        "--analysis",
+        file.to_str().unwrap(),
+        "--scale",
+        "1:2",
+    ]);
+    assert_eq!(code, Some(0), "{plan}");
+    assert_eq!(plan["spec"]["sheet"]["scale"], "1:2");
+    assert_eq!(plan["sheet"]["scale"], "1:2");
+}
+
+#[test]
+fn set_paths_are_strict_whole_values_and_errors_prefix_the_path_once() {
+    for form in ["plan", "review", "render", "bare", "pack"] {
+        let pack = form == "pack";
+        let part = fixture(if pack {
+            "assembly/pack-small.step.gz"
+        } else {
+            "parts/plate.step"
+        });
+        let out = scratch(&format!("strict-set-path-{form}"));
+        let mut base = Vec::new();
+        if form != "bare" {
+            base.push(form);
+        }
+        base.push(part.to_str().unwrap());
+        if matches!(form, "render" | "pack") {
+            base.extend(["-o", out.to_str().unwrap()]);
+        }
+        if form == "bare" {
+            base.extend(["--out", out.to_str().unwrap()]);
+        }
+        for assignment in ["=A3", ""] {
+            let mut args = base.clone();
+            args.extend(["--set", assignment]);
+            assert_eq!(
+                cli::failure(&args, 2),
+                "error: --set needs PATH=VALUE; the path is empty\n"
+            );
+        }
+        let prefix = if pack { "ga/drawing/" } else { "" };
+        for (path, reason) in [
+            (format!("/{prefix}sheet/size"), "leading '/'"),
+            (format!("{prefix}sheet//size"), "empty segments"),
+            (format!("{prefix}sheet/size/"), "trailing '/'"),
+            (format!("/{prefix}sheet//size/"), "leading '/'"),
+        ] {
+            let assignment = format!("{path}=A3");
+            let mut args = base.clone();
+            args.extend(["--set", &assignment]);
+            let error = cli::failure(&args, 2);
+            assert!(
+                error.contains(reason) && error.contains(&path),
+                "{form}: {error}"
+            );
+        }
+        let path = format!("{prefix}sheet/scale");
+        let assignment = format!("{path}=bogus");
+        let mut args = base.clone();
+        args.extend(["--set", &assignment]);
+        let error = cli::failure(&args, 2);
+        assert_eq!(
+            error.lines().next().unwrap(),
+            format!("error: {path}: \"bogus\" is not a standard scale")
+        );
+        assert_eq!(
+            error.lines().next().unwrap().matches("sheet/scale").count(),
+            1
+        );
+        assert!(error.ends_with(&format!("  entry: {path}\n")));
+        for (whole, element) in [
+            ("views/iso/colour=[184,196,204]", "views/iso/colour/0=1"),
+            (
+                "tables=[{\"id\":\"t:1\",\"rows\":[[\"NOTE\"]]}]",
+                "tables/0/sheet=2",
+            ),
+        ] {
+            let first = format!("{prefix}{whole}");
+            let second = format!("{prefix}{element}");
+            let mut args = base.clone();
+            args.extend(["--set", &first, "--set", &second]);
+            let error = cli::failure(&args, 2);
+            assert!(
+                error.contains("whole values only; set an array or object in one go"),
+                "{form}: {error}"
+            );
+            assert!(error.contains(second.split_once('=').unwrap().0), "{error}");
+        }
     }
 }
