@@ -2391,13 +2391,14 @@ pub(crate) fn settle_after_furniture(
                 c.score(),
             )
         };
-        let partial = candidates.into_iter().filter(&acceptable).min_by(|a, b| {
-            if compact {
-                a.score().cmp(&b.score())
-            } else {
-                rank(a).cmp(&rank(b))
-            }
-        });
+        // The incumbent's physical-edge and arrowhead scores do not change
+        // while considering another candidate. Measure each accepted route once.
+        let candidates = candidates.into_iter().filter(&acceptable);
+        let partial = if compact {
+            candidates.min_by_key(Candidate::score)
+        } else {
+            candidates.min_by_key(rank)
+        };
         let next = if held {
             None
         } else {
@@ -2461,18 +2462,18 @@ pub(crate) fn settle_after_furniture(
                                         }
                                         continue;
                                     }
+                                    let attached = moved_rim_tip(
+                                        &job.sites,
+                                        tip,
+                                        elbow,
+                                        frame.scale() * crate::model::projected_ink::GRID,
+                                    );
                                     for right in [elbow[0] >= tip[0], elbow[0] < tip[0]] {
                                         for shoulder in [0.75, 3.0] {
                                             let end = [
                                                 elbow[0] + if right { shoulder } else { -shoulder },
                                                 elbow[1],
                                             ];
-                                            let attached = moved_rim_tip(
-                                                &job.sites,
-                                                tip,
-                                                elbow,
-                                                frame.scale() * crate::model::projected_ink::GRID,
-                                            );
                                             if let Some(c) =
                                                 ring_measure(attached, elbow, end, right)
                                                 && acceptable(&c)
@@ -4615,6 +4616,7 @@ pub(super) struct SegmentIndex {
     resolved: std::cell::OnceCell<Option<Box<ResolvedInk>>>,
     exported: bool,
     children: Option<Box<[SegmentIndex; 2]>>,
+    finite_ink: std::cell::OnceCell<bool>,
     counts: std::cell::RefCell<std::collections::HashMap<[u64; 4], usize>>,
     besides: std::cell::RefCell<std::collections::HashMap<[u64; 4], bool>>,
     routes: std::cell::RefCell<std::collections::HashMap<[u64; 8], usize>>,
@@ -4699,6 +4701,7 @@ impl SegmentIndex {
             resolved: std::cell::OnceCell::new(),
             exported: false,
             children,
+            finite_ink: std::cell::OnceCell::new(),
             counts: std::cell::RefCell::default(),
             besides: std::cell::RefCell::default(),
             routes: std::cell::RefCell::default(),
@@ -4819,6 +4822,42 @@ impl SegmentIndex {
         }
         saved.insert(key, count);
         count
+    }
+
+    // The same pair predicate as lines_meet, prepared once for the query.
+    // Non-finite inputs retain the full scan rather than pruning their bounds.
+    pub(super) fn any_meets(&self, line: [P2; 2]) -> bool {
+        let finite = line.iter().flatten().all(|x| x.is_finite()) && self.finite();
+        self.any_meets_prepared(&Line::new(line), finite)
+    }
+
+    fn finite(&self) -> bool {
+        *self.finite_ink.get_or_init(|| {
+            self.children.as_ref().map_or_else(
+                || self.ink.iter().flatten().flatten().all(|x| x.is_finite()),
+                |children| children.iter().all(Self::finite),
+            )
+        })
+    }
+
+    fn any_meets_prepared(&self, line: &Line, bounded: bool) -> bool {
+        if bounded
+            && (0..2).any(|k| {
+                let lo = line.a[0][k].min(line.a[1][k]).max(self.bounds[k]);
+                let hi = line.a[0][k].max(line.a[1][k]).min(self.bounds[k + 2]);
+                lo.is_finite() && hi.is_finite() && lo > hi + ALONG + 1e-6
+            })
+        {
+            return false;
+        }
+        self.children.as_ref().map_or_else(
+            || self.ink.iter().any(|edge| line.meets(*edge)),
+            |children| {
+                children
+                    .iter()
+                    .any(|child| child.any_meets_prepared(line, bounded))
+            },
+        )
     }
 
     fn meets_line(&self, line: [P2; 2]) -> bool {
@@ -8175,6 +8214,47 @@ pub(super) fn settled_routes(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn indexed_witness_contacts_match_full_crossing_and_parallel_scan() {
+        use super::{SegmentIndex, lines_meet};
+        let along = SegmentIndex::new(vec![[[0., 1.], [10., 1.]]]);
+        assert!(along.any_meets([[2., 0.], [2.5, 0.]]));
+        assert!(!along.any_meets([[2., 0.], [2.499_999, 0.]]));
+        assert!(!along.any_meets([[2., -0.000_001], [8., -0.000_001]]));
+        let mut ink: Vec<_> = (-12..=12)
+            .flat_map(|n| {
+                let x = f64::from(n);
+                [[[x, -15.], [x, 15.]], [[-15., x], [15., x]]]
+            })
+            .collect();
+        ink.extend([[[0., 0.], [0., 0.]], [[-15., -15.], [15., 15.]]]);
+        let mut nonfinite = ink.clone();
+        nonfinite.extend([[[f64::NAN, 0.], [1., 1.]], [[f64::INFINITY, 0.], [2., 2.]]]);
+        for edges in [Vec::new(), ink, nonfinite] {
+            let index = SegmentIndex::new(edges.clone());
+            let mut queries = Vec::new();
+            for n in -15..=15 {
+                let x = f64::from(n);
+                for delta in [-1.000_001, -1., -0.5, 0., 0.5, 1., 1.000_001] {
+                    queries.extend([
+                        [[x, delta], [x + 0.5, delta]],
+                        [[delta, x], [delta, x + 0.499_999]],
+                        [[x, -10.], [-x, 10.]],
+                        [[x, x], [x, x]],
+                    ]);
+                }
+            }
+            queries.extend([[[f64::NAN, 0.], [1., 2.]], [[0., f64::INFINITY], [2., 1.]]]);
+            for line in queries {
+                assert_eq!(
+                    index.any_meets(line),
+                    edges.iter().any(|edge| lines_meet(line, *edge)),
+                    "witness {line:?}",
+                );
+            }
+        }
+    }
+
     #[test]
     fn source_frames_keep_material_reentry_and_length_vetoes() {
         let analysis: crate::model::Analysis = serde_json::from_value(serde_json::json!({

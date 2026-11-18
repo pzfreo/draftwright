@@ -1584,8 +1584,9 @@ pub(super) fn settle(
             .into_iter()
             .filter(|q| !q.id.starts_with(&own_triangle) && on_sheet(&q.view)),
     );
-    let geometry = placement::CollisionGeometry::new(analysis, &all, sheet, &plan.views, cache);
-    let before = geometry.for_item(analysis, &all, sheet, &plan.views, id);
+    // Most trial sites are rejected by the cheap paper/peer check. Prepare the
+    // original collision report only if a site can actually use it.
+    let mut prepared = None;
     let old = plan.gdt[gi]
         .placed
         .as_ref()
@@ -1603,13 +1604,8 @@ pub(super) fn settle(
                     .map_or(sheet.number == 1, |v| v.sheet == sheet.number)
         })
         .collect();
-    let old_crossings = before
-        .iter()
-        .filter(|p| p.code == "annotation_leader_crossing")
-        .count();
     // Only the view and placed ink vary between trials. Keep the proxy's text,
     // metadata and allocated line buffers instead of cloning the entire glyph.
-    all[i].view.clone_from(&view.id);
     for (side, next) in candidates {
         // An unchanged frame retains its old paper; only its new leader is checked against
         // the existing findings below. A repair must not increase any of their counts.
@@ -1617,6 +1613,17 @@ pub(super) fn settle(
         if !held && !clear(&next, attached, &peers, &outlines, &paper) {
             continue;
         }
+        let (geometry, before, old_crossings) = prepared.get_or_insert_with(|| {
+            let geometry =
+                placement::CollisionGeometry::new(analysis, &all, sheet, &plan.views, cache);
+            let before = geometry.for_item(analysis, &all, sheet, &plan.views, id);
+            let old_crossings = before
+                .iter()
+                .filter(|p| p.code == "annotation_leader_crossing")
+                .count();
+            (geometry, before, old_crossings)
+        });
+        all[i].view.clone_from(&view.id);
         let ink = all[i].placed.as_mut().expect("the glyph's placed proxy");
         ink.lines.clone_from(&next.lines);
         ink.arrows.clone_from(&next.arrows);
@@ -1624,7 +1631,7 @@ pub(super) fn settle(
         ink.label_at = [next.label_box[0], next.label_box[1]];
         // A strict route permits no crossing; repairs may retain the old count. Reject
         // proven failures before preparing a complete diagnostic report.
-        let allowed = if relaxed || held { old_crossings } else { 0 };
+        let allowed = if relaxed || held { *old_crossings } else { 0 };
         let crossings = placement::route_crossings(
             &all[i],
             &crossing_peers,
@@ -1667,7 +1674,7 @@ pub(super) fn settle(
             if held {
                 codes.extend(ps.iter().map(|p| p.code.as_str()));
             }
-            codes.retain(|c| side == LEADER && count(ps, c) <= count(&before, c));
+            codes.retain(|c| side == LEADER && count(ps, c) <= count(before, c));
             ps.iter()
                 .filter(|p| !codes.contains(&p.code.as_str()))
                 .cloned()
@@ -1709,6 +1716,7 @@ pub(super) fn settle(
         }
     }
     let (side, next, area) = chosen?;
+    let (_, before, _) = prepared?;
     Some((side, next, area, before))
 }
 

@@ -1890,6 +1890,62 @@ pub fn analyse_native_bytes_part(
     Ok((part, analysis))
 }
 
+// StepFile already parsed the input while collecting its product definitions.
+// Successful definitions account for every placed body instance. Selecting all
+// of them keeps whole-file placements and source identities without parsing again.
+fn whole_step_part(
+    file: &haecceity::step::StepFile,
+    bytes: &[u8],
+) -> Result<Part, haecceity::step::StepError> {
+    let instances: Vec<_> = file
+        .parts
+        .iter()
+        .flat_map(|p| &p.placements)
+        .flat_map(|p| p.instances.iter().copied())
+        .collect();
+    if instances.is_empty() {
+        haecceity::read_step(bytes)
+    } else {
+        file.placed(&instances)
+            .or_else(|_| haecceity::read_step(bytes))
+    }
+}
+
+#[cfg(test)]
+mod shared_step_parse_tests {
+    use super::*;
+
+    #[test]
+    fn shared_parse_keeps_whole_file_placements_and_source_indices() {
+        for bytes in [
+            include_bytes!("../tests/fixtures/parts/plate.step").as_slice(),
+            include_bytes!("../tests/fixtures/assembly/assembly.step").as_slice(),
+        ] {
+            let file = haecceity::step::StepFile::read(bytes).unwrap();
+            let whole = haecceity::read_step(bytes).unwrap();
+            let reused = whole_step_part(&file, bytes).unwrap();
+            assert_eq!(whole.solids.len(), reused.solids.len());
+            assert_eq!(whole.faces.len(), reused.faces.len());
+            assert_eq!(whole.edges.len(), reused.edges.len());
+            for i in 0..whole.faces.len() {
+                assert_eq!(
+                    whole.face_source(i).map(|s| (s.entity, s.instance)),
+                    reused.face_source(i).map(|s| (s.entity, s.instance)),
+                );
+                assert_eq!(whole.faces[i].reversed, reused.faces[i].reversed);
+                let (a, b) = (whole.face_bounds(i), reused.face_bounds(i));
+                assert_eq!((a.min, a.max), (b.min, b.max));
+            }
+            for i in 0..whole.edges.len() {
+                assert_eq!(
+                    whole.edge_source(i).map(|s| (s.entity, s.instance)),
+                    reused.edge_source(i).map(|s| (s.entity, s.instance)),
+                );
+            }
+        }
+    }
+}
+
 fn analyse_step_input(
     name: &str,
     stem: String,
@@ -1906,10 +1962,14 @@ fn analyse_step_input(
     let mut principal = false;
     let (part, defs, part_name) = match chosen {
         None => {
-            let part = haecceity::read_step(bytes).map_err(|e| step_refused(name, e))?;
-            // `read_part_definitions` is this file's `parts`: read once, kept for part *k*.
+            // The PMI reading and part selection share this parse too.
             let file = haecceity::step::StepFile::read(bytes)
                 .map_err(|e| format!("cannot read the parts: {e}"));
+            let part = match &file {
+                Ok(file) => whole_step_part(file, bytes),
+                Err(_) => haecceity::read_step(bytes),
+            }
+            .map_err(|e| step_refused(name, e))?;
             if let Ok(file) = &file {
                 coincident = coincident_bodies(&part, &file.parts);
             }
@@ -1950,7 +2010,7 @@ fn analyse_step_input(
                 // Part 0 of a file of one part is the whole file: drawn, titled (by the file's
                 // stem, not the product's name) and bound exactly as without a part chosen.
                 chosen = None;
-                let part = haecceity::read_step(bytes).map_err(|e| step_refused(name, e))?;
+                let part = whole_step_part(&file, bytes).map_err(|e| step_refused(name, e))?;
                 (part, Ok(file.parts), stem.clone())
             } else {
                 if k >= file.parts.len() {
@@ -3473,6 +3533,13 @@ mod complete_candidate_tests {
     }
 }
 
+// Native recess dimensions are necessary for any established scale cap in this
+// analysis or its historical comparisons. Without them, lifting a cap cannot
+// change the candidates, so an exhausted search need not be repeated.
+fn recess_cap_possible(analysis: &Analysis) -> bool {
+    crate::dims::has_new_native_recess_dimensions(analysis)
+}
+
 fn recover_uncached(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
     // A first estimate without a table whose search under the established drawing's scale cap
     // is exhausted gets [`recover_tables`]'s last resort too: the cap has removed every scale,
@@ -3484,6 +3551,7 @@ fn recover_uncached(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
     // keeps is gone, and the cap would only hold the scale on a near-empty sheet (STC-08 with
     // #217's chamfer callouts: A1 at 1:2, 19% fill, beside the established A2 at 1:2).
     let open = (!UNCAPPED.get()
+        && recess_cap_possible(analysis)
         && first.hole_tables.is_empty()
         && spec.hole_table != crate::hole_table::Setting::Never)
         .then(|| first.clone());
@@ -5876,7 +5944,10 @@ fn recover_tables(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan,
     // corridor, so search the scales the ordinary ladder reaches without it, from the
     // estimate without a table, as when the first estimate has none (STC-08). Its drawing
     // is taken when it reads better than the schedule on the first estimate's sheet.
-    if unrecovered && exhausted(&recover(analysis, spec, unscheduled.clone())?) {
+    if unrecovered
+        && recess_cap_possible(analysis)
+        && exhausted(&recover(analysis, spec, unscheduled.clone())?)
+    {
         let ordinary = with_uncapped(true, || recover(analysis, spec, unscheduled))?;
         let rank = |p: &Plan| recovery_rank(analysis, p);
         if !exhausted(&ordinary) && rank(&ordinary) < rank(&scheduled) {

@@ -2426,3 +2426,19 @@ fn cli_pack_set_addresses_part_names_with_spaces_and_escaped_drawing_keys() {
     assert!(embedded.dimensions["d:custom/diameter"].omit);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn every_pack_page_svg_starts_with_an_opaque_white_sheet_background() {
+    let pack = small();
+    assert!(pack.drawings.len() > 1);
+    for drawing in &pack.drawings {
+        let [w, h] = drawing.page;
+        let svg = drawing.svg();
+        let rect = format!(
+            "<rect x=\"0\" y=\"-{h:.3}\" width=\"{w:.3}\" height=\"{h:.3}\" fill=\"#ffffff\" stroke=\"none\" pointer-events=\"none\"/>"
+        );
+        let body = svg.split_once("</metadata>").unwrap().1.trim_start();
+        assert!(body.starts_with(&rect), "{body:.200}");
+        assert_eq!(svg.matches(&rect).count(), 1);
+    }
+}

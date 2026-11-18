@@ -1003,6 +1003,8 @@ pub(crate) fn compact_inventory(
         }
         c
     };
+    // Only placements change below; every trial uses the same projection proofs.
+    let mut geometry = None;
     for l in 0..lines.len() {
         let (key, reach, members) = lines[l].clone();
         if !members.iter().all(|&i| movable(&inventory[i])) {
@@ -1031,14 +1033,7 @@ pub(crate) fn compact_inventory(
             .filter(|(r, f)| *r < reach - 1e-6 && touches(f))
             .map(|(r, _)| r + pitch)
             .fold(inner, f64::max);
-        let before: Vec<_> = members
-            .iter()
-            .map(|&i| {
-                counts(super::placement::collisions_for(
-                    analysis, &all, sheet, views, cache, &all[i].id,
-                ))
-            })
-            .collect();
+        let mut before = None;
         let sign = if key.2 { 1.0 } else { -1.0 };
         let originals: Vec<_> = members.iter().map(|&i| all[i].placed.clone()).collect();
         let mut lane = floor;
@@ -1047,18 +1042,29 @@ pub(crate) fn compact_inventory(
                 .iter()
                 .any(|(r, f)| (r - lane).abs() < 0.5 * pitch && touches(f));
             if !occupied {
+                let geometry = geometry.get_or_insert_with(|| {
+                    super::placement::CollisionGeometry::new(analysis, &all, sheet, views, cache)
+                });
+                // A packed strip has no move to adjudicate. Measure its
+                // baseline only when an unoccupied inner lane can be tried.
+                let before = before.get_or_insert_with(|| {
+                    members
+                        .iter()
+                        .map(|&i| {
+                            counts(geometry.for_item(analysis, &all, sheet, views, &all[i].id))
+                        })
+                        .collect::<Vec<_>>()
+                });
                 for &i in &members {
                     // Invariant: lines hold placed dimensions only.
                     let p = all[i].placed.clone().expect("placed dimension");
                     let (_, _, centre) = strip(&all[i]).expect("strip of a placed dimension");
                     all[i].placed = Some(in_lane(&p, centre + sign * lane));
                 }
-                let free = members.iter().zip(&before).all(|(&i, was)| {
-                    counts(super::placement::collisions_for(
-                        analysis, &all, sheet, views, cache, &all[i].id,
-                    ))
-                    .iter()
-                    .all(|(code, n)| was.get(code).is_some_and(|m| n <= m))
+                let free = members.iter().zip(before.iter()).all(|(&i, was)| {
+                    counts(geometry.for_item(analysis, &all, sheet, views, &all[i].id))
+                        .iter()
+                        .all(|(code, n)| was.get(code).is_some_and(|m| n <= m))
                 });
                 if free {
                     for &i in &members {
