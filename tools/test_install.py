@@ -1,5 +1,6 @@
 """Offline installer tests; TEST_INSTALL_SHELL selects sh/dash without installer hooks."""
 
+import errno
 import hashlib
 import io
 import os
@@ -370,13 +371,23 @@ sys.exit(subprocess.call([{real_mv!r}, *sys.argv[1:]]))
         shutil.copyfile(shutil.which('sleep'), mcp)
         mcp.chmod(0o755)
         previous = mcp.read_bytes()
-        process = subprocess.Popen([str(mcp), '60'])
+        # Ubuntu's uutils sleep dispatches by executable name. Run a sleep-named
+        # hard link so it stays running while locking the destination's inode.
+        sleeper = self.root / 'sleep'
+        os.link(mcp, sleeper)
+        process = subprocess.Popen([str(sleeper), '60'])
         try:
+            self.assertIsNone(process.poll(), 'The busy-executable fixture exited')
+            with self.assertRaises(OSError) as busy:
+                with mcp.open('ab'):
+                    pass
+            self.assertEqual(busy.exception.errno, errno.ETXTBSY)
             result = self.run_installer()
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('close any MCP client using draftwright-mcp', result.stderr)
             self.assertEqual((self.dest / 'draftwright').read_text(), 'previous installation')
             self.assertEqual(mcp.read_bytes(), previous)
+            self.assertIsNone(process.poll(), 'The MCP must stay busy throughout installation')
         finally:
             process.terminate()
             process.wait(timeout=10)

@@ -13,7 +13,28 @@ $saved = @{}
 foreach ($key in @('OS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432', 'DRAFTWRIGHT_VERSION', 'DRAFTWRIGHT_INSTALL_DIR', 'TMPDIR', 'TMP', 'TEMP', 'USERPROFILE')) {
     $saved[$key] = [Environment]::GetEnvironmentVariable($key)
 }
-$originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+function Get-UserPathState {
+    if (-not $nativeWindows) {
+        return [pscustomobject]@{ Exists = $false; Value = [Environment]::GetEnvironmentVariable('Path', 'User'); Kind = $null }
+    }
+    $userKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    try {
+        if ($userKey -and ($userKey.GetValueNames() -contains 'Path')) {
+            return [pscustomobject]@{
+                Exists = $true
+                Value = $userKey.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                Kind = $userKey.GetValueKind('Path')
+            }
+        }
+        return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null }
+    } finally {
+        if ($userKey) { $userKey.Dispose() }
+    }
+}
+
+# USERPROFILE changes below; expanded REG_EXPAND_SZ reads would change even
+# without a registry write. Snapshot the raw value, presence and registry kind.
+$originalUserPath = Get-UserPathState
 $name = 'draftwright-v0.6.0-x86_64-pc-windows-msvc'
 $asset = "$name.zip"
 $payload = Join-Path $testRoot $name
@@ -108,7 +129,12 @@ function Test-Refusal {
     }
     if (@(Get-ChildItem -LiteralPath $destination -Force).Count -ne 2) { throw 'Staging was not cleaned' }
     if (@(Get-ChildItem -LiteralPath $downloadTemp -Force).Count) { throw 'Download staging was not cleaned' }
-    if ([Environment]::GetEnvironmentVariable('Path', 'User') -cne $originalUserPath) { throw 'Refusal changed USER PATH' }
+    $currentUserPath = Get-UserPathState
+    if ($currentUserPath.Exists -ne $originalUserPath.Exists -or
+        $currentUserPath.Kind -ne $originalUserPath.Kind -or
+        -not [string]::Equals($currentUserPath.Value, $originalUserPath.Value, [StringComparison]::Ordinal)) {
+        throw 'Refusal changed USER PATH'
+    }
     Write-Output "PASS: $Expected; existing binaries and USER PATH preserved"
 }
 
