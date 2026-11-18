@@ -267,6 +267,11 @@ try {
         $pairState = @{ FailMcp = $false; Calls = @() }
         function Move-InstallerFile {
             param([string]$Source, [string]$Destination, [string]$Backup)
+            foreach ($handle in $handles) {
+                if ($handle.CanRead -or $handle.CanWrite) {
+                    throw 'A probe handle is still open before replacement or rollback'
+                }
+            }
             $pairState.Calls += [IO.Path]::GetFileName($Destination)
             if ($pairState.FailMcp -and $Destination.EndsWith('draftwright-mcp.exe')) { throw 'Simulated second replacement failure' }
             & $realMove @PSBoundParameters

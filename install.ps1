@@ -142,6 +142,11 @@ namespace DraftwrightInstaller {
         $cliInstalled = $false
         $keepBackup = $false
         try {
+            # A replaced file becomes the backup while its probe handle stays
+            # open. Windows ReplaceFile opens the rollback source without sharing,
+            # so even a FILE_SHARE_DELETE probe would block restoring that backup.
+            # Both destinations have been checked; release probes before any swap.
+            foreach ($handle in $Handles) { $handle.Dispose() }
             $null = [IO.Directory]::CreateDirectory($backupDir)
             foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
                 Move-InstallerFile -Source (Join-Path $Payload $binary) -Destination (Join-Path $Directory $binary) -Backup (Join-Path $backupDir $binary)
@@ -163,8 +168,6 @@ namespace DraftwrightInstaller {
             }
             throw "Cannot replace $binary; close any MCP client using draftwright-mcp. $failure"
         } finally {
-            # Probe handles now refer to backup files. Close them before deleting
-            # backups: Windows can leave files delete-pending until handles close.
             foreach ($handle in $Handles) { $handle.Dispose() }
             if (-not $keepBackup -and (Test-Path -LiteralPath $backupDir)) {
                 Remove-Item -LiteralPath $backupDir -Recurse -Force
@@ -257,9 +260,9 @@ namespace DraftwrightInstaller {
                 }
             }
         }
-        # Retain both handles until both replacements finish, preventing new
-        # incompatible sharing locks when the native probe is available. Without
-        # it, File.Replace detects locks and the pair rolls back on failure.
+        # Probe both destinations before any changes. The pair installer releases
+        # the probes before replacement so they cannot block rollback. File.Replace
+        # detects locks acquired after preflight and the pair rolls back on failure.
         Install-BinaryPair -Payload $payload -Directory $installDir -Handles $replaceHandles
         $replaceHandles = @()
         & (Join-Path $installDir 'draftwright.exe') --version
