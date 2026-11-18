@@ -6,6 +6,10 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+## 0.6.1 (2026-11-18)
+
+- Planning costs about 28% fewer instructions over the 68-part survey, with every plan identical to 0.6.0 (#517).
+
 - Draw every SVG sheet on an opaque white background (one full-sheet rectangle, first in the drawing, ignoring pointer events), so drawings stay readable in dark viewers.
 - Add a one-line `install.sh` installer with release pinning and SHA-256 verification for macOS arm64 / Intel (including Rosetta detection) and GNU Linux x86_64 / arm64, targeting glibc 2.17 in new releases; releases through v0.6.0 retain their glibc 2.35 requirement.
 - Add a verified Windows PowerShell installer with USER PATH setup and x64 emulation support on ARM64.
