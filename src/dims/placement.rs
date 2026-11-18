@@ -2256,6 +2256,10 @@ impl PeerInk {
         );
         Self { labels, lines }
     }
+    fn witness_contact(&self, line: [P2; 2]) -> bool {
+        self.labels.iter().any(|label| crosses(line, *label)) || self.lines.any_meets(line)
+    }
+
     fn mutable_contact(&self, p: &Placed) -> bool {
         self.labels
             .iter()
@@ -3207,6 +3211,9 @@ fn clear_linear_ordered(
     yield_locations: bool,
     guard_yielded: bool,
 ) {
+    // Analysis and placement policies stay fixed during this lane search.
+    let native_recesses =
+        std::cell::LazyCell::new(|| super::has_new_native_recess_dimensions(analysis));
     let held = locked.iter().any(|p| *p);
     let established_clear = crate::planning::lookup::<std::collections::BTreeSet<String>>(
         analysis,
@@ -3459,6 +3466,9 @@ fn clear_linear_ordered(
                 (0, features + geometry)
             }
         };
+        let material = std::cell::LazyCell::new(|| {
+            crate::material::solids(analysis, |p| frames[view].page(p))
+        });
         let before = crossings(p);
 
         // Expanded native inventories can displace an established location's
@@ -3706,10 +3716,7 @@ fn clear_linear_ordered(
                             strokes.push(near_face);
                         }
                     }
-                    if recess_context
-                        && !semantic_pmi
-                        && super::has_new_native_recess_dimensions(analysis)
-                    {
+                    if recess_context && !semantic_pmi && *native_recesses {
                         // A perpendicular witness can keep its measurement station
                         // while starting beyond a settled callout's finite corridor.
                         // Use the same label/leader padding as the callout router;
@@ -3865,8 +3872,7 @@ fn clear_linear_ordered(
                                 base.write(&mut base_placed);
                                 let mut skew_placed = p.clone();
                                 skew.write(&mut skew_placed);
-                                let material =
-                                    crate::material::solids(analysis, |p| frames[view].page(p));
+
                                 let traversal = |c: &Placed| {
                                     c.lines
                                         .iter()
@@ -3885,20 +3891,11 @@ fn clear_linear_ordered(
                                     || skew_hits.1 > base_hits.1
                                     || traversal(&skew_placed) > traversal(&base_placed) + 1e-6
                                     || traversal(&skew_placed) > crate::material::FLOOR
-                                    || others.iter().any(|q| {
-                                        skew_placed.lines.iter().take(2).any(|l| {
-                                            crosses(*l, q.label_box)
-                                                || q.lines
-                                                    .iter()
-                                                    .copied()
-                                                    .chain(
-                                                        q.arrows
-                                                            .iter()
-                                                            .flat_map(|a| super::leaders::head(*a)),
-                                                    )
-                                                    .any(|t| super::leaders::lines_meet(*l, t))
-                                        })
-                                    })
+                                    || skew_placed
+                                        .lines
+                                        .iter()
+                                        .take(2)
+                                        .any(|line| all_peer_ink.witness_contact(*line))
                                 {
                                     continue;
                                 }
