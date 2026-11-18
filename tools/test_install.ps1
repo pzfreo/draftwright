@@ -155,6 +155,61 @@ try {
     $env:TMP = $downloadTemp
     $env:TEMP = $downloadTemp
     $env:USERPROFILE = $testRoot
+    if ($nativeWindows) {
+        # Build a tiny real Windows executable before blocking Add-Type. This
+        # exercises the complete installer, including --version and raw HKCU PATH.
+        $executablePayload = Join-Path (Join-Path $testRoot 'executable payload') $name
+        $null = [IO.Directory]::CreateDirectory($executablePayload)
+        $stubSource = Join-Path $testRoot 'stub.cs'
+        [IO.File]::WriteAllText($stubSource, 'using System; using System.IO; public class Stub { public static void Main() { Console.WriteLine(Path.GetFileNameWithoutExtension(Environment.GetCommandLineArgs()[0]) + " 0.6.0"); } }')
+        $stub = Join-Path $executablePayload 'draftwright.exe'
+        $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+        & $compiler /nologo /target:exe "/out:$stub" $stubSource
+        if ($LASTEXITCODE -ne 0) { throw 'Could not compile the Windows test executable' }
+        Copy-Item -LiteralPath $stub -Destination (Join-Path $executablePayload 'draftwright-mcp.exe')
+        $executableFixture = Join-Path $testRoot 'executable.zip'
+        Compress-Archive -Path $executablePayload -DestinationPath $executableFixture
+        & {
+            function Add-Type {
+                param([string]$TypeDefinition, [System.CodeDom.Compiler.CompilerParameters]$CompilerParameters, [string[]]$AssemblyName)
+                if ($AssemblyName) { Microsoft.PowerShell.Utility\Add-Type -AssemblyName $AssemblyName; return }
+                throw 'Simulated compilation blocked'
+            }
+            $processPath = $env:Path
+            $userKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+            try {
+                $userKey.SetValue('Path', '%USERPROFILE%\Existing', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                $testState.Fixture = $executableFixture
+                $testState.ManifestMode = 'valid'
+                foreach ($attempt in 1..2) {
+                    $output = @(& $installer)
+                    if (($output -join "`n") -notlike '*Native compilation unavailable*Simulated compilation blocked*' -or
+                        ($output -join "`n") -notlike '*draftwright 0.6.0*') { throw 'Installer did not complete without compilation' }
+                    foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+                        if ((Get-FileHash -LiteralPath (Join-Path $destination $binary)).Hash -cne (Get-FileHash -LiteralPath $stub).Hash) {
+                            throw "Fallback installed the wrong $binary"
+                        }
+                    }
+                    $raw = $userKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                    if ($raw -cne ('%USERPROFILE%\Existing;' + $destination) -or
+                        $userKey.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw 'Compilation fallback changed raw USER PATH or kind' }
+                    if (@(Get-ChildItem -LiteralPath $destination -Force).Count -ne 2 -or
+                        @(Get-ChildItem -LiteralPath $downloadTemp -Force).Count) { throw 'Compilation fallback leaked staging or backups' }
+                }
+                Write-Output 'PASS: without compilation, fresh install and replacement preserve raw USER PATH and its kind'
+            } finally {
+                if ($originalUserPath.Exists) { $userKey.SetValue('Path', $originalUserPath.Value, $originalUserPath.Kind) }
+                else { $userKey.DeleteValue('Path', $false) }
+                $userKey.Dispose()
+                $env:Path = $processPath
+            }
+            $testState.Fixture = $completeFixture
+            Test-Refusal 'close any MCP client using draftwright-mcp' -LockMcp
+            if (($testState.Output -join "`n") -notlike '*Native compilation unavailable*') { throw 'Locked MCP test did not use compilation fallback' }
+        }
+        $testState.Fixture = $fixture
+        $testState.ManifestMode = 'mismatch'
+    }
     Test-Refusal 'Checksum mismatch'
     if ($testState.Requests.Count -ne 2 -or $testState.Requests[0] -notlike '*/download/v0.6.0/*') { throw 'Unprefixed version was not normalized' }
     $env:DRAFTWRIGHT_VERSION = ''
@@ -195,7 +250,7 @@ try {
     Test-Refusal 'Invalid release version'
     if ($testState.Requests.Count) { throw 'Invalid version downloaded files' }
     & $installer -Help
-    Write-Output 'PASS: all 13 Windows refusal tests and help'
+    Write-Output 'PASS: all 13 standard Windows refusal tests and help'
 
     # Test the actual production helpers without executing a Windows binary.
     $tokens = $null
@@ -204,8 +259,68 @@ try {
     if ($parseErrors.Count) { throw 'Installer parse errors' }
     foreach ($function in $ast.FindAll({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -in @('Test-PathEntry', 'Add-UserPathEntry', 'Add-InstallerType')
+        $node.Name -in @('Test-PathEntry', 'Add-UserPathEntry', 'Add-InstallerType', 'Move-InstallerFile', 'Install-BinaryPair')
     }, $true)) { Invoke-Expression $function.Extent.Text }
+
+    & {
+        $realMove = ${function:Move-InstallerFile}
+        $pairState = @{ FailMcp = $false; Calls = @() }
+        function Move-InstallerFile {
+            param([string]$Source, [string]$Destination, [string]$Backup)
+            $pairState.Calls += [IO.Path]::GetFileName($Destination)
+            if ($pairState.FailMcp -and $Destination.EndsWith('draftwright-mcp.exe')) { throw 'Simulated second replacement failure' }
+            & $realMove @PSBoundParameters
+        }
+        foreach ($hadCli in @($false, $true)) {
+            foreach ($failMcp in @($false, $true)) {
+                $pairRoot = Join-Path $testRoot ([guid]::NewGuid().ToString('N'))
+                $pairPayload = Join-Path $pairRoot 'payload'
+                $pairDestination = Join-Path $pairRoot 'bin'
+                $null = [IO.Directory]::CreateDirectory($pairPayload)
+                $null = [IO.Directory]::CreateDirectory($pairDestination)
+                foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+                    [IO.File]::WriteAllText((Join-Path $pairPayload $binary), 'new installation')
+                    if ($hadCli -or $binary -ne 'draftwright.exe') {
+                        [IO.File]::WriteAllText((Join-Path $pairDestination $binary), 'previous installation')
+                    }
+                }
+                $pairState.FailMcp = $failMcp
+                $pairState.Calls = @()
+                $handles = @()
+                foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+                    $path = Join-Path $pairDestination $binary
+                    if ([IO.File]::Exists($path)) {
+                        $handles += [IO.File]::Open($path, 'Open', 'ReadWrite', ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+                    }
+                }
+                $failure = $null
+                try { Install-BinaryPair -Payload $pairPayload -Directory $pairDestination -Handles $handles }
+                catch { $failure = $_.Exception.Message }
+                foreach ($handle in $handles) {
+                    if ($handle.CanRead -or $handle.CanWrite) { throw 'Pair cleanup left a probe handle open' }
+                }
+                if ($failMcp) {
+                    if (-not $failure -or $failure -notlike '*close any MCP client using draftwright-mcp*Simulated second replacement failure*') { throw "Unexpected pair failure: $failure" }
+                    $expectedCalls = if ($hadCli) { 'draftwright.exe,draftwright-mcp.exe,draftwright.exe' } else { 'draftwright.exe,draftwright-mcp.exe' }
+                    if (($pairState.Calls -join ',') -cne $expectedCalls) { throw 'Second replacement failure did not roll back the first' }
+                    if ([IO.File]::ReadAllText((Join-Path $pairDestination 'draftwright-mcp.exe')) -cne 'previous installation') { throw 'Failed pair changed MCP' }
+                    $cli = Join-Path $pairDestination 'draftwright.exe'
+                    if ($hadCli) {
+                        if ([IO.File]::ReadAllText($cli) -cne 'previous installation') { throw 'Failed pair did not restore CLI' }
+                    } elseif ([IO.File]::Exists($cli)) { throw 'Failed fresh pair left a new CLI behind' }
+                    $expectedCount = if ($hadCli) { 2 } else { 1 }
+                } else {
+                    if ($failure) { throw $failure }
+                    foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+                        if ([IO.File]::ReadAllText((Join-Path $pairDestination $binary)) -cne 'new installation') { throw 'Successful pair installed the wrong bytes' }
+                    }
+                    $expectedCount = 2
+                }
+                if (@(Get-ChildItem -LiteralPath $pairDestination -Force).Count -ne $expectedCount) { throw 'Pair left backup staging behind' }
+            }
+        }
+    }
+    Write-Output 'PASS: binary pairs install together or restore the original CLI (including an absent CLI)'
 
     $compilerTemp = Join-Path $testRoot 'compiler with spaces'
     $null = [IO.Directory]::CreateDirectory($compilerTemp)

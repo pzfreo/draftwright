@@ -118,6 +118,60 @@ namespace DraftwrightInstaller {
 '@
     }
 
+    function Move-InstallerFile {
+        param([string]$Source, [string]$Destination, [string]$Backup)
+        if ([IO.File]::Exists($Destination)) {
+            if ($Backup) {
+                [IO.File]::Replace($Source, $Destination, $Backup)
+            } else {
+                # PowerShell otherwise coerces $null to an empty backup filename.
+                [IO.File]::Replace($Source, $Destination, [NullString]::Value)
+            }
+        } else {
+            [IO.File]::Move($Source, $Destination)
+        }
+    }
+
+    function Install-BinaryPair {
+        param([string]$Payload, [string]$Directory, $Handles = @())
+        # Keep backups on the same volume, separate from disposable extraction
+        # staging so a failed rollback can retain its recovery copy.
+        $backupDir = Join-Path $Directory ('.draftwright-backup-' + [guid]::NewGuid().ToString('N'))
+        $cli = Join-Path $Directory 'draftwright.exe'
+        $cliBackup = Join-Path $backupDir 'draftwright.exe'
+        $cliInstalled = $false
+        $keepBackup = $false
+        try {
+            $null = [IO.Directory]::CreateDirectory($backupDir)
+            foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+                Move-InstallerFile -Source (Join-Path $Payload $binary) -Destination (Join-Path $Directory $binary) -Backup (Join-Path $backupDir $binary)
+                if ($binary -eq 'draftwright.exe') { $cliInstalled = $true }
+            }
+        } catch {
+            $failure = $_.Exception.Message
+            if ($cliInstalled) {
+                try {
+                    if ([IO.File]::Exists($cliBackup)) {
+                        Move-InstallerFile -Source $cliBackup -Destination $cli
+                    } else {
+                        [IO.File]::Delete($cli)
+                    }
+                } catch {
+                    $keepBackup = $true
+                    throw "Cannot restore draftwright.exe; recovery copies retained in $backupDir. Close any MCP client using draftwright-mcp. $($_.Exception.Message)"
+                }
+            }
+            throw "Cannot replace $binary; close any MCP client using draftwright-mcp. $failure"
+        } finally {
+            # Probe handles now refer to backup files. Close them before deleting
+            # backups: Windows can leave files delete-pending until handles close.
+            foreach ($handle in $Handles) { $handle.Dispose() }
+            if (-not $keepBackup -and (Test-Path -LiteralPath $backupDir)) {
+                Remove-Item -LiteralPath $backupDir -Recurse -Force
+            }
+        }
+    }
+
     $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
     $tempDir = $null
     $stageDir = $null
@@ -189,29 +243,24 @@ namespace DraftwrightInstaller {
                 throw "Cannot replace $binary; close any MCP client using draftwright-mcp and check file permissions."
             }
         }
-        Initialize-WindowsInterop
-        foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
-            $destination = Join-Path $installDir $binary
-            if ([IO.File]::Exists($destination)) {
-                try { $replaceHandles += [DraftwrightInstaller.NativeWindows]::OpenForReplacement($destination) }
-                catch { throw "Cannot replace $binary; close any MCP client using draftwright-mcp. $($_.Exception.Message)" }
+        $interopAvailable = $true
+        try { Initialize-WindowsInterop } catch {
+            $interopAvailable = $false
+            Write-Output "Native compilation unavailable; relying on file replacement checks. $($_.Exception.Message)"
+        }
+        if ($interopAvailable) {
+            foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
+                $destination = Join-Path $installDir $binary
+                if ([IO.File]::Exists($destination)) {
+                    try { $replaceHandles += [DraftwrightInstaller.NativeWindows]::OpenForReplacement($destination) }
+                    catch { throw "Cannot replace $binary; close any MCP client using draftwright-mcp. $($_.Exception.Message)" }
+                }
             }
         }
         # Retain both handles until both replacements finish, preventing new
-        # incompatible sharing locks between preflight and rename.
-        foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
-            $source = Join-Path $payload $binary
-            $destination = Join-Path $installDir $binary
-            try {
-                if ([IO.File]::Exists($destination)) {
-                    # PowerShell coerces $null to an empty string for this .NET overload.
-                    [IO.File]::Replace($source, $destination, [NullString]::Value)
-                } else {
-                    [IO.File]::Move($source, $destination)
-                }
-            } catch { throw "Cannot replace $binary; close any MCP client using draftwright-mcp. $($_.Exception.Message)" }
-        }
-        foreach ($handle in $replaceHandles) { $handle.Dispose() }
+        # incompatible sharing locks when the native probe is available. Without
+        # it, File.Replace detects locks and the pair rolls back on failure.
+        Install-BinaryPair -Payload $payload -Directory $installDir -Handles $replaceHandles
         $replaceHandles = @()
         & (Join-Path $installDir 'draftwright.exe') --version
         if ($LASTEXITCODE -ne 0) { throw 'Installed draftwright --version failed.' }
@@ -219,7 +268,10 @@ namespace DraftwrightInstaller {
         $userKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
         try { $pathChanged = Add-UserPathEntry $userKey $installDir } finally { $userKey.Dispose() }
         if ($pathChanged) {
-            [DraftwrightInstaller.NativeWindows]::BroadcastEnvironmentChange()
+            if ($interopAvailable) {
+                try { [DraftwrightInstaller.NativeWindows]::BroadcastEnvironmentChange() }
+                catch { Write-Output 'Could not broadcast the PATH change; open a new terminal.' }
+            }
             Write-Output "Added $installDir to the USER PATH. Open a new terminal to use it there."
         }
         if (-not (Test-PathEntry $env:Path $installDir)) { $env:Path = "$env:Path;$installDir" }
