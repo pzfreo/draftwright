@@ -109,16 +109,24 @@ jobs:
           $originalKind = if ($hadUserPath) { $userKey.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
           $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
           $processPath = $env:Path
+          $originalTemp = $env:TEMP
+          $originalTmp = $env:TMP
+          $downloadTemp = Join-Path $env:RUNNER_TEMP ('draftwright downloads ' + [guid]::NewGuid().ToString('N'))
+          $null = [IO.Directory]::CreateDirectory($downloadTemp)
+          $env:TEMP = $downloadTemp
+          $env:TMP = $downloadTemp
           $env:DRAFTWRIGHT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP ('draftwright test ' + [guid]::NewGuid().ToString('N'))
           try {
             $env:DRAFTWRIGHT_VERSION = ''
             Get-Content -Raw ./install.ps1 | Invoke-Expression
+            if (@(Get-ChildItem -LiteralPath $downloadTemp -Force).Count) { throw 'Latest install left download staging' }
             foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
               & (Join-Path $env:DRAFTWRIGHT_INSTALL_DIR $binary) --version
               if ($LASTEXITCODE -ne 0) { throw "$binary --version failed" }
             }
             $env:DRAFTWRIGHT_VERSION = 'v0.6.0'
             ./install.ps1
+            if (@(Get-ChildItem -LiteralPath $downloadTemp -Force).Count) { throw 'Pinned install left download staging' }
             foreach ($binary in @('draftwright.exe', 'draftwright-mcp.exe')) {
               $version = & (Join-Path $env:DRAFTWRIGHT_INSTALL_DIR $binary) --version
               if ($LASTEXITCODE -ne 0 -or $version -notmatch ' 0\.6\.0(\s|$)') { throw "Wrong pinned version: $version" }
@@ -131,10 +139,13 @@ jobs:
             if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -cne $machinePath) { throw 'Machine PATH changed' }
             if (@(Get-ChildItem -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR -Force).Count -ne 2) { throw 'Staging was not cleaned' }
           } finally {
+            $env:TEMP = $originalTemp
+            $env:TMP = $originalTmp
             if ($hadUserPath) { $userKey.SetValue('Path', $originalUserPath, $originalKind) } else { $userKey.DeleteValue('Path', $false) }
             $userKey.Dispose()
             $env:Path = $processPath
             if (Test-Path -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR) {
               Remove-Item -LiteralPath $env:DRAFTWRIGHT_INSTALL_DIR -Recurse -Force
             }
+            Remove-Item -LiteralPath $downloadTemp -Recurse -Force
           }

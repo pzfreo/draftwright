@@ -59,9 +59,33 @@ The destination is added to the USER PATH; no administrator access is needed.
         return $true
     }
 
+    function Add-InstallerType {
+        param([string]$Source, [string]$TemporaryDirectory)
+        $compilerFiles = $null
+        $typeOptions = @{}
+        try {
+            # Windows PowerShell uses CodeDOM. Its default temp collection can
+            # leave a separate directory until finalization, even for in-memory
+            # assemblies. Own it explicitly and keep its files inside our temp dir.
+            if ((Get-Command Add-Type).Parameters.ContainsKey('CompilerParameters')) {
+                $compilerFiles = New-Object System.CodeDom.Compiler.TempFileCollection $TemporaryDirectory, $false
+                $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
+                $parameters.GenerateInMemory = $true
+                $parameters.CompilerOptions = '/optimize+'
+                $parameters.TreatWarningsAsErrors = $true
+                $parameters.TempFiles = $compilerFiles
+                $null = $parameters.ReferencedAssemblies.Add('System.dll')
+                $typeOptions.CompilerParameters = $parameters
+            }
+            Add-Type -TypeDefinition $Source @typeOptions
+        } finally {
+            if ($null -ne $compilerFiles) { ([IDisposable]$compilerFiles).Dispose() }
+        }
+    }
+
     function Initialize-WindowsInterop {
         if ('DraftwrightInstaller.NativeWindows' -as [type]) { return }
-        Add-Type -TypeDefinition @'
+        Add-InstallerType -TemporaryDirectory $tempDir -Source @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -203,9 +227,18 @@ namespace DraftwrightInstaller {
         Write-Output 'PowerShell completions (add this line to $PROFILE to persist):'
         Write-Output 'draftwright completions powershell | Out-String | Invoke-Expression'
     } finally {
-        foreach ($handle in $replaceHandles) { $handle.Dispose() }
-        if ($stageDir -and (Test-Path -LiteralPath $stageDir)) { Remove-Item -LiteralPath $stageDir -Recurse -Force }
-        if ($tempDir -and (Test-Path -LiteralPath $tempDir)) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
-        [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+        try {
+            foreach ($handle in $replaceHandles) { $handle.Dispose() }
+        } finally {
+            try {
+                if ($stageDir -and (Test-Path -LiteralPath $stageDir)) { Remove-Item -LiteralPath $stageDir -Recurse -Force }
+            } finally {
+                try {
+                    if ($tempDir -and (Test-Path -LiteralPath $tempDir)) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
+                } finally {
+                    [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+                }
+            }
+        }
     }
 } ([bool]$Help)

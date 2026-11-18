@@ -45,7 +45,7 @@ Compress-Archive -Path $payload -DestinationPath $fixture
 [IO.File]::WriteAllText((Join-Path $payload 'draftwright-mcp.exe'), 'not executed')
 $completeFixture = Join-Path $testRoot 'complete.zip'
 Compress-Archive -Path $payload -DestinationPath $completeFixture
-$testState = @{ ManifestMode = 'mismatch'; Marker = '*'; DestinationLink = $false; DestinationPath = $destination; NativeArchitecture = $null; Fixture = $fixture; Requests = @(); Output = @() }
+$testState = @{ ManifestMode = 'mismatch'; Marker = '*'; FailDownload = $false; FailExtraction = $false; DestinationLink = $false; DestinationPath = $destination; NativeArchitecture = $null; Fixture = $fixture; Requests = @(); Output = @() }
 
 if (-not $nativeWindows) {
     # Native Windows CI exercises CreateFile DELETE-sharing checks. Other hosts
@@ -98,7 +98,14 @@ function Invoke-WebRequest {
         [IO.File]::WriteAllText($OutFile, "$hash $($testState.Marker)$filename`n")
     } else {
         Copy-Item -LiteralPath $testState.Fixture -Destination $OutFile
+        if ($testState.FailDownload) { throw 'Simulated interrupted download' }
     }
+}
+
+function Expand-Archive {
+    param([string]$LiteralPath, [string]$DestinationPath)
+    Microsoft.PowerShell.Archive\Expand-Archive -LiteralPath $LiteralPath -DestinationPath $DestinationPath
+    if ($testState.FailExtraction) { throw 'Simulated extraction failure' }
 }
 
 function Test-Refusal {
@@ -157,6 +164,12 @@ try {
     $testState.ManifestMode = 'filename'
     Test-Refusal 'Invalid checksum file'
     $testState.ManifestMode = 'valid'
+    $testState.FailDownload = $true
+    Test-Refusal 'Simulated interrupted download'
+    $testState.FailDownload = $false
+    $testState.FailExtraction = $true
+    Test-Refusal 'Simulated extraction failure'
+    $testState.FailExtraction = $false
     Test-Refusal 'Archive is missing a regular file: draftwright-mcp.exe'
     $testState.Marker = ' '
     Test-Refusal 'Archive is missing a regular file: draftwright-mcp.exe'
@@ -182,7 +195,7 @@ try {
     Test-Refusal 'Invalid release version'
     if ($testState.Requests.Count) { throw 'Invalid version downloaded files' }
     & $installer -Help
-    Write-Output 'PASS: all 11 Windows refusal tests and help'
+    Write-Output 'PASS: all 13 Windows refusal tests and help'
 
     # Test the actual production helpers without executing a Windows binary.
     $tokens = $null
@@ -191,8 +204,50 @@ try {
     if ($parseErrors.Count) { throw 'Installer parse errors' }
     foreach ($function in $ast.FindAll({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -in @('Test-PathEntry', 'Add-UserPathEntry')
+        $node.Name -in @('Test-PathEntry', 'Add-UserPathEntry', 'Add-InstallerType')
     }, $true)) { Invoke-Expression $function.Extent.Text }
+
+    $compilerTemp = Join-Path $testRoot 'compiler with spaces'
+    $null = [IO.Directory]::CreateDirectory($compilerTemp)
+    $probeName = 'InstallerCompilerProbe' + [guid]::NewGuid().ToString('N')
+    Add-InstallerType -Source "public static class $probeName { public static int Value = 1; }" -TemporaryDirectory $compilerTemp
+    if (@(Get-ChildItem -LiteralPath $compilerTemp -Force).Count) { throw 'Native compiler staging was not cleaned' }
+    if (@(Get-ChildItem -LiteralPath $downloadTemp -Force).Count) { throw 'Native compiler leaked outside its directory' }
+    Write-Output 'PASS: native type compilation leaves no compiler staging'
+
+    # Exercise the actual CodeDOM ownership/disposal path on every host. The
+    # shim leaves tracked files behind on both success and exception, retaining
+    # the collection so garbage collection cannot make cleanup appear to pass.
+    & {
+        $compilerState = @{ Fail = $false; Files = $null; Path = $null }
+        function Add-Type {
+            param([string]$TypeDefinition, [System.CodeDom.Compiler.CompilerParameters]$CompilerParameters)
+            if (-not $CompilerParameters.GenerateInMemory -or
+                $CompilerParameters.TempFiles.TempDir -cne $compilerTemp) {
+                throw 'Compiler must use an in-memory assembly and the installer temp directory'
+            }
+            $compilerState.Files = $CompilerParameters.TempFiles
+            $compilerState.Path = $compilerState.Files.AddExtension('cs')
+            [IO.File]::WriteAllText($compilerState.Path, $TypeDefinition)
+            if ($compilerState.Fail) { throw 'Simulated compiler failure' }
+        }
+        foreach ($fail in @($false, $true)) {
+            $compilerState.Fail = $fail
+            $failure = $null
+            try { Add-InstallerType -Source 'compiler fixture' -TemporaryDirectory $compilerTemp }
+            catch { $failure = $_.Exception.Message }
+            if ($fail) {
+                if ($failure -cne 'Simulated compiler failure') { throw "Unexpected compiler failure: $failure" }
+            } elseif ($failure) { throw $failure }
+            if ($null -eq $compilerState.Files -or $compilerState.Files.Count -ne 0 -or
+                [IO.File]::Exists($compilerState.Path) -or
+                @(Get-ChildItem -LiteralPath $compilerTemp -Force).Count) {
+                throw 'CodeDOM staging was not disposed'
+            }
+        }
+    }
+    Write-Output 'PASS: CodeDOM temp collection disposed on success and compiler exception'
+
     $key = [pscustomobject]@{ Raw = '%USERPROFILE%\Existing'; Kind = [Microsoft.Win32.RegistryValueKind]::ExpandString }
     $key | Add-Member ScriptMethod GetValue {
         param($name, $default, $options)
