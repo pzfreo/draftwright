@@ -77,7 +77,14 @@ case "$install_dir" in /*) ;; *) install_dir=$(pwd)/$install_dir ;; esac
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/draftwright-install.XXXXXX")
 tmp_dir=$(cd "$tmp_dir" && pwd -P)
 stage_dir=
-trap 'rm -rf "$tmp_dir"; if [ -n "$stage_dir" ]; then rm -rf "$stage_dir"; fi' 0
+created_install_dir=
+cleanup() {
+    rm -rf "$tmp_dir"
+    if [ -n "$stage_dir" ]; then rm -rf "$stage_dir"; fi
+    # Never remove a pre-existing directory or anything another process added.
+    if [ -n "$created_install_dir" ]; then rmdir "$created_install_dir" 2>/dev/null || :; fi
+}
+trap cleanup 0
 trap 'exit 1' HUP INT TERM
 cd "$tmp_dir"
 
@@ -158,7 +165,15 @@ else
 fi
 [ "${actual%% *}" = "$expected" ] || die "Checksum mismatch for $asset; nothing installed."
 
-mkdir -p "$install_dir"
+while [ "$install_dir" != / ] && [ "${install_dir%/}" != "$install_dir" ]; do install_dir=${install_dir%/}; done
+mkdir -p "${install_dir%/*}/"
+# mkdir itself determines ownership of this creation, avoiding a check/create race.
+if mkdir "$install_dir" 2>mkdir.error; then
+    created_install_dir=$install_dir
+elif [ ! -d "$install_dir" ]; then
+    cat mkdir.error >&2
+    die "Could not create $install_dir"
+fi
 install_dir=$(cd "$install_dir" && pwd -P)
 # Staging on the destination filesystem makes each final rename atomic.
 stage_dir=$(mktemp -d "$install_dir/.draftwright-install.XXXXXX")

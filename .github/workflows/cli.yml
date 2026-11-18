@@ -92,6 +92,29 @@ jobs:
             target/${{ matrix.target }}/release/draftwright \
             target/${{ matrix.target }}/release/draftwright-mcp
           target/${{ matrix.target }}/release/draftwright-mcp --version
+      - name: Run both Linux binaries and the revision smoke test on old glibc
+        if: endsWith(matrix.target, '-linux-gnu')
+        # Debian 10 (glibc 2.28) still pulls for amd64 and arm64. No packages or
+        # network are needed; the separate symbol check enforces the 2.17 floor.
+        run: |
+          case '${{ matrix.target }}' in
+            aarch64-*) platform=linux/arm64 ;;
+            *) platform=linux/amd64 ;;
+          esac
+          docker run --rm -i --pull always --platform "$platform" --network none --workdir /tmp \
+            --mount "type=bind,source=$PWD/target/${{ matrix.target }}/release,target=/binaries,readonly" \
+            --mount "type=bind,source=$PWD/tests/fixtures/revisions,target=/fixtures,readonly" \
+            debian:10@sha256:58ce6f1271ae1c8a2006ff7d3e54e9874d839f573d8009c20154ad0f2fb0a225 sh -eu <<'SMOKE'
+          ldd --version | head -1
+          /binaries/draftwright --version
+          /binaries/draftwright-mcp --version
+          echo '{"schema": "draftwright.spec/2", "sheet": {}, "dimensions": {"d:f:hole:3/bore.diameter": {"tolerance": "+0.1 -0"}, "d:f:hole:2/bore.diameter": {"tolerance": "±0.2"}}}' > given.json
+          printed=$(/binaries/draftwright diff /fixtures/hole_removed.old.step.gz /fixtures/hole_removed.new.step.gz --spec given.json -o smoke)
+          echo "$printed"
+          echo "$printed" | grep -q '"verdict": *"decide"'
+          grep -q '"+0.1 -0"' smoke/spec.json
+          ! grep -q 'f:hole:3' smoke/spec.json
+          SMOKE
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
         # removed hole.

@@ -39,7 +39,7 @@ class InstallerTests(unittest.TestCase):
         }
         self.env.pop("DRAFTWRIGHT_VERSION", None)
         # An isolated PATH lets tests exercise missing tools and wget-only installs.
-        for name in ("sh", "cat", "mkdir", "mktemp", "rm", "awk", "tar", "gzip",
+        for name in ("sh", "cat", "mkdir", "mktemp", "rm", "rmdir", "awk", "tar", "gzip",
                      "chmod", "cp", "mv", "sha256sum", "shasum"):
             command = shutil.which(os.environ.get('TEST_INSTALL_SHELL', 'sh') if name == 'sh' else name)
             if command:
@@ -211,6 +211,31 @@ else:
         self.archive("x86_64-unknown-linux-gnu", missing_mcp=True)
         self.assert_preserved(self.run_installer())
 
+    def test_refusal_removes_only_new_empty_install_directory(self):
+        self.archive('x86_64-unknown-linux-gnu', missing_mcp=True)
+        for suffix in ('', '///'):
+            with self.subTest(suffix=suffix):
+                result = self.run_installer(DRAFTWRIGHT_INSTALL_DIR=str(self.dest) + suffix)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(self.dest.exists(), 'New empty install directory was left behind')
+        self.dest.mkdir()
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(self.dest.is_dir(), 'Pre-existing empty directory was removed')
+        self.assertEqual(list(self.dest.iterdir()), [])
+
+    def test_refusal_keeps_new_directory_if_another_file_was_added(self):
+        (self.bin / 'tar').unlink()
+        self.command('tar', """
+import os, pathlib, sys
+(pathlib.Path(os.environ['DRAFTWRIGHT_INSTALL_DIR']) / 'keep').write_text('another file')
+sys.exit(1)
+""")
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([p.name for p in self.dest.iterdir()], ['keep'])
+        self.assertEqual((self.dest / 'keep').read_text(), 'another file')
+
     def test_unsupported_platforms(self):
         for os_name, arch in (("Linux", "armv7l"), ("MINGW64_NT", "x86_64"),
                               ("FreeBSD", "amd64")):
@@ -266,11 +291,12 @@ else:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('glibc >= 2.35', result.stderr)
                 self.assertFalse(self.dest.exists())
-        for version in ('v0.6.1-alpha.1', 'v0.7.0', 'v0.10.0', 'v1.0.0'):
+        for version in ('0.6.1', 'v0.6.1-alpha.1', 'v0.7.0', 'v0.10.0', 'v1.0.0'):
             with self.subTest(version=version):
-                self.archive('x86_64-unknown-linux-gnu', version=version)
+                tag = version if version.startswith('v') else 'v' + version
+                self.archive('x86_64-unknown-linux-gnu', version=tag)
                 self.assert_installed(self.run_installer(DRAFTWRIGHT_VERSION=version,
-                                      TEST_GLIBC='glibc 2.17'), version=version[1:])
+                                      TEST_GLIBC='glibc 2.17'), version=tag[1:])
 
     def test_intel_mac_and_rosetta(self):
         self.archive("x86_64-apple-darwin")
