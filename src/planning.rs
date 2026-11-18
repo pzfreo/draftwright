@@ -391,6 +391,7 @@ fn held(name: &str, key: Vec<u8>) -> Vec<u8> {
             | "inspection-datum"
             | "projected-model-index"
             | "projected-feature-footprints"
+            | "marked-interior-cache"
     ) {
         return key;
     }
