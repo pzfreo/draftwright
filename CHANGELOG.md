@@ -9,7 +9,9 @@ All notable changes to draftwright are recorded here, in the style of
 - PMI finish attachments try intact cylindrical stations beyond grooves (#461).
   Automatic linear dimensions can yield their strip to a finish's normal leader
   when the complete drawing proves a clear alternative.
-  Spec thread designations retain explicit coarse pitches as authored (#464).
+  Spec thread labels now print exactly as written (pitch, spacing and RH
+  included), so existing labels change: `M12-6H` in a Spec written
+  `M12x1.75-6H` now prints with the pitch (#464).
   Recessed through taps use native face ownership; mixed-axis bore locations
   use their proven common datum-normal station. AP242 reference dimensions
   draw in parentheses, and unavailable oblique datums name dependent dimensions

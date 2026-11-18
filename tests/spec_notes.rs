@@ -24,7 +24,7 @@ fn plate() -> (Part, Analysis) {
 
 #[test]
 fn issue461_finish_uses_intact_cylinder_beyond_the_groove() {
-    for name in ["issue461-whole.step", "issue461-grooved.step"] {
+    for name in ["issue461-whole.step.gz", "issue461-grooved.step.gz"] {
         let (part, a) =
             model::analyse_native(&root().join("tests/fixtures/pmi").join(name)).unwrap();
         let feature = a
@@ -71,7 +71,7 @@ fn issue461_finish_uses_intact_cylinder_beyond_the_groove() {
 #[test]
 fn issue464_explicit_coarse_pitch_survives_every_callout_style() {
     let (part, a) =
-        model::analyse_native(&root().join("tests/fixtures/pmi/issue464-tap.step")).unwrap();
+        model::analyse_native(&root().join("tests/fixtures/pmi/issue464-tap.step.gz")).unwrap();
     let hole = a.features.iter().find(|f| f.kind == "hole").unwrap();
     assert_eq!(hole.parameters["diameter"], json!(2.5));
     for designation in ["M3x0.5-6H", "M3 x 0.5-6H", "M3x0.35-6H", "M3-6H"] {

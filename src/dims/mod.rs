@@ -165,6 +165,7 @@ pub(crate) fn finish_texture_lanes(
         let mut w = w.clone();
         w.terms.clone_from(&d.terms);
         w.measurements.clone_from(&d.measurements);
+        let before = recheck_cached(analysis, plan, &cache);
         for lane in 0..8 {
             let Some(candidate) = placement::place(&frame, &w, side, lane) else {
                 continue;
@@ -182,7 +183,6 @@ pub(crate) fn finish_texture_lanes(
                 &trial.gdt,
                 Some(&BTreeSet::from([trial.dimensions[i].id.clone()])),
             );
-            let before = recheck_cached(analysis, plan, &cache);
             let after = recheck_cached(analysis, &trial, &cache);
             let codes: BTreeSet<_> = before.iter().chain(&after).map(|p| &p.code).collect();
             trial.problems.retain(|p| !codes.contains(&p.code));
@@ -4709,8 +4709,7 @@ fn plan_inventory_ordered(
             basis += interior::BASIS;
         }
         // Drawn in brackets: a reference, with what determines it where consolidation said.
-        let reference = w.terms.first().is_some_and(|t| t.starts_with('('))
-            && w.terms.last().is_some_and(|t| t.ends_with(')'));
+        let reference = is_parenthesised_reference(&w.terms);
         let determined_by = if reference {
             references.get(&w.id).cloned().unwrap_or_default()
         } else {
@@ -6287,6 +6286,31 @@ pub(crate) fn recheck_cached(
     checked
 }
 
+/// The whole drawn text is one parenthesised group: `(12.5)`, not `(1) (2)`.
+fn is_parenthesised_reference(terms: &[String]) -> bool {
+    let text = terms.join(" ");
+    if !text.starts_with('(') || !text.ends_with(')') {
+        return false;
+    }
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                let Some(d) = depth.checked_sub(1) else {
+                    return false;
+                };
+                depth = d;
+                if depth == 0 && i + 1 != text.len() {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
 /// A matching chamfer requirement is actually retained by this Spec's dimension set.
 pub(crate) fn chamfer_stated(
     analysis: &Analysis,
@@ -6333,6 +6357,18 @@ pub(crate) fn measurement_ids(analysis: &Analysis) -> BTreeSet<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reference_is_one_whole_parenthesised_group() {
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(super::is_parenthesised_reference(&t(&["(12.5)"])));
+        assert!(super::is_parenthesised_reference(&t(&["(12.5", "TYP)"])));
+        assert!(super::is_parenthesised_reference(&t(&["((a) b)"])));
+        assert!(!super::is_parenthesised_reference(&t(&["(1)", "(2)"])));
+        assert!(!super::is_parenthesised_reference(&t(&["(1) x (2)"])));
+        assert!(!super::is_parenthesised_reference(&t(&["12.5"])));
+        assert!(!super::is_parenthesised_reference(&[]));
+    }
+
     use super::*;
 
     #[test]
