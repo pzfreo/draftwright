@@ -826,11 +826,27 @@ impl Drawing {
     /// The SVG: a page in millimetres, y up inside a flipping group, one group per layer, then
     /// the labels' text, invisible.
     pub fn svg(&self) -> String {
+        self.svg_with_background(true)
+    }
+
+    /// The SVG, with or without the opaque white sheet background. Only a whole sheet has one:
+    /// the editor's per-item fragments are spliced onto a sheet, and their own backgrounds would
+    /// hide each other.
+    pub(crate) fn svg_with_background(&self, background: bool) -> String {
         let [w, h] = self.page;
         let mut s = String::new();
         let _ = write!(
             s,
-            "<?xml version='1.0' encoding='utf-8'?>\n<svg xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"{w:.3}mm\" height=\"{h:.3}mm\" viewBox=\"0 -{h:.3} {w:.3} {h:.3}\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\"><!-- {GENERATED_BY}: {LINK} --><metadata><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><rdf:Description><dc:creator>draftwright</dc:creator><dc:source>{LINK}</dc:source><dc:description>{GENERATED_BY}</dc:description></rdf:Description></rdf:RDF>{}</metadata>\n  <g transform=\"scale(1,-1)\" stroke-linecap=\"round\">\n",
+            "<?xml version='1.0' encoding='utf-8'?>\n<svg xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"{w:.3}mm\" height=\"{h:.3}mm\" viewBox=\"0 -{h:.3} {w:.3} {h:.3}\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\"><!-- {GENERATED_BY}: {LINK} --><metadata><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><rdf:Description><dc:creator>draftwright</dc:creator><dc:source>{LINK}</dc:source><dc:description>{GENERATED_BY}</dc:description></rdf:Description></rdf:RDF>{1}</metadata>\n{0}  <g transform=\"scale(1,-1)\" stroke-linecap=\"round\">\n",
+            // The page is transparent otherwise, and black ink vanishes in a dark viewer. Not
+            // clickable: the editor hit-tests the sheet.
+            if background {
+                format!(
+                    "  <rect x=\"0\" y=\"-{h:.3}\" width=\"{w:.3}\" height=\"{h:.3}\" fill=\"#ffffff\" stroke=\"none\" pointer-events=\"none\"/>\n"
+                )
+            } else {
+                String::new()
+            },
             self.spec.as_ref().map_or(String::new(), |j| format!(
                 "<draftwright:spec xmlns:draftwright=\"{LINK}\"><![CDATA[{}]]></draftwright:spec>",
                 j.replace("]]>", "]]]]><![CDATA[>")

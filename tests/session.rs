@@ -676,3 +676,25 @@ fn aligned_linear_offset_preserves_the_measured_span() {
 
 #[path = "incremental.rs"]
 mod incremental;
+
+#[test]
+fn svg_sheets_start_with_a_white_background_but_item_fragments_do_not() {
+    let Some(s) = open("plate") else { return };
+    let drawing = s.drawing();
+    let [w, h] = drawing.page;
+    let rect = format!(
+        "<rect x=\"0\" y=\"-{h:.3}\" width=\"{w:.3}\" height=\"{h:.3}\" fill=\"#ffffff\" stroke=\"none\" pointer-events=\"none\"/>"
+    );
+    let svg = drawing.svg();
+    assert!(
+        svg.split_once("</metadata>")
+            .unwrap()
+            .1
+            .trim_start()
+            .starts_with(&rect)
+    );
+    // Fragments are spliced onto a sheet; a background in each would hide the others.
+    let fragments = s.svg_fragments(None);
+    assert!(!fragments.is_empty());
+    assert!(fragments.values().all(|f| !f.contains("#ffffff")));
+}

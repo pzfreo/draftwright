@@ -1205,7 +1205,7 @@ impl Session {
                 d.layers[k].items = thin_ink(id);
             }
             d.layers.extend(crate::shaded::layers(id, &geometry.shaded));
-            out.insert(id.clone(), d.svg());
+            out.insert(id.clone(), d.svg_with_background(false));
         }
         for (id, item) in &self.state.annotations {
             if !annotation_on_sheet(id) || delta.is_some_and(|d| !d.annotations.contains_key(id)) {
@@ -1214,7 +1214,7 @@ impl Session {
             let mut d = blank();
             d.layers[2].items = item.items.clone();
             d.text = item.text.clone();
-            out.insert(id.clone(), d.svg());
+            out.insert(id.clone(), d.svg_with_background(false));
         }
         // Planned captions participate in the furniture collection diff, including removal.
         let furniture_changed = delta.is_none_or(|d| {
@@ -1267,7 +1267,7 @@ impl Session {
                 d.layers[k].items.clear();
             }
             d.text.drain(..text);
-            out.insert("furniture".into(), d.svg());
+            out.insert("furniture".into(), d.svg_with_background(false));
         }
         Ok(out)
     }
