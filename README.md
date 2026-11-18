@@ -48,12 +48,46 @@ pinned draftwright release is bumped.
 
 ## Install
 
+For the command line on macOS or Linux (arm64 / x86_64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pzfreo/draftwright/main/install.sh | sh
+```
+
+To inspect it first: download `install.sh`, read it, then run `sh install.sh`.
+For Windows, in PowerShell 5.1 or 7:
+
+```powershell
+irm https://raw.githubusercontent.com/pzfreo/draftwright/main/install.ps1 | iex
+```
+
+The installers verify SHA-256 checksums and install `draftwright` and `draftwright-mcp`
+without administrator access. Set `DRAFTWRIGHT_INSTALL_DIR` to change the destination,
+or `DRAFTWRIGHT_VERSION=v0.6.0` (also accepts `0.6.0`) to pin a release instead of
+the latest stable. On macOS/Linux, set these variables on `sh` when piping, e.g.
+`curl -fsSL https://raw.githubusercontent.com/pzfreo/draftwright/main/install.sh | DRAFTWRIGHT_VERSION=v0.6.0 sh`.
+On Windows, set `$env:DRAFTWRIGHT_VERSION` / `$env:DRAFTWRIGHT_INSTALL_DIR` before the `irm` line.
+
+| Installer platform | Binary | Default destination |
+| --- | --- | --- |
+| macOS arm64 (including a Rosetta shell) | `aarch64-apple-darwin` | `~/.local/bin` |
+| macOS Intel | `x86_64-apple-darwin` | `~/.local/bin` |
+| Linux x86_64 | `x86_64-unknown-linux-gnu`, glibc >= 2.17 for releases newer than v0.6.0 | `~/.local/bin` |
+| Linux arm64 | `aarch64-unknown-linux-gnu`, glibc >= 2.17 | `~/.local/bin` |
+| Windows x64 / ARM64 | `x86_64-pc-windows-msvc` (x64 emulation on ARM64) | `%LOCALAPPDATA%\Programs\draftwright\bin`, added to USER PATH |
+
+Releases through v0.6.0 require glibc >= 2.35 on Linux x86_64; v0.6.0 has no
+Linux arm64 or Intel Mac archive. The installers report unavailable targets explicitly.
+Linux archives require glibc; on Alpine/musl, use the Python package or build with Cargo.
+For other platforms or unavailable older targets, use `uv tool install draftwright`
+or `cargo install draftwright`, or see [Releases](https://github.com/pzfreo/draftwright/releases).
+
 | You use | Install | Platforms |
 | --- | --- | --- |
 | **Python 3.9+ (abi3)** | `pip install draftwright`, or `uv add draftwright` in a uv project ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
 | **Command line** | `uv tool install draftwright`; installs `draftwright` and `draftwright-mcp` | The same five wheel platforms |
 | **Rust crate** | `cargo install draftwright` for both binaries; `draftwright = "0.6"` for the library ([operations](docs/model.md#the-five-operations)) | Native Rust toolchain |
-| **Prebuilt archives** | Download a CLI archive from [Releases](https://github.com/pzfreo/draftwright/releases); includes both binaries, schemas and agent docs | macOS arm64, Linux x86_64, Windows x64 |
+| **Prebuilt archives** | Download a CLI archive from [Releases](https://github.com/pzfreo/draftwright/releases); includes both binaries, schemas and agent docs | macOS arm64 / Intel, Linux x86_64 / arm64, Windows x64; availability depends on the release |
 | **Browser** | [draftwright.io](https://draftwright.io) | WebAssembly ([package guide](docs/wasm.md)) |
 
 0.6 replaces the old Python package of the same name; pin `draftwright<0.6` to keep it.
@@ -80,6 +114,12 @@ new shell:
 draftwright completions zsh  > ~/.zfunc/_draftwright                       # zsh
 draftwright completions bash > ~/.bash_completions/draftwright.sh          # bash
 draftwright completions fish > ~/.config/fish/completions/draftwright.fish # fish
+```
+
+For PowerShell, run this in the current session or add it to `$PROFILE`:
+
+```powershell
+draftwright completions powershell | Out-String | Invoke-Expression
 ```
 
 ## Command line

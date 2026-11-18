@@ -1,7 +1,7 @@
 name: Release command line
 
 # The draftwright command line for Linux, macOS and Windows, attached to each release. A change to
-# this workflow builds and tries all three on its pull request, without attaching anything. A manual
+# this workflow builds and tries every target on its pull request, without attaching anything. A manual
 # run builds an existing release tag and attaches to it, for a release whose own run failed.
 on:
   release:
@@ -12,7 +12,7 @@ on:
         description: Existing release tag to build and attach the command line to (e.g. v0.6.0-alpha.2)
         required: true
   pull_request:
-    paths: ['.github/workflows/cli.yml', 'about.toml', 'about.hbs']
+    paths: ['.github/workflows/cli.yml', '.github/requirements/cli-linux.txt', 'tools/check_glibc_floor.py', 'about.toml', 'about.hbs']
 
 permissions:
   contents: read
@@ -25,7 +25,9 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: '' }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, exe: '' }
           - { os: macos-latest, target: aarch64-apple-darwin, exe: '' }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, exe: '' }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: .exe }
     runs-on: ${{ matrix.os }}
     env:
@@ -51,11 +53,68 @@ jobs:
         with:
           key: cli-${{ matrix.target }}
       - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        if: matrix.target != 'x86_64-apple-darwin'
         with:
           tool: cargo-about@0.9.3
+      - name: Build the Intel macOS licence generator with its CLI
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: cargo install cargo-about --version 0.9.3 --locked --features cli
       - name: Third-party licence notices
         run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
+      # Use the workflow's requirements even when manually backfilling an older tag.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: endsWith(matrix.target, '-linux-gnu')
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .cli-toolchain
+          sparse-checkout: |
+            .github/requirements/cli-linux.txt
+            tools/check_glibc_floor.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Linux glibc toolchain
+        if: endsWith(matrix.target, '-linux-gnu')
+        run: |
+          rustup target add ${{ matrix.target }}
+          python3 -m venv "$RUNNER_TEMP/linux-tools"
+          "$RUNNER_TEMP/linux-tools/bin/pip" install --require-hashes -r .cli-toolchain/.github/requirements/cli-linux.txt
+          echo "$RUNNER_TEMP/linux-tools/bin" >> "$GITHUB_PATH"
       - run: cargo build --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
+        if: ${{ !endsWith(matrix.target, '-linux-gnu') }}
+      - name: Build Linux binaries for glibc 2.17
+        if: endsWith(matrix.target, '-linux-gnu')
+        # Zig's suffix selects glibc; Cargo's output directory remains the plain triple.
+        run: cargo zigbuild --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}.2.17
+      - name: Verify both Linux binaries require at most glibc 2.17
+        if: endsWith(matrix.target, '-linux-gnu')
+        run: |
+          python3 .cli-toolchain/tools/check_glibc_floor.py --max-version 2.17 \
+            target/${{ matrix.target }}/release/draftwright \
+            target/${{ matrix.target }}/release/draftwright-mcp
+          target/${{ matrix.target }}/release/draftwright-mcp --version
+      - name: Run both Linux binaries and the revision smoke test on old glibc
+        if: endsWith(matrix.target, '-linux-gnu')
+        # Debian 10 (glibc 2.28) still pulls for amd64 and arm64. No packages or
+        # network are needed; the separate symbol check enforces the 2.17 floor.
+        run: |
+          case '${{ matrix.target }}' in
+            aarch64-*) platform=linux/arm64 ;;
+            *) platform=linux/amd64 ;;
+          esac
+          docker run --rm -i --pull always --platform "$platform" --network none --workdir /tmp \
+            --mount "type=bind,source=$PWD/target/${{ matrix.target }}/release,target=/binaries,readonly" \
+            --mount "type=bind,source=$PWD/tests/fixtures/revisions,target=/fixtures,readonly" \
+            debian:10@sha256:58ce6f1271ae1c8a2006ff7d3e54e9874d839f573d8009c20154ad0f2fb0a225 sh -eu <<'SMOKE'
+          ldd --version | head -1
+          /binaries/draftwright --version
+          /binaries/draftwright-mcp --version
+          echo '{"schema": "draftwright.spec/2", "sheet": {}, "dimensions": {"d:f:hole:3/bore.diameter": {"tolerance": "+0.1 -0"}, "d:f:hole:2/bore.diameter": {"tolerance": "±0.2"}}}' > given.json
+          printed=$(/binaries/draftwright diff /fixtures/hole_removed.old.step.gz /fixtures/hole_removed.new.step.gz --spec given.json -o smoke)
+          echo "$printed"
+          echo "$printed" | grep -q '"verdict": *"decide"'
+          grep -q '"+0.1 -0"' smoke/spec.json
+          ! grep -q 'f:hole:3' smoke/spec.json
+          SMOKE
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
         # removed hole.
