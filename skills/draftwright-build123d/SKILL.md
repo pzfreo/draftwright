@@ -7,8 +7,11 @@ description: Produce manufacturing drawings from build123d parts and assemblies 
 
 You turn a build123d model into a drawing a machinist can work from. The engine
 chooses views, scale and dimensions; you state the requirements on the faces you
-modelled, render, read the problems, and look at every sheet. The person guide is
-`docs/build123d.md`; the full reference is `docs/python.md`.
+modelled, render, read the problems, and look at every sheet. Covers **draftwright 0.6.0**.
+The person guide and the full reference (not installed) are
+https://github.com/pzfreo/draftwright/blob/v0.6.0/docs/build123d.md and
+https://github.com/pzfreo/draftwright/blob/v0.6.0/docs/python.md. Spec ids, paths, sections,
+breaks and authored dimensions are as in the `draftwright-step` skill.
 
 ## Ground rules
 
@@ -19,6 +22,11 @@ modelled, render, read the problems, and look at every sheet. The person guide i
 - **Requirements go on the `Part`; layout goes on the `Drawing`.** Never put
   material, fits, threads, GD&T, finish or notes into `Drawing.update()` or
   `render(spec=...)`; they are refused there.
+- **Never invent a requirement.** State only the material, tolerances, fits, threads
+  and finish the person gave you or the design states. Where none was given, say so:
+  `p.material("UNSPECIFIED")`, `p.general_tolerance("UNSPECIFIED")`. A general tolerance
+  you chose yourself is an assumption: list it in your report for the person to confirm.
+- **Never override a dimension's value.** `text` may add a prefix or suffix only.
 - **A sheet is not done until you have looked at it.** The problem list misses
   things (see "Check by eye").
 
@@ -26,7 +34,7 @@ modelled, render, read the problems, and look at every sheet. The person guide i
 
 ```sh
 uv run --no-project --python 3.12 \
-  --with draftwright --with "build123d>=0.13" python script.py
+  --with draftwright==0.6.0 --with "build123d>=0.13" python script.py
 ```
 
 - build123d 0.10 or later. Unpinned, uv can resolve 0.10 when another package
@@ -89,6 +97,9 @@ for f in dwg.problems:
         print(f["tier"], f["code"], f["message"], f.get("subjects"))
 ```
 
+- A problem's `fix` is written in Spec paths. A `sheet/title/material`,
+  `sheet/title/tolerance` or `notes` fix is a requirement: make it with the `Part` call
+  (`update()` refuses it and names the call). Layout fixes go through `dwg.update()`.
 - `dwg.problems` exists only after `render()`, and any later Part or layout edit
   clears it until you render again.
 - Act on every `fix_before_printing`. Read `tidy` (leader crossings, crowded
@@ -97,6 +108,23 @@ for f in dwg.problems:
 - If the engine drops the scale and leaves the sheet sparse, find what pushed it
   (often one long leader, such as a single face finish) before forcing `scale=`;
   forcing the scale can create overlaps. Re-check `problems` after any forcing.
+
+### Layout: title, views, breaks, units, added dimensions
+
+```python
+dwg = p.drawing(sheet="A4", scale=1, units="in")       # units "mm" or "in"
+dwg.title(drawn_by="PF", date="2026-11-18", revision="A")   # not material/tolerance
+dwg.views(omit=("iso",))
+dwg.update({"views": {"front": {"break": {}}, "plan": {"break": {}}}})   # long bars
+ends = body.faces().filter_by(Axis.X).sort_by(Axis.X)
+dwg.update({"dimensions": {"d:authored:overall": {
+    "between": [p.reference_key(ends[0]), p.reference_key(ends[-1])],
+    "along": "x", "view": "front"}}})
+```
+
+- `update()` validates and raises with the accepted fields; read the message.
+- A model in mm whose sizes are round inches (25.4, 50.8 …) was probably meant in inches:
+  consider `units="in"` and say why.
 
 ### Moving a callout
 
@@ -128,6 +156,12 @@ for f in pack.findings:
 - The GA keeps the model's orientation. Pass `horizontal_axis="x"|"y"|"z"` only
   when the person asks for a different one.
 
+## Known limits on 0.6.0
+
+No auxiliary views or dimensions to an inclined axis; no datum on an inclined face; a section
+view carries no dimensions of its own; PMI stays in memory (`export_step` writes plain
+geometry). Tell the person what could not be stated rather than working around it.
+
 ## Check by eye
 
 Open the PDF and look at every sheet. Known blind spots, where nothing is reported:
@@ -137,6 +171,9 @@ Open the PDF and look at every sheet. Known blind spots, where nothing is report
 - A dimension drawn through a section arrowhead (#498).
 - Every thread, fit, knurl, finish and note you stated actually appears.
 
-Done means: no `fix_before_printing`, no row errors, page count matches the made
-parts plus the GA for a pack, every stated requirement found on its sheet, and a
-visual pass over each sheet.
+Done means: no `fix_before_printing` left unexplained, no row errors, page count
+matches the made parts plus the GA for a pack, every stated requirement found on its
+sheet, and a visual pass over each sheet. Finish with a short report: the files, what
+you changed from the automatic drawing, assumptions to confirm (e.g. a general
+tolerance you chose), and what is still open (material, finish, fits not given;
+remaining problems; tool limits hit).

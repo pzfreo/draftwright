@@ -326,7 +326,10 @@ fn pack_explicit_exports_are_readable_resources_and_json_replaces_inline_report(
         &[json!({"jsonrpc":"2.0","id":1,"method":"resources/list"})],
         Some(&cache),
     );
-    assert_eq!(listing[0]["result"], json!({"resources":[]}));
+    // Pack exports are read by their links, never listed: the skill is the only listed resource.
+    let listed = listing[0]["result"]["resources"].as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["uri"], draftwright::mcp::SKILL_URI);
     let content = replies[0]["result"]["content"].as_array().unwrap();
     assert_eq!(replies[0]["result"]["isError"], false);
     assert_eq!(content.len(), 4);
@@ -414,4 +417,72 @@ fn spec_part_selection_is_applied_by_the_one_shot_tool() {
     let replies = session(&[call(1, "plan", json!({"step":step,"spec":{"part":1}}))]);
     assert_ne!(replies[0]["result"]["isError"], true, "{:?}", replies[0]);
     assert_eq!(first(&replies[0])["binding"]["part_index"], 1);
+}
+
+/// The skill file in the repository, which both servers must serve byte for byte.
+fn skill_file() -> String {
+    std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/draftwright-step/SKILL.md"),
+    )
+    .unwrap()
+}
+
+#[test]
+fn both_servers_serve_the_skill_and_point_their_instructions_at_it() {
+    let uri = "draftwright://skill/draftwright-step";
+    assert_eq!(draftwright::mcp::SKILL_URI, uri);
+    let list = json!({"jsonrpc":"2.0","id":1,"method":"resources/list"});
+    let read = json!({"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":uri}});
+    let check = |listed: &Value, read: &Value| {
+        let listed = listed["result"]["resources"].as_array().unwrap();
+        let entry = listed
+            .iter()
+            .find(|r| r["uri"] == uri)
+            .expect("skill listed");
+        assert_eq!(entry["mimeType"], "text/markdown");
+        assert_eq!(entry["size"], skill_file().len());
+        let contents = &read["result"]["contents"][0];
+        assert_eq!(contents["uri"], uri);
+        assert_eq!(contents["mimeType"], "text/markdown");
+        assert_eq!(contents["text"].as_str().unwrap(), skill_file());
+    };
+    // draftwright mcp-stdio: the stateless server.
+    let cache = draftwright::stateless::Cache::new(scratch("skill-cache"));
+    let reply = |m: &Value| draftwright::mcp::reply(&cache, m).unwrap();
+    check(&reply(&list), &reply(&read));
+    let init = reply(&json!({"jsonrpc":"2.0","id":0,"method":"initialize",
+        "params":{"protocolVersion":"2025-06-18"}}));
+    let instructions = init["result"]["instructions"].as_str().unwrap();
+    assert!(
+        instructions.starts_with(&format!("Before drawing, read {uri}")),
+        "{instructions}"
+    );
+    assert!(instructions.contains("Never invent a requirement"));
+    // The mechanical guidance is kept after the head.
+    assert!(instructions.contains("Register STEP with inspect_part {step}"));
+    // draftwright-mcp: the document-model server.
+    let replies = session(&[list, read]);
+    check(&replies[0], &replies[1]);
+}
+
+#[test]
+fn draftwright_mcp_instructions_start_with_the_skill_head() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_draftwright-mcp"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})
+    )
+    .unwrap();
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    let init: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let instructions = init["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.starts_with("Before drawing, read draftwright://skill/draftwright-step"));
+    assert!(instructions.contains("Draftwright makes engineering drawings from STEP files."));
 }
