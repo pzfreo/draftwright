@@ -27,20 +27,49 @@ pub(super) struct SheetOptions {
     /// General tolerance in the title block
     #[arg(long)]
     tolerance: Option<String>,
-    /// Numeric drawing scale, e.g. 5 for 5:1 or 0.5 for 1:2 (default: auto)
+    /// Drawing scale as a number or ratio, e.g. 5, 0.5 or 1:2 (default: auto)
     #[arg(long, allow_negative_numbers = true)]
-    scale: Option<f64>,
+    pub(super) scale: Option<String>,
     /// Draw a sheet frame (Rust always draws one)
     #[arg(long)]
     frame: bool,
 }
 
 impl SheetOptions {
-    pub(super) fn with_scale(scale: Option<f64>) -> Self {
+    pub(super) fn with_scale_text(scale: Option<String>) -> Self {
         Self {
             scale,
             ..Self::default()
         }
+    }
+    pub(super) fn with_scale(scale: Option<f64>) -> Self {
+        Self {
+            scale: scale.map(|s| s.to_string()),
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for (key, value) in [
+            ("title", &self.title),
+            ("number", &self.number),
+            ("material", &self.material),
+            ("drawn_by", &self.drawn_by),
+            ("revision", &self.revision),
+            ("date", &self.date),
+            ("company", &self.company),
+            ("approved_by", &self.approved_by),
+            ("tolerance", &self.tolerance),
+        ] {
+            if value.is_some() {
+                paths.push(format!("sheet/title/{key}"));
+            }
+        }
+        if self.scale.is_some() {
+            paths.push("sheet/scale".into());
+        }
+        paths
     }
 
     pub(super) fn apply(&self, spec: &mut Spec) -> Result<(), Error> {
@@ -59,8 +88,8 @@ impl SheetOptions {
                 spec.sheet.title.insert(key.into(), value.clone());
             }
         }
-        if let Some(scale) = self.scale {
-            spec.sheet.scale = Some(scale_ratio(scale)?);
+        if let Some(scale) = &self.scale {
+            spec.sheet.scale = Some(parse_scale(scale)?);
         }
         // SheetSpec has no frame switch: its renderer always draws the ISO frame. Accepting
         // --frame therefore requests the existing behaviour, including its clearance.
@@ -71,6 +100,8 @@ impl SheetOptions {
 /// Pictorial shortcuts shared by the bare form, render, review and plan.
 #[derive(Args, Default)]
 pub(super) struct PictorialOptions {
+    #[command(flatten)]
+    pub(super) overrides: super::overrides::Overrides,
     /// Printed length units (geometry remains in mm)
     #[arg(long, value_parser = ["mm", "in"])]
     units: Option<String>,
@@ -94,12 +125,41 @@ pub(super) struct PictorialOptions {
 }
 
 impl PictorialOptions {
+    pub(super) fn with_overrides(overrides: super::overrides::Overrides) -> Self {
+        Self {
+            overrides,
+            ..Default::default()
+        }
+    }
+
     pub(super) fn requested(&self) -> bool {
-        self.units.is_some()
+        self.overrides.requested()
+            || self.units.is_some()
             || self.paper.is_some()
             || self.shaded
             || self.below
             || self.colour.is_some()
+    }
+
+    pub(super) fn paths(&self) -> Vec<String> {
+        let mut paths = self.overrides.paths("");
+        for (requested, path) in [
+            (self.units.is_some(), "units"),
+            (self.paper.is_some(), "sheet/paper"),
+            (self.shaded, "views/iso/style"),
+            (self.colour.is_some(), "views/iso/colour"),
+            (self.below, "views/iso_below/omit"),
+            (self.below, "views/iso_below/style"),
+            (
+                self.below && self.colour.is_some(),
+                "views/iso_below/colour",
+            ),
+        ] {
+            if requested {
+                paths.push(path.into());
+            }
+        }
+        paths
     }
 
     pub(super) fn apply(&self, spec: &mut Spec) -> Result<(), Error> {
@@ -154,6 +214,26 @@ fn hex_colour(value: &str) -> Result<[u8; 3], Error> {
     }
     // The length and ASCII check above makes these byte boundaries and digits valid.
     Ok([0, 2, 4].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("checked hex pair")))
+}
+
+pub(super) fn parse_scale(value: &str) -> Result<String, Error> {
+    let number = |v: &str| {
+        v.parse::<f64>().map_err(|_| {
+            Error::invalid(format!(
+                "--scale {value:?} must be a positive number or ratio"
+            ))
+        })
+    };
+    let scale = if let Some((a, b)) = value.split_once(':') {
+        let (a, b) = (number(a)?, number(b)?);
+        if !a.is_finite() || !b.is_finite() || a <= 0. || b <= 0. {
+            return Err(Error::invalid("--scale must be a finite positive ratio"));
+        }
+        a / b
+    } else {
+        number(value)?
+    };
+    scale_ratio(scale)
 }
 
 /// Avoid printing binary reciprocal noise or silently rounding authored scales.

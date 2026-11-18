@@ -1,6 +1,6 @@
 # The Draftwright engine: reference
 
-This is the engine's technical guide: building it, the command line in full, what it does and
+This is the engine's technical guide: building it, recognition and revision workflows, what it does and
 does not do, known limitations, and how to check a change. For an overview, see the
 [README](../README.md).
 
@@ -40,7 +40,9 @@ editor migration.
 ## Using it
 
 A drawing is three JSON documents: the Analysis, the Spec and the Plan. Five stateless
-operations work on them (`docs/model.md`, ADR R1). Every command prints JSON.
+operations work on them (`docs/model.md`, ADR R1). Successful operation results are JSON
+on stdout; refusals print `error:` on stderr. See the [command-line reference](cli.md)
+for commands, common options, tested `--set` paths and shell-completion installation.
 
 Since 0.2.15, draftwright writes `draftwright.spec/3`, which earlier engines cannot read. Specs
 `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 0.6.8
@@ -63,8 +65,6 @@ draftwright plan --analysis part.analysis.json         # the Plan, without analy
 draftwright edit part.drawing.json ops.json            # apply edits to a Spec
 draftwright render part.step --spec part.drawing.json -o out
                                                        # out.svg, out.pdf
-draftwright render part.step -o out --formats svg,pdf,png --dpi 150
-                                                       # choose the formats; PNG at --dpi
 draftwright review part.step --spec part.drawing.json  # the drawing as SVG text, with problems and lint
 draftwright diff old.step new.step --spec part.drawing.json -o changes
                                                        # the Spec carried to a new revision of the
@@ -78,51 +78,11 @@ draftwright serve                                      # the same operations as 
 draftwright-mcp                                        # the same operations as an MCP server (stdio)
 ```
 
-`draftwright --help` lists the commands and `draftwright <command> --help` a command's
-arguments.
-
-**Shell completion.** `draftwright completions SHELL` prints a completion script for `bash`,
-`zsh`, `fish`, `powershell` or `elvish`:
-
-```sh
-mkdir -p ~/.local/share/bash-completion/completions && draftwright completions bash > ~/.local/share/bash-completion/completions/draftwright
-mkdir -p ~/.zfunc && draftwright completions zsh > ~/.zfunc/_draftwright
-# zsh: add `fpath=(~/.zfunc $fpath)` before `compinit` in ~/.zshrc, then restart zsh
-mkdir -p ~/.config/fish/completions && draftwright completions fish > ~/.config/fish/completions/draftwright.fish
-```
-
 File exports stage each format in a unique sibling file and atomically replace its destination.
 Concurrent exports to the same prefix use last-writer-wins per file: the last successful rename
 wins. A multi-format export is not transactional; formats can come from different callers,
 and a later failure leaves already published formats in place. Cleanup removes only that
 invocation's staging file. Output names and rendered bytes are unchanged.
-
-`render`, `review`, `plan` and the bare form accept `--units mm|in` and
-`--paper iso|ansi|arch`. The flags override the Spec and are recorded in its
-embedded drawing copy. Decimal inches default to three places with trailing zeros
-and no leading zero below one. Geometry remains in mm. Paper defaults to ISO for
-mm and ANSI for inches; `sheet.size` also accepts `ANSI A`–`ANSI E` and
-`ARCH A`–`ARCH E`. See [the model guide](model.md) for precision, paper and scale policy.
-
-**Pictorial CLI shortcuts.** `render`, `review`, `plan` (including `plan --analysis`), and
-`draftwright part.step [options]` accept `--shaded`, `--below`, and `--colour HEX`
-(`--color` is an alias). `--shaded` sets `views/iso/style` to `shaded`.
-`--below` requests a visible `views/iso_below`: line pictorial on its own, shaded when
-combined with `--shaded`, overriding that slot's existing style or omission.
-`--colour '#b8c4cc'` or `--colour b8c4cc` accepts exactly six hex digits, case-insensitively,
-and requires the `--shaded` flag even if the base Spec already requests shading.
-Colour applies to the iso and, with `--below`, the underside; other views keep their settings.
-
-These flags overlay the optional `--spec` file, which is also accepted in the bare form.
-Unrelated settings, including camera directions and title-block fields, are preserved;
-`--shaded` changes style without changing an authored iso omission.
-The resulting Spec is embedded in SVG/PDF/PNG and can be read with `draftwright spec out.pdf`.
-With no flags the existing defaults and output are unchanged. For example:
-
-```sh
-draftwright render part.step -o part --shaded --below --colour b8c4cc
-draftwright part.step --spec drawing.json --shaded --below --out part
-```
 
 `--spec` is optional: without it the defaults are drawn. The service, the MCP server and the
 library (`api::analyse(step, None)` and the rest) are not switched to native recognition:
