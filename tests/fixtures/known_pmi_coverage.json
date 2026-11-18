@@ -8879,15 +8879,6 @@
  {
   "code": "pmi_not_extracted",
   "file": "nist_stc_06_asme1_ap242-e3.stp",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#9270",
-  "verdict": "rust-correct",
-  "evidence": "The file qualifies the dimension with a modifier the port does not carry (statistical, controlled radius, reference); drawn without it the dimension would state a different requirement, so the port reports it not read; draftwright reads it without the modifier and is silent. port: \"the dimension modifier Reference is not carried\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_stc_06_asme1_ap242-e3.stp",
   "python": "error",
   "rust": null,
   "source": "dimension:0:1:4:94",
@@ -9243,7 +9234,7 @@
   "rust": "error",
   "source": "dimension:#9270",
   "verdict": "rust-correct",
-  "evidence": "The file qualifies the dimension with a modifier the port does not carry (statistical, controlled radius, reference); drawn without it the dimension would state a different requirement, so the port reports it not read; draftwright reads it without the modifier and is silent. port: \"the dimension modifier Reference is not carried\""
+  "evidence": "#9267 marks dimension #9270 as auxiliary. The port now carries its Reference modifier as (R12.7), so extraction succeeds, but the target includes a non-cylindrical face: radius lowering still refuses it explicitly (\"one radius reference face is not cylindrical\"). The captured Python drawing also omits the annotation, reported under pmi_not_rendered instead of pmi_not_lowered."
  },
  {
   "code": "pmi_not_lowered",
@@ -9354,7 +9345,7 @@
   "rust": null,
   "source": "dimension:#9270",
   "verdict": "rust-correct",
-  "evidence": "The file qualifies the dimension with a modifier the port does not carry (statistical, controlled radius, reference); drawn without it the dimension would state a different requirement, so the port reports it; draftwright reads it without the modifier and lowers it, and its own drawing does not state it either (its pmi_not_rendered). draftwright: \"AP242 source dimension:0:1:4:11 reached typed drafting IR but produced no annotation\""
+  "evidence": "#9267 marks dimension #9270 as auxiliary. The port now carries its Reference modifier as (R12.7), then explicitly refuses the non-cylindrical radius target under pmi_not_lowered (\"one radius reference face is not cylindrical\"). The captured Python drawing also omits it and reports that omission under pmi_not_rendered: \"AP242 source dimension:0:1:4:11 reached typed drafting IR but produced no annotation\". The omission remains an error on both sides."
  },
  {
   "code": "pmi_not_lowered",
