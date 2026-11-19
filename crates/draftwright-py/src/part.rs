@@ -937,7 +937,7 @@ mod tests {
     #[test]
     fn issue505_rounded_wedge_angle_has_significant_digits_and_clear_label() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/pmi/issue505-wedge.step");
+            .join("../../tests/fixtures/pmi/issue505-wedge.step.gz");
         let bytes = draftwright::model::read_step_file(&path).unwrap();
         let (part, analysis) = draftwright::model::analyse_native_bytes("wedge", &bytes).unwrap();
         let normals: Vec<_> = (0..part.faces.len())
