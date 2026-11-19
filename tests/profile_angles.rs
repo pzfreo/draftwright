@@ -1082,6 +1082,24 @@ fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
             assert_eq!(d.view, format!("v:{}", ["side", "front", "plan"][axis]));
         }
     }
+    // Each station is stated once across the views: the small flat's 11.542 is in the plan only.
+    let mut stated: Vec<(String, String)> = p
+        .dimensions
+        .iter()
+        .filter(|d| d.id.starts_with("d:envelope/profile_location_"))
+        .map(|d| {
+            let axis = d.id.split("profile_location_").nth(1).unwrap()[..1].to_string();
+            (axis, d.label.clone())
+        })
+        .collect();
+    let all = stated.len();
+    stated.sort();
+    stated.dedup();
+    assert_eq!(
+        stated.len(),
+        all,
+        "a station is dimensioned twice: {stated:?}"
+    );
     // Every corner is stated and located: nothing left for lint to report.
     let r = review(&path, json!({}));
     let issues: Vec<_> = r
@@ -1093,6 +1111,25 @@ fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
         .map(|i| (&i.code, &i.requirements))
         .collect();
     assert!(issues.is_empty(), "{issues:?}");
+    // Nothing about the corners or their angles needs fixing before printing: only the bore's
+    // location (#521) and the blank tolerance remain.
+    let json = serde_json::to_value(&r).unwrap();
+    let mut fixes: Vec<String> = ["problems", "lint", "structural"]
+        .iter()
+        .flat_map(|k| json[k].as_array().cloned().unwrap_or_default())
+        .filter(|f| f["tier"] == "fix_before_printing")
+        .map(|f| f["code"].as_str().unwrap().to_string())
+        .collect();
+    fixes.sort();
+    assert_eq!(
+        fixes,
+        [
+            "feature_not_dimensioned",
+            "feature_not_located",
+            "general_tolerance_missing"
+        ],
+        "{fixes:?}"
+    );
     // In inches the start is `.500`.
     let p = plan(&a, json!({"units": "in"}));
     let labels: Vec<&str> = p.dimensions.iter().map(|d| d.label.as_str()).collect();
@@ -1100,28 +1137,25 @@ fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
     assert!(labels.contains(&"25°"), "{labels:?}");
 }
 
-/// #520: an obtuse corner of one principal and one oblique edge states the acute angle to the face
-/// it meets, not the obtuse supplement. The pentagon's corners are 123.69° (its sloping side
-/// against the right side) and 146.31° (against the top): under the `angle` choice they print
-/// 56.31° and 33.69°, each claiming its own corner.
+/// #519: the limit is a fraction of the part's larger extent in the view, so a 1 mm edge break on
+/// a 40 × 3 profile (a third of its thickness) stays `C1`.
 #[test]
-fn an_obtuse_corner_states_its_acute_angle() {
-    let a = part(&PENTAGON);
-    let p = plan(
-        &a,
-        json!({"faces": {"face:1": {"profile_corners": "angle"}}}),
-    );
-    let mut found: Vec<f64> = angles(&p)
-        .iter()
-        .map(|d| d.label.trim_end_matches('°').parse().unwrap())
-        .collect();
-    found.sort_by(f64::total_cmp);
-    assert_eq!(found.len(), 2, "{found:?}");
-    assert!(
-        (found[0] - 33.69).abs() < 0.01 && (found[1] - 56.31).abs() < 0.01,
-        "{found:?}"
-    );
-    for d in angles(&p) {
-        assert_eq!(d.measurements.len(), 1);
-    }
+fn a_small_chamfer_on_a_thin_profile_stays_c() {
+    let a = part(&[[0., 0.], [39., 0.], [40., 1.], [40., 3.], [0., 3.]]);
+    let p = plan(&a, json!({}));
+    let found = chamfers(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].label, "C1");
+}
+
+/// #520: start point and angle only for an angle that was designed: whole or half degrees. A cut
+/// that ends at a computed intersection (mfcadpp/10155's 2.529°) keeps its two lengths, never a
+/// dropped fractional angle.
+#[test]
+fn a_cut_at_a_computed_angle_keeps_its_two_lengths() {
+    let far = 40. - 12. * 2.529f64.to_radians().tan();
+    let a = part(&[[0., 0.], [40., 0.], [40., 8.], [far, 20.], [0., 20.]]);
+    let p = plan(&a, json!({}));
+    assert!(angles(&p).is_empty(), "{:?}", angles(&p));
+    assert_eq!(stations(&p).len(), 2, "{:?}", stations(&p));
 }

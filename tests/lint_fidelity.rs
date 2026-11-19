@@ -417,6 +417,27 @@ fn an_angles_rays_are_the_corners_physical_edges() {
     );
 }
 
+/// An edge's inclination (a cut's 25° from the vertical): one ray is a horizontal or vertical
+/// reference lying along no edge, the other a visible edge starting at the vertex. A reference
+/// along an edge, an edge not starting at the vertex, or two references are still refused.
+#[test]
+fn an_edges_inclination_to_a_reference_needs_an_edge_at_the_vertex() {
+    let code = "angular_support_mismatch";
+    let check = |edges: Vec<Curve>| {
+        let issues = structural::check(&sheet(1.0, edges, vec![(angle(0.0, 75.0, 20.0), "75")]));
+        found(&issues, code).len()
+    };
+    // The 75° edge starts at the vertex; the horizontal reference has none.
+    assert_eq!(check(vec![Curve::Line(VERTEX, polar(60.0, 75.0))]), 0);
+    // The edge starts 10 mm from the vertex: not a corner.
+    assert_eq!(
+        check(vec![Curve::Line(polar(10.0, 75.0), polar(60.0, 75.0))]),
+        1
+    );
+    // Neither ray has an edge.
+    assert_eq!(check(Vec::new()), 1);
+}
+
 /// LINT-angular-profile_angle_requirement: a regular polygon's equal corners carry one counted
 /// angle, proved by the closed loop of visible edges through the drawn corner, which must have
 /// exactly that many corners, each at the stated angle.

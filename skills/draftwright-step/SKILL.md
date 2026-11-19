@@ -271,13 +271,14 @@ Either way, save the final Spec to a file with your deliverables.
   FROM part.step" without inventing values, and tell the person.
 - Section views carry no dimensions of their own; pictorials (`views/iso/direction`) take none.
 - A corner cut is dimensioned the way it is designed: its start point (a station from a face)
-  and the acute angle it leans by (25°, not 155°), with no computed length for where it ends.
-  `C` is only for a 45° chamfer under 30% of the part's smaller extent in that view; a larger
-  cut is a feature. A cut that slopes on two axes has no single true angle, so each view states
-  only the angle of the face it shows square-on (side 25°, plan 45°); check them against the
-  model. To state one yourself (omit the automatic one first), author an `angle` dimension
-  between two coplanar edges (the cut's edge and the face edge it leans from) and the start
-  distance as a linear one.
+  and the angle it leans by, with no computed length for where it ends. The angle is measured
+  from the nearest principal direction, so it never exceeds 45° (25° from the vertical; a 60°
+  base angle prints 30°). `C` is only for a 45° chamfer under 25% of the part's larger extent in
+  that view; a larger cut is a feature. A cut that slopes on two axes has no single true angle,
+  so each view states only the angle of the face it shows square-on (side 25°, plan 45°); check
+  them against the model. To state one yourself (omit the automatic one first), author an
+  `angle` dimension between two coplanar edges (the cut's edge and the face edge it leans from)
+  and the start distance as a linear one.
 - Adding a section can push views onto a second sheet; check `plan.json` sheets after adding one.
 - `half_section` is offered but not drawn (#530); `unclaimed_geometry` faces can't be looked up (#531).
 - Nothing is reported for: features with no size or location (open slots), angle labels

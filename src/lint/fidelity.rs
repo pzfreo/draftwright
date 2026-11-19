@@ -31,7 +31,9 @@
 //!   ends are on the circle.
 //! - `angular_support_mismatch` (`lint_angular_supports`, its drawn half): each ray must lie
 //!   along a straight visible edge of the view, either both forwards or both extended backwards,
-//!   so the angle remains the corner's physical included angle, and a quantity mark (`n×`) cannot be proved by one drawn corner, so it is
+//!   so the angle remains the corner's physical included angle; or an edge's inclination, an
+//!   edge starting at the vertex against a horizontal or vertical reference through it that lies
+//!   along no edge; and a quantity mark (`n×`) cannot be proved by one drawn corner, so it is
 //!   refused. draftwright compares the drawn witnesses with the supports its registry binds;
 //!   lint here has the drawn view's edges, which the faces of an angle shown true project to.
 //! - `datum_leader_remote` (`_lint_datum_leader_locality`): a datum feature symbol (a PMI datum,
@@ -633,6 +635,31 @@ fn angular(drawing: &Drawing, d: &Drawn, label: &str, view: Option<&str>) -> Vec
                 && len(sub(*b, *a)) > ON_EDGE
         })
     };
+    // An edge's inclination: the angle between a visible edge that starts at the vertex (a corner
+    // of the outline) and a horizontal or vertical reference through it that lies along no edge
+    // (a cut's 25° from the vertical). The reference is the view's own direction. A ray that does
+    // lie along an edge keeps the rule above: against another ray extended behind the vertex it
+    // would be the corner's supplement. Two reference rays, or an edge not at the vertex, are
+    // refused.
+    let reference = |r: P| {
+        (r[0].abs() > 1.0 - 1e-6 || r[1].abs() > 1.0 - 1e-6)
+            && !supported(r, 1.0)
+            && !supported(r, -1.0)
+    };
+    let at_corner = |ray: P| {
+        edges.iter().any(|[a, b]| {
+            let across = |p: P| cross(ray, sub(p, vertex)).abs();
+            let starts = |p: P| len(sub(p, vertex)) <= ON_EDGE;
+            across(*a) <= ON_EDGE
+                && across(*b) <= ON_EDGE
+                && (starts(*a) || starts(*b))
+                && len(sub(*b, *a)) > ON_EDGE
+        })
+    };
+    let inclination = |u: P, v: P| {
+        (reference(v) && !reference(u) && at_corner(u))
+            || (reference(u) && !reference(v) && at_corner(v))
+    };
     let quantity = match number(label.trim()) {
         Some((n, rest)) if rest.trim_start().starts_with('×') => n,
         _ => 1.0,
@@ -657,7 +684,8 @@ fn angular(drawing: &Drawing, d: &Drawn, label: &str, view: Option<&str>) -> Vec
             "its quantity {quantity}× is not proved by the one corner drawn"
         ))
     } else if !((supported(u, 1.0) && supported(v, 1.0))
-        || (supported(u, -1.0) && supported(v, -1.0)))
+        || (supported(u, -1.0) && supported(v, -1.0))
+        || inclination(u, v))
     {
         Some("a ray does not lie along a visible edge of its view".to_string())
     } else {

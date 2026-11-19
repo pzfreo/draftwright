@@ -121,19 +121,22 @@ impl Corner {
         (a != b).then(|| if a { self.ends[1] } else { self.ends[0] })
     }
 
-    /// How its oblique edge leans from the nearest principal direction of the view (the edge's
-    /// own direction or its perpendicular, either way along): how a cut is designed, a start
-    /// point and a slope, rather than the corner's included angle. Never more than 45°. A tie
-    /// (a 45° cut) takes the direction that lies outside the material.
+    /// How its oblique edge leans: its angle from the nearest principal direction of the view,
+    /// the edge's own direction or its perpendicular, either way along. Never more than 45°, so
+    /// a trapezoid's designed 60° base angle is stated as the 30° it leans from the vertical,
+    /// and Jern's cut as 25° from the vertical rather than 65° to its base. How a cut is
+    /// designed, a start point and a slope, rather than the corner's included angle. A tie (a
+    /// 45° cut) takes the perpendicular to the principal edge, which is a reference no edge lies
+    /// along.
     pub fn lean(&self) -> Option<Lean> {
         let end = self.oblique_end()?;
         let o = unit(flat(sub(end, self.vertex), self.axis));
-        let (u, v) = (
-            unit(flat(sub(self.first, self.vertex), self.axis)),
-            unit(flat(sub(self.second, self.vertex), self.axis)),
-        );
+        let [first, _] = self.principal_edges();
+        let along = unit(flat(
+            sub(if first { self.ends[0] } else { self.ends[1] }, self.vertex),
+            self.axis,
+        ));
         let angle = |a: P3, b: P3| norm(cross(a, b)).atan2(dot(a, b));
-        let inside = |r: P3| (angle(u, r) + angle(r, v) - angle(u, v)).abs() < 1e-6;
         let mut best: Option<(P3, f64)> = None;
         for k in (0..3).filter(|&k| k != self.axis) {
             for sign in [1., -1.] {
@@ -142,7 +145,9 @@ impl Corner {
                 let a = angle(r, o);
                 let better = match best {
                     None => true,
-                    Some((held, b)) => a < b - 1e-6 || ((a - b).abs() <= 1e-6 && inside(held)),
+                    Some((held, b)) => {
+                        a < b - 1e-6 || ((a - b).abs() <= 1e-6 && dot(held, along).abs() > 0.5)
+                    }
                 };
                 if better {
                     best = Some((r, a));
