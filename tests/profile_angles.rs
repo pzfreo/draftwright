@@ -1275,3 +1275,48 @@ fn a_fillet_at_either_end_of_a_cut_is_review_clean() {
         }
     }
 }
+
+/// A chamfer splits a cut into two oblique edges, so locate all their endpoints. A bore
+/// breaking out of one straight edge leaves the cut's start and inclination unchanged.
+#[test]
+fn chamfered_and_interrupted_cuts_are_located() {
+    let spec: Spec = serde_json::from_value(json!({})).unwrap();
+    for geometry in ["start-chamfer", "far-chamfer", "breakout"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "tests/fixtures/parts/block-cut-25-{geometry}.step.gz"
+        ));
+        for mode in [Features::None, Features::Native] {
+            let p = api::plan_from(&path, mode, &spec).unwrap();
+            let lengths = stations(&p);
+            assert!(
+                lengths.iter().all(|d| d.placed.is_some()),
+                "{geometry} {mode:?}: {lengths:?}"
+            );
+            if geometry == "breakout" {
+                assert_eq!(lengths.len(), 1, "{lengths:?}");
+                assert!(station_reaches(lengths[0], 8., 0., 20.));
+                let angles = angles(&p);
+                assert_eq!(angles.len(), 1, "{angles:?}");
+                assert_eq!(angles[0].label, "25°");
+                assert!(angles[0].placed.is_some());
+            } else {
+                assert_eq!(lengths.len(), 4, "{geometry} {mode:?}: {lengths:?}");
+                assert!(angles(&p).is_empty(), "{:?}", angles(&p));
+            }
+            let r = api::review_from(&path, mode, &spec).unwrap();
+            let corner_issues: Vec<_> = findings(&r)
+                .filter(|(code, _)| {
+                    code.starts_with("angular_") || *code == "profile_corner_unlocated"
+                })
+                .collect();
+            assert!(
+                corner_issues.is_empty(),
+                "{geometry} {mode:?}: {corner_issues:?}"
+            );
+            let fixes: Vec<_> = findings(&r)
+                .filter_map(|(code, tier)| (tier == Tier::FixBeforePrinting).then_some(code))
+                .collect();
+            assert_eq!(fixes, ["general_tolerance_missing"], "{geometry} {mode:?}");
+        }
+    }
+}

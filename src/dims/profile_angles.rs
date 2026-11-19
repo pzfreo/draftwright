@@ -165,22 +165,49 @@ fn mirrored(a: &Corner, b: &Corner) -> bool {
     })
 }
 
-/// Whether *c* is one end of a cut across a corner of principal edges (l-plate-5-holes' 45°
-/// cut, a bracket's corner chamfers, a chamfered rectangle's octagon): one of its edges is
-/// principal, and the corner of *corners* at the other end of its oblique edge also meets a
-/// principal edge.
+/// Whether *c* belongs to a cut across principal edges, including an obtuse chain where
+/// another chamfer interrupts the cut. Such a chain is located by its endpoint stations.
 fn cut(c: &Corner, corners: &[&Corner]) -> bool {
     let principal = c.principal_edges();
-    if principal[0] == principal[1] {
-        return false;
-    }
     let oblique = c.edge_ids()[usize::from(principal[0])];
-    corners.iter().any(|d| {
-        d.feature != c.feature && {
-            let (ids, p) = (d.edge_ids(), d.principal_edges());
-            (ids[0] == oblique && p[1]) || (ids[1] == oblique && p[0])
+    if principal[0] != principal[1]
+        && (corners.iter().any(|d| {
+            d.feature != c.feature && {
+                let (ids, p) = (d.edge_ids(), d.principal_edges());
+                (ids[0] == oblique && p[1]) || (ids[1] == oblique && p[0])
+            }
+        }) || partner(c, corners.iter().copied()).is_some())
+    {
+        return true;
+    }
+    // A chamfer at an end of a cut inserts another oblique edge. Follow the convex,
+    // obtuse chain to the principal edges on both sides before choosing its linear fallback.
+    let terminal_axis = |edge: usize| {
+        let (mut at, mut edge) = (c, edge);
+        for _ in 0..corners.len() {
+            if at.degrees() <= 90. + 1e-6 {
+                return None;
+            }
+            if at.principal_edges()[edge] {
+                return (0..3)
+                    .find(|&k| k != at.axis && (at.ends[edge][k] - at.vertex[k]).abs() > 1e-6);
+            }
+            let (next, back) = corners
+                .iter()
+                .filter(|d| {
+                    d.feature != at.feature
+                        && (0..3).all(|k| (d.vertex[k] - at.ends[edge][k]).abs() < 1e-6)
+                })
+                .find_map(|&d| {
+                    (0..2)
+                        .find(|&e| (0..3).all(|k| (d.ends[e][k] - at.vertex[k]).abs() < 1e-6))
+                        .map(|e| (d, e))
+                })?;
+            (at, edge) = (next, 1 - back);
         }
-    }) || partner(c, corners.iter().copied()).is_some()
+        None
+    };
+    matches!((terminal_axis(0), terminal_axis(1)), (Some(a), Some(b)) if a != b)
 }
 
 /// A cut's oblique edge against a principal direction of the view, as an

@@ -336,35 +336,52 @@ fn common_tangent(a: &Analysis, s: &Source, axis: usize, line: (P3, P3)) -> bool
     })
 }
 /// The far end of line support *i*: its start (or its end, *forward*), or the theoretical
-/// sharp vertex with the next line when a single arc rounds that end.
+/// sharp vertex with the next line when a single arc rounds that end. Collinear pieces
+/// continue across a breakout arc to the next actual corner.
 fn far_end(p: &Profile, i: usize, forward: bool) -> P3 {
     let n = p.supports.len();
     let Support::Line { start, end } = p.supports[i] else {
         unreachable!("corner edges are lines")
     };
-    let (at, step) = if forward { (end, 1) } else { (start, n - 1) };
-    let (arc, next) = ((i + step) % n, (i + 2 * step) % n);
-    if let (Support::Arc { .. }, Support::Line { start: c0, end: c1 }) =
-        (&p.supports[arc], &p.supports[next])
-    {
-        let (u, v) = (unit(sub(end, start)), unit(sub(*c1, *c0)));
-        let turn = dot(cross(u, v), p.normal);
-        if turn.abs() > 1e-8 {
-            let t = dot(cross(sub(*c0, start), v), p.normal) / turn;
-            return [0, 1, 2].map(|k| start[k] + t * u[k]);
-        }
-    }
-    // A straight edge the B-rep splits (the flat an inclined bore breaks out of is one) ends
-    // where its last collinear piece ends: the edge's far end, not the split.
-    let (mut at, mut k) = (at, i);
+    let (mut at, step) = if forward { (end, 1) } else { (start, n - 1) };
+    let u = unit(sub(end, start));
+    let mut k = i;
     for _ in 0..n {
         let next = (k + step) % n;
+        let (next, connection) = match p.supports[next] {
+            Support::Arc {
+                start: a, end: b, ..
+            } => {
+                let (here, there) = if forward { (a, b) } else { (b, a) };
+                if norm(sub(here, at)) > 1e-6 {
+                    break;
+                }
+                ((next + step) % n, there)
+            }
+            _ => (next, at),
+        };
         let Support::Line { start: c0, end: c1 } = p.supports[next] else {
             break;
         };
         let (here, there) = if forward { (c0, c1) } else { (c1, c0) };
-        let (u, v) = (unit(sub(end, start)), unit(sub(c1, c0)));
-        if norm(sub(here, at)) > 1e-6 || norm(cross(u, v)) > 1e-8 || dot(u, v) <= 0. {
+        if norm(sub(here, connection)) > 1e-6 {
+            break;
+        }
+        let v = unit(sub(c1, c0));
+        let turn = dot(cross(u, v), p.normal);
+        if connection != at && turn.abs() > 1e-8 {
+            // A rounded end has its theoretical sharp intersection with the next line.
+            let t = dot(cross(sub(c0, start), v), p.normal) / turn;
+            return [0, 1, 2].map(|j| start[j] + t * u[j]);
+        }
+        // A split straight edge can resume across a hole's arc. Both pieces and the
+        // arc's endpoints must lie on the same line and continue in the same direction.
+        let sense = if forward { 1. } else { -1. };
+        if norm(cross(sub(here, start), u)) > 1e-6
+            || norm(cross(u, v)) > 1e-8
+            || dot(u, v) <= 0.
+            || sense * dot(sub(here, at), u) < -1e-6
+        {
             break;
         }
         (at, k) = (there, next);
