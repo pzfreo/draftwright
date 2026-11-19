@@ -183,8 +183,8 @@ fn cut(c: &Corner, corners: &[&Corner]) -> bool {
     }) || partner(c, corners.iter().copied()).is_some()
 }
 
-/// A corner's angle as an [`super::angular::Angle`]: the corner itself, or (*lean*) how its
-/// oblique edge leans from the principal direction it is measured from.
+/// How a cut's oblique edge leans from the principal direction it is measured from, as an
+/// [`super::angular::Angle`] at *c* towards *toward*.
 fn lean_angle(c: &Corner, reference: [f64; 3], toward: [f64; 3]) -> super::angular::Angle {
     let length = (0..3)
         .map(|k| (toward[k] - c.vertex[k]).powi(2))
@@ -199,13 +199,23 @@ fn lean_angle(c: &Corner, reference: [f64; 3], toward: [f64; 3]) -> super::angul
 
 fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> Want {
     let c = corners[0];
-    // An obtuse corner of one principal edge and one oblique one states how the oblique edge
-    // leans (25°, not 155°; #520), never the supplement. Counted corners keep the included angle.
-    let lean = (corners.len() == 1 && c.degrees() > 90. + 1e-6)
-        .then(|| c.lean().zip(c.oblique_end()))
+    // An obtuse corner of one principal edge and one oblique one states the acute angle between
+    // the oblique edge and the principal edge's extension (25°, not 155°; #520). The included
+    // angle stays for a corner of two oblique edges, and for counted corners.
+    let acute = (corners.len() == 1 && c.degrees() > 90. + 1e-6)
+        .then(|| {
+            let [a, b] = c.principal_edges();
+            (a != b).then(|| {
+                if a {
+                    (c.ends[0], c.ends[1])
+                } else {
+                    (c.ends[1], c.ends[0])
+                }
+            })
+        })
         .flatten();
     // atan2 differs in its last bits between native and WASM libm; the plan's value must not.
-    let value = (lean.map_or(c.degrees(), |(l, _)| l.degrees) * 1e9).round() / 1e9;
+    let value = (acute.map_or(c.degrees(), |_| 180. - c.degrees()) * 1e9).round() / 1e9;
     let mut text = format!("{}°", fmt(value));
     if corners.len() > 1 {
         text = format!("{}× {text}", corners.len());
@@ -230,9 +240,13 @@ fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> 
         // Witnesses at the far ends of the corner's straight edges: their lengths bound how far
         // the arc may reach (a rounded corner's tangent points would bound it too tightly).
         shape: Shape::Angular {
-            angle: lean.map_or_else(
+            angle: acute.map_or_else(
                 || corner_angle(c),
-                |(l, end)| lean_angle(c, l.reference, end),
+                |(principal, oblique)| super::angular::Angle {
+                    vertex: c.vertex,
+                    first: [0, 1, 2].map(|k| 2. * c.vertex[k] - principal[k]),
+                    second: oblique,
+                },
             ),
             alternates: corners[1..].iter().map(|c| corner_angle(c)).collect(),
         },

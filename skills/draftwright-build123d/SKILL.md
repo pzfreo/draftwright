@@ -184,8 +184,11 @@ Open the PDF and look at every sheet. Known blind spots, where nothing is report
 - Every thread, fit, knurl, finish and note you stated actually appears.
 
 A clean problem list does not mean ready to make: until checks follow the purpose, check
-the title block yourself for missing material, tolerance and finish. Automatic `C` chamfer
-callouts are wrong on corner cuts sloping on two axes (#519); check them.
+the title block yourself for missing material, tolerance and finish. A corner cut is stated by
+its start point and its acute angle (25°, not 155°); `C` is only for small 45° chamfers. Check
+a cut that slopes on two axes against the model: each view states the angle of the face it
+shows square-on. To state one yourself, author an `angle` dimension between two coplanar edges
+plus the start distance.
 
 Done means: fit for its stated purpose, no `fix_before_printing` left unexplained, no
 row errors, page count matches the made parts plus the GA for a pack, every stated

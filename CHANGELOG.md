@@ -6,6 +6,18 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Corner cuts are dimensioned the way they were designed. `C<leg>` is only for a 45° cut
+  whose leg is at most 30% of the part's smaller extent in the view; a larger or non-45° cut is a
+  feature of the part, and Jern's 53% corner cut no longer prints `C27.112` (#519). A cut across a
+  corner of principal edges that starts at a round distance (a tenth of a millimetre, a 32nd of
+  an inch) and ends where nothing is round prints that start station and the angle it leans by,
+  never a second computed length (`.500` and `25°`, not `1.067`); its far end, and the same
+  cut's trace in another view, follow from them and lint credits that. An obtuse corner of one
+  principal and one oblique edge states the acute lean from the nearest principal direction
+  (`25°`, not `155°` or `115°`; `45°`, not `135°`). A cut the B-rep splits into collinear pieces
+  is one edge (#520). A cut sloping on two axes states in each view only the angle of the face
+  seen square-on there; auxiliary views remain #521.
+
 - PMI finish attachments try intact cylindrical stations beyond grooves (#461).
   Automatic linear dimensions can yield their strip to a finish's normal leader
   when the complete drawing proves a clear alternative.

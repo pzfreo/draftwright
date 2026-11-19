@@ -444,6 +444,10 @@ fn leaning_spans(
     spans: &[(usize, f64, f64)],
 ) -> Vec<(usize, f64, f64)> {
     let corners = requirements(a);
+    // Only a cut's two corners can be stated together: most parts have none.
+    if !corners.iter().any(|c| partner(c, &corners).is_some()) {
+        return Vec::new();
+    }
     let mut pairs: Vec<(&Corner, &Corner)> = Vec::new();
     for m in super::marks(drawing) {
         let plain = m
