@@ -1,12 +1,13 @@
 ---
 name: draftwright-build123d
-description: Produce manufacturing drawings from build123d parts and assemblies with the draftwright Python API (Part, Drawing, Pack). Use when a build123d script needs a drawing, requirements such as fits, threads, GD&T or surface finish stated on its faces, or an assembly drawing pack.
+description: Produce drawings from build123d parts and assemblies with the draftwright Python API (Part, Drawing, Pack), fit for the purpose the person states (review, manufacture, inspection, assembly). Use when a build123d script needs a drawing, requirements the person gave (fits, threads, GD&T, finish) stated on its faces, or an assembly drawing pack.
 ---
 
 # Drawings from build123d with draftwright
 
-You turn a build123d model into a drawing a machinist can work from. The engine
-chooses views, scale and dimensions; you state the requirements on the faces you
+You turn a build123d model into a drawing fit for its purpose: a review drawing needs
+geometry; a manufacturing drawing also needs the requirements the person gives. The engine
+chooses views, scale and dimensions; you state those requirements on the faces you
 modelled, render, read the problems, and look at every sheet. Covers the draftwright
 Python package **0.6.0 and later** (checked on 0.6.0, the newest on PyPI when written). The person
 guide and the full reference (not installed) are
@@ -73,10 +74,14 @@ uv run --no-project --python 3.12 \
 
 ## State requirements
 
+Only what the purpose needs and the person stated; every value below stands for one the
+person gave you. Unknown: `UNSPECIFIED`, and list it as open.
+
 ```python
 p = dw.Part(body, "bracket", number="DWG-210", title="Motor bracket")
-p.process("machined").material("6082-T6").general_tolerance("ISO 2768-mK")
-p.note("Break all sharp edges 0.2 max.").default_finish(3.2)
+p.material(MATERIAL_THE_PERSON_GAVE)          # else p.material("UNSPECIFIED")
+p.general_tolerance(TOLERANCE_THE_PERSON_GAVE) # else p.general_tolerance("UNSPECIFIED")
+p.note(NOTE_THE_PERSON_GAVE)                  # e.g. their edge-break note
 
 A = p.datum("A", bottom_face)                 # declare datums before use
 bearing = p.hole(f.bore).fit("H7").position(0.05, A, B, C)

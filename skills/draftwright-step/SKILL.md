@@ -37,8 +37,6 @@ on those releases. Over MCP this file is the resource `draftwright://skill/draft
 | Requirements | the purpose needs tolerances, material, finish or GD&T (manufacture, inspection), and the person gives them | Specify writes PMI into a new STEP, then the loop on that file |
 
 PMI already in the STEP (from its CAD tool) is drawn on either route; do not restate it.
-If the person is not there to answer Specify's questions, take the geometry route and list
-the questions in your report. Do not answer them for the person.
 
 ## Setup and versions
 
@@ -50,16 +48,18 @@ draftwright --version                    # draftwright 0.6.1 (quiddity-rust 0.5.
 pipx list --short                        # specify-core has no --version flag
 ```
 
-A result is JSON on stdout. A refusal is a plain `error:` line on **stderr** (with
-`choose from:` / `entry:` lines when there are choices), empty stdout, and exit 2 (invalid) or
-1 (failed). Keep stderr visible, and don't let a failed edit replace your Spec:
+A result is JSON on stdout. A refusal is a plain `error:` line (`Error:` for some I/O
+failures) on **stderr**, with `choose from:` / `entry:` lines when there are choices, empty
+stdout, and exit 2 (invalid) or 1 (failed). Keep stderr visible, and don't let a failed edit
+replace your Spec:
 
 ```sh
 draftwright edit spec.json ops.json > next.json && mv next.json spec.json
 ```
 
-`render -o DIR/stem` needs `DIR` to exist: `mkdir -p out` first ("cannot write …: No such
-file or directory").
+`edit` checks the Spec's shape, not every value (`sheet/size` `B7` passes `edit`; the next
+`render`/`plan` refuses it), so render after each edit. `render -o DIR/stem` needs `DIR` to
+exist: `mkdir -p out` first.
 
 ## The working loop
 
@@ -75,8 +75,8 @@ draftwright render part.step --spec spec.json -o out/part --formats svg,pdf,png 
 draftwright plan part.step --spec spec.json > plan.json  # ids, bases, view states; no files
 ```
 
-Each problem has `tier`, `code`,
-`message`, `subjects` (ids) and often `fix`/`fixes` (ready ops; read them before applying):
+Each problem has `tier`, `code`, `message`, `subjects` (ids) and often `fix`/`fixes` (ready
+ops; read them before applying):
 
 - `fix_before_printing`: wrong or missing. Geometry problems (an unlocated feature, overlaps)
   matter for every purpose: fix them or report why you could not. A missing requirement
@@ -84,8 +84,8 @@ Each problem has `tier`, `code`,
 - `tidy`: crowded or crossing. Fix what a reader would trip over.
 - `information`: context. `pmi_not_extracted` about "attribute sets" is normal after Specify.
 
-`general_tolerance_missing` is `fix_before_printing`; its offered fix writes `UNSPECIFIED`
-(rule 3), right for a purpose that needs no tolerance. Open the PNG after every render that changes layout.
+`general_tolerance_missing`'s offered fix writes `UNSPECIFIED` (rule 3). Open the PNG after
+every render that changes layout.
 
 ## Ids and Spec paths
 
@@ -100,7 +100,6 @@ Edit ops: `{"op": "set" | "remove" | "add", "path": "a/b/c", "value": ...}`. In 
 | Notes | `{"op":"add","path":"notes","value":{"text":"..."}}` | ids are assigned `n:1`, `n:2` (not `n1`) |
 | Title block | `sheet/title/<key>` | `title`, `number`, `material`, `tolerance`, `drawn_by`, `approved_by`, `date`, `revision`, `company`, `document_type` |
 | Sheet | `sheet/size` (`A4`…`A0`, `ANSI A`…`E`), `sheet/scale` (`"1:1"`, `"2:1"`), `sheet/paper` (`iso`/`ansi`), `sheet/projection` (`first`/`third`) | size and paper must be the same family |
-| Units | `units` (`mm` or `in`) | or `render --units in` |
 
 List the dimensions and the problems (or use MCP `list_items` / `list_problems`):
 
@@ -109,18 +108,17 @@ jq -r '.dimensions[] | [.id, .label, .view, .state.kind] | @tsv' plan.json
 jq -r '.problems[] | [.tier, .code, (.subjects | join(" "))] | @tsv' r.json
 ```
 
-Full schema: `draftwright spec_schema` prints `{"spec": {...}, "spec_read": {...}}`; fields are
-in `.spec.properties`, shapes in `.spec.$defs` (`view`, `break`, `dimension`, `place`, `sheet`).
-Prose reference (not installed): https://github.com/pzfreo/draftwright/blob/v0.6.1/docs/model.md
+Schema: `draftwright spec_schema` → `.spec.properties`, shapes in `.spec.$defs` (`view`, `break`,
+`dimension`, `place`, `sheet`). Prose: https://github.com/pzfreo/draftwright/blob/v0.6.1/docs/model.md
 
 Render, review and plan flags: `--size A3`, `--max-size A3` (largest paper the engine may
 pick), `--scale 1:2` (or `0.5`, `2`), `--units in`, `--paper ansi`, `--part K`, and repeatable
-`--set PATH=VALUE` (value parsed as JSON, else text), e.g.
-`--set views/iso/omit=true --set "sheet/title/title=MOUNTING PLATE"`. Render also takes
-`--title --number --material --tolerance --drawn-by --revision --date --company --approved-by
---formats --dpi`. Flags override `--spec`, and the drawing embeds the result, so
-`draftwright spec` reads them back. A `--set` path that a named flag also sets is refused. On `pack`, size and
-scale affect only the GA; max-size reaches every sheet.
+`--set PATH=VALUE` (JSON, else text), e.g. `--set views/iso/omit=true`. Render also takes
+`--title --number --drawn-by --revision --date --company --approved-by --formats --dpi`.
+**`--material`/`--tolerance` and `sheet/title/material`/`tolerance` are only for
+`UNSPECIFIED`**: real values are PMI written with Specify (rule 1). Flags override `--spec`,
+the drawing embeds the result (`draftwright spec` reads it back), and a `--set` path that a
+named flag also sets is refused. On `pack`, size and scale affect only the GA.
 
 ## Common edits (ops.json)
 
@@ -135,7 +133,7 @@ scale affect only the GA; max-size reaches every sheet.
   {"op":"set","path":"dimensions/d:envelope~1width.length/omit","value":true},
   {"op":"set","path":"dimensions/d:envelope~1height.length/place","value":{"view":"side","side":"left"}},
   {"op":"set","path":"dimensions/d:envelope~1depth.length/style","value":"reference"},
-  {"op":"add","path":"notes","value":{"text":"MATERIAL AND FINISH NOT SPECIFIED - CONFIRM BEFORE MANUFACTURE."}} ]
+  {"op":"add","path":"notes","value":{"text":"MATERIAL AND FINISH: NOT STATED"}} ]
 ```
 
 - `place`: `view`, `side` (`above`/`below`/`left`/`right`), `lane`, `along`, or
@@ -145,25 +143,23 @@ scale affect only the GA; max-size reaches every sheet.
   pushed it before overriding. After omitting a view, check the views in `plan.json`: one that
   a section or dimension depends on may be kept or moved.
 - An edit naming an id that no longer exists is reported (`dimension_edit_unapplied`). Fix it.
-- Notes carry drawing information ("BORE POSITION: TAKE FROM part.step"), not requirements.
+- Notes carry drawing information, not requirements, and nothing goes on the sheet because
+  of the purpose (no "not for manufacture" stamps).
 
 ## Sections, breaks, details
 
 ```json
 [ {"op":"set","path":"views/sections","value":[{"id":"A","through":"f:hole:f9"}]},
-  {"op":"set","path":"views/front/break","value":{}},
   {"op":"set","path":"views/front/break","value":{"axis":"x","remove":[60,540]}},
   {"op":"set","path":"views/detail_a","value":{"detail":{"around":"f:hole:f12","scale_factor":3}}} ]
 ```
 
-- `through` names a recognised **feature id** (a hole, pocket or recess); the cut runs through
-  it. Find ids in `plan.json` `ids` or in dimension ids. Section letters `A`–`H`.
-- A break `{}` picks the longest uniform span; `remove` is a model-mm interval along `axis`.
-  It carries to the aligned views. Start with `{}` and read the applied `remove` in
-  `plan.json` (there `axis` is a view index, not x/y/z). `break_not_applied` says why a
-  request was refused. Use a
-  break for long bars and extrusions so the features read at a useful scale. Dimensions
-  across a break keep their true values.
+- `through` names a recognised **feature id** (hole, pocket, recess) from `plan.json` `ids`
+  or dimension ids. Section letters `A`–`H`.
+- Breaks suit long bars and extrusions. `{}` picks the longest uniform span; `remove` is a
+  model-mm interval along `axis`, carried to aligned views. Start with `{}` and read the
+  applied `remove` in `plan.json` (there `axis` is a view index). `break_not_applied` says
+  why a request was refused. Dimensions across a break keep their true values.
 
 ## Dimensions you add from geometry
 
@@ -195,31 +191,31 @@ jq -r '.edge_ink.references | to_entries[] | [.key, .value[0].kind,
 
 ## Units
 
-`analysis.json` `declared_length_unit` is what the STEP declares; a declared-inch part is drawn
-in inches on ANSI paper. If a millimetre STEP has round inch sizes (50.8, 63.5, 12.7: multiples
-of 25.4), it was probably designed in inches: consider `{"op":"set","path":"units","value":"in"}`
-with `sheet/paper` `ansi`, and say why. A size that is round in neither unit (e.g. 11.993) is
-drawn as modelled: report it, never round it by hand.
+`analysis.json` `declared_length_unit` is what the STEP declares (inch parts draw in inches on
+ANSI paper). A millimetre STEP with round inch sizes (50.8, 63.5: multiples of 25.4) was
+probably designed in inches: consider `units` `in` with `sheet/paper` `ansi`, and say why. A
+size round in neither unit (11.993) is drawn as modelled: report it, never round it.
 
 ## Requirements with Specify (specify-core 0.1.18)
 
 ```sh
 specify-core analyse -o sa.json part.step
-specify-core questions sa.json --open > q.json      # id, prompt, options/suggestions, default, attention
+specify-core questions sa.json --open > q.json
 specify-core questions sa.json --answers answers.json --open   # repeat until it prints []
 specify-core write -o part-pmi.step part.step sa.json answers.json > w.json
 draftwright render part-pmi.step -o out/part --formats svg,pdf,png
 ```
 
-`answers.json` is `{question id: value}`, e.g. `{"part.material": "Aluminium 6082-T6",
-"part.general_tolerance": "ISO 2768-m", "hole.function:holes:12": "tapped:M5",
-"datum.B": [], "datum.A.flatness": "none", "part.notes": []}`.
+Each question has `id`, `prompt`, `options` or `suggestions`, `default`, `faces` (the faces it
+concerns) and `attention`: `required` (must be answered), `check` (a default Specify doubts:
+ask), `routine` or `refine`. `answers.json` is `{question id: value}`; with values the
+person gave, e.g. `{"part.material": "Aluminium 6082-T6", "part.general_tolerance":
+"ISO 2768-m", "hole.function:holes:12": "tapped:M5", "datum.B": [], "part.notes": []}`.
 
-- On 0.1.18 `write` refuses (exit 2, "incomplete: N question(s) unanswered") until **every**
-  question is answered, and general tolerance and surface finish must be one of the listed
-  values: there is no "unspecified" for them. So this route needs the person's answers for
-  material, general tolerance and finish at least. Without them, stay on the geometry route
-  and list the open questions.
+- On 0.1.18 `write` refuses (exit 2, "incomplete") until **every** question is answered, and
+  general tolerance and finish have no "unspecified" answer. So this route needs the person's
+  material, tolerance and finish; without them, stay on the geometry route and list the
+  open questions.
 - Answers that state nothing extra: `"none"` for position/flatness/control choices, `[]` for a
   datum or `part.notes`, `"general"` for a hole's function, `"No edge note"` for edges.
 - `--accept-defaults` writes every remaining default (Ra 3.2, ISO 2768-m, coating, datums,
@@ -243,33 +239,39 @@ draftwright render asm.step --part 1 -o out/pin    # one part (index or key)
 draftwright pack asm.step -o pack                  # GA + parts list + a sheet per made part
 ```
 
+`render` on an assembly reports what it drew: `assembly_drawn_whole` (all parts as one) or
+`assembly_principal_drawn` (only the largest part, holding the others). Use `--part K` for one
+part or `pack` for the set. The engine keeps the model's orientation and never rotates a part.
+A pack's Spec is its own: address the GA as `--set ga/drawing/sheet/size=A3`.
 A pack is clean when `pack/pack.json` findings and each row's `problems`/`error` are clear.
 Bought parts are listed, not drawn. `specify-core write` takes one `analysis answers` pair per part.
 
-## MCP (`draftwright mcp-stdio`)
+## MCP servers
 
-Same engine, stateless. `inspect_part {step}` gives `part_ref` and `spec_version`;
-`list_problems`; `item_options {part_ref, id}` for valid paths and choices; `preview_ops`, then
-`apply_ops {part_ref, parent: spec_version, ops}`; `view_sheet` (PNG to look at); `render_pdf`;
-`get_spec`; `spec_schema`. Read artifacts with `resources/read`. Ids, paths and ops are as above.
-Save the final Spec to a file with your deliverables.
+`draftwright mcp-stdio` (stateless sessions): `inspect_part {step}` gives `part_ref` and
+`spec_version`; `list_problems`; `item_options {part_ref, id}` for valid paths; `preview_ops`,
+then `apply_ops {part_ref, parent: spec_version, ops}`; `view_sheet` (PNG to look at);
+`render_pdf`; `get_spec`. Read artifacts with `resources/read`. Its `render` gives PNG or PDF.
+
+`draftwright-mcp` (one tool per CLI command): `analyse`, `plan`, `edit {spec, ops}`,
+`render {step, spec, output, formats}` (svg, pdf, png, dxf: files written beside the output
+stem), `review` (problems plus the drawing as SVG text to check by eye), `spec {drawing}`,
+`parts`, `pack`, `spec_schema`. Pass the Spec to every call; nothing is kept between calls.
+
+Either way, save the final Spec to a file with your deliverables.
 
 ## Known limits on 0.6.1 (state them; do not work around them)
 
-- No auxiliary views; no dimension to an inclined axis or to a point along it; no angle to a
-  cylinder's axis. An inclined bore cannot be fully dimensioned: leave
-  `feature_not_dimensioned` open, add a note such as "BORE LOCATION AND DIRECTION NOT
-  DIMENSIONED - TAKE FROM part.step" without inventing values, and tell the person.
-- No datum or face label on an inclined face ("not axis-aligned").
-- A section view does not carry its own dimensions; they stay on the principal views.
-- `views/iso/direction` turns a pictorial, but pictorials take no dimensions.
+- No auxiliary views; no dimension to an inclined axis or a point along it; no angle to a
+  cylinder's axis; no datum or face label on an inclined face. An inclined bore can't be fully
+  dimensioned: leave `feature_not_dimensioned` open, note "BORE LOCATION AND DIRECTION: TAKE
+  FROM part.step" without inventing values, and tell the person.
+- Section views carry no dimensions of their own; pictorials (`views/iso/direction`) take none.
 - An automatic `C` chamfer callout is wrong on a corner cut that slopes on two axes (#519):
   check every `C` callout against the model; if wrong, omit it and dimension the corner with
   authored dimensions.
 - Adding a section can push views onto a second sheet; check `plan.json` sheets after adding one.
-- `views/<v>/half_section` is offered but not drawn (#530).
-- Faces named by `unclaimed_geometry` (`face:<n>`) can't be looked up yet (#531).
-- MCP `render` gives PNG or PDF; SVG and DXF come from the CLI `render --formats`.
+- `half_section` is offered but not drawn (#530); `unclaimed_geometry` faces can't be looked up (#531).
 - Nothing is reported for: features with no size or location (open slots), angle labels
   touching the part, a dimension through a section arrowhead, or a requirement that did not
   reach the sheet. Check these by eye.
@@ -279,14 +281,12 @@ Save the final Spec to a file with your deliverables.
 - Requirements in the Spec (the schema has `features/*/fit`, `controls`, `datum`, `finish`:
   use Specify instead), or layout in Specify answers.
 - Hand-editing the STEP text, sidecar files, or dimension text that replaces the value.
-- Calling a drawing done from the problem list alone. A clean list does not mean ready to
-  make: until checks follow the purpose (P10), check the title block yourself for missing
-  material, tolerance and finish, and report them if the purpose needs them.
+- Calling a drawing done from the problem list alone. A clean list is not "ready to make":
+  check the title block yourself for missing material, tolerance and finish (P10).
 
 ## Finish
 
-Deliver the drawing (`.pdf`, plus `.svg`/`.png` if asked), the final Spec (`spec.json`), and the
-PMI STEP if you wrote one. Then a short report:
+Deliver the drawing (`.pdf`, `.svg`/`.png` if asked), `spec.json`, any PMI STEP, and a report:
 
 ```
 Purpose: e.g. review of geometry | manufacture (machined) | inspection | other: ...
@@ -296,5 +296,5 @@ Assumptions (please confirm): ...
 Open: requirements the purpose needs but were not given; remaining problems by code; tool limits hit
 ```
 
-Done means: fit for its stated purpose, no `fix_before_printing` left unexplained, every sheet looked at, and on the
-requirements route every written requirement visible on the sheet.
+Done means: fit for its stated purpose, no `fix_before_printing` left unexplained, every
+sheet looked at, and on the requirements route every written requirement on the sheet.
