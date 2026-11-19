@@ -348,17 +348,20 @@ fn far_end(p: &Profile, i: usize, forward: bool) -> P3 {
     let mut k = i;
     for _ in 0..n {
         let next = (k + step) % n;
-        let (next, connection) = match p.supports[next] {
+        let (next, connection, arc_center) = match p.supports[next] {
             Support::Arc {
-                start: a, end: b, ..
+                start: a,
+                end: b,
+                center,
+                ..
             } => {
                 let (here, there) = if forward { (a, b) } else { (b, a) };
                 if norm(sub(here, at)) > 1e-6 {
                     break;
                 }
-                ((next + step) % n, there)
+                ((next + step) % n, there, Some(center))
             }
-            _ => (next, at),
+            _ => (next, at, None),
         };
         let Support::Line { start: c0, end: c1 } = p.supports[next] else {
             break;
@@ -369,8 +372,14 @@ fn far_end(p: &Profile, i: usize, forward: bool) -> P3 {
         }
         let v = unit(sub(c1, c0));
         let turn = dot(cross(u, v), p.normal);
-        if connection != at && turn.abs() > 1e-8 {
-            // A rounded end has its theoretical sharp intersection with the next line.
+        if let Some(center) = arc_center
+            && turn.abs() > 1e-8
+        {
+            // Only a tangent fillet defines a theoretical sharp intersection.
+            if dot(u, sub(at, center)).abs() > 1e-6 || dot(v, sub(connection, center)).abs() > 1e-6
+            {
+                break;
+            }
             let t = dot(cross(sub(c0, start), v), p.normal) / turn;
             return [0, 1, 2].map(|j| start[j] + t * u[j]);
         }
@@ -861,4 +870,55 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             Some(finding)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_angles_support_walk_stops_at_non_tangent_arcs() {
+        let start = [2., 2., 0.];
+        let end = [3., 2., 0.];
+        // Neither tangent, tangent to the incoming line only, then tangent to the
+        // outgoing line only. All three circles pass through both arc endpoints.
+        for center in [[2.5, 2., 0.], [2.5, 1.5, 0.], [2.5, 2. + 0.5 / 0.999, 0.]] {
+            let radii = [sub(start, center), sub(end, center)];
+            let profile = Profile {
+                origin: [0.; 3],
+                normal: [0., 0., 1.],
+                supports: vec![
+                    Support::Line {
+                        start: [0.; 3],
+                        end: [1., 1., 0.],
+                    },
+                    Support::Line {
+                        start: [1., 1., 0.],
+                        end: start,
+                    },
+                    Support::Arc {
+                        start,
+                        end,
+                        center,
+                        radius: norm(radii[0]),
+                        sweep: cross(radii[0], radii[1])[2].atan2(dot(radii[0], radii[1])),
+                    },
+                    Support::Line {
+                        start: end,
+                        end: [4., 2.999, 0.],
+                    },
+                    Support::Line {
+                        start: [4., 2.999, 0.],
+                        end: [0.; 3],
+                    },
+                ],
+                inner_loop_count: 0,
+                schema_version: 1,
+                boundary_kind: "outer".into(),
+            };
+            // Extending these nearly parallel lines would invent (-997, -997).
+            assert_eq!(far_end(&profile, 0, true), start, "{center:?}");
+            assert_eq!(far_end(&profile, 3, false), end, "{center:?}");
+        }
+    }
 }
