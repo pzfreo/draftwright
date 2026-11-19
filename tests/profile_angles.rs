@@ -957,3 +957,145 @@ fn quality_angular_labels_stay_with_their_arcs() {
         "the quality survey must exercise angular dimensions"
     );
 }
+
+/// #519: `C<leg>` is for edge breaks. The octagon's 5 × 45° chamfers are a quarter of the part's
+/// 20 mm width and stay `C5`; a 2 × 45° chamfer certainly does.
+#[test]
+fn a_small_45_degree_chamfer_stays_c() {
+    let chamfered = part(&[[0., 0.], [40., 0.], [40., 18.], [38., 20.], [0., 20.]]);
+    let p = plan(&chamfered, json!({}));
+    let found = chamfers(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].label, "C2");
+}
+
+/// #519: a 45° cut of 12 mm across a corner of a 20 mm wide part (60% of its width; the limit is
+/// 30%) is a feature of the part: no `C` callout, its two stations instead.
+#[test]
+fn a_large_45_degree_corner_cut_is_dimensioned_as_a_feature() {
+    let a = part(&[[0., 0.], [40., 0.], [40., 8.], [28., 20.], [0., 20.]]);
+    let p = plan(&a, json!({}));
+    assert!(chamfers(&p).is_empty(), "{:?}", chamfers(&p));
+    assert!(
+        p.dimensions.iter().all(|d| !d.label.starts_with('C')),
+        "{:?}",
+        p.dimensions.iter().map(|d| &d.label).collect::<Vec<_>>()
+    );
+    let found = stations(&p);
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(
+        found
+            .iter()
+            .any(|d| d.id.contains("location_y") && station_reaches(d, 8., 0., 20.))
+    );
+    assert!(
+        found
+            .iter()
+            .any(|d| d.id.contains("location_x") && station_reaches(d, 28., 0., 40.))
+    );
+}
+
+/// #520: a cut designed as a start point and an angle (8 mm up the right side, 25° from the
+/// vertical) is stated so: the start's station and `25°` (not the corner's 155°), and no second
+/// computed length for where it meets the top. The far end follows from them.
+#[test]
+fn a_cut_from_a_round_start_is_a_station_and_its_acute_angle() {
+    let far = 40. - 12. * 25f64.to_radians().tan();
+    let a = part(&[[0., 0.], [40., 0.], [40., 8.], [far, 20.], [0., 20.]]);
+    let corners = profile_angles::requirements(&a);
+    // Both corners are obtuse in the profile: 155° and 115°.
+    assert_eq!(corners.len(), 2);
+    let included: Vec<f64> = corners.iter().map(Corner::degrees).collect();
+    assert!(
+        included.iter().any(|d| (d - 155.).abs() < 1e-6),
+        "{included:?}"
+    );
+    let p = plan(&a, json!({}));
+    let found = angles(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].label, "25°");
+    assert_eq!(found[0].view, "v:plan");
+    // It claims both corners of the cut.
+    assert_eq!(found[0].measurements.len(), 2);
+    let found = stations(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].id.contains("location_y") && station_reaches(found[0], 8., 0., 20.),
+        "{}",
+        found[0].label
+    );
+    assert!(chamfers(&p).is_empty());
+    // A Spec asking for the legs instead is honoured: its angle keeps the corner's own id.
+    let p = plan(
+        &a,
+        json!({"faces": {"face:1": {"profile_corners": "linear"}}}),
+    );
+    assert!(angles(&p).is_empty());
+    assert_eq!(stations(&p).len(), 2);
+}
+
+/// #519, #520, Jern's corner-cut block (`corner-cuts.step.gz`, 2.000 × 2.500 × 2.000 in, the file
+/// in mm). Its large planar cut starts 0.500 in from one face at 25°; before, it printed `C27.112`
+/// (the top face's leg), the legs `12.7` and `27.112` on the side and the obtuse 135°, 155° and
+/// 115°. Now: the side view's `12.7` and `25°`, the plan's `45°` (its location follows from the
+/// side view's start and angle), no `C`, no obtuse angle and no computed 1.067 in. The small flat
+/// beside the bore's exit is dimensioned by the legs of its cut, nothing round to start from.
+#[test]
+fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/corner-cuts.step.gz");
+    let a = model::analyse_native(&path).unwrap().1;
+    let p = plan(&a, json!({}));
+    let labels: Vec<(&str, &str)> = p
+        .dimensions
+        .iter()
+        .filter(|d| d.id.starts_with("d:envelope/profile_"))
+        .map(|d| (d.view.as_str(), d.label.as_str()))
+        .collect();
+    assert!(labels.contains(&("v:side", "25°")), "{labels:?}");
+    assert!(labels.contains(&("v:side", "12.7")), "{labels:?}");
+    assert!(labels.contains(&("v:plan", "45°")), "{labels:?}");
+    for (_, label) in &labels {
+        assert!(!label.starts_with('C'), "{labels:?}");
+        for obtuse in ["155°", "135°", "115°", "27.112", "23.688"] {
+            assert_ne!(*label, obtuse, "{labels:?}");
+        }
+    }
+    // The compound cut is stated only where an angle is true: each angle is claimed by corners of
+    // a face seen square-on in its own view, never an angle of the plane foreshortened in another.
+    for d in p.dimensions.iter().filter(|d| d.kind == "angular") {
+        for m in &d.measurements {
+            let face: usize = m
+                .feature
+                .strip_prefix("outer_profile:f")
+                .and_then(|s| s.split(':').next())
+                .and_then(|s| s.parse().ok())
+                .unwrap();
+            let source = a.outer_profiles.iter().find(|s| s.face == face).unwrap();
+            let axis = (0..3)
+                .max_by(|&i, &j| {
+                    source.profile.normal[i]
+                        .abs()
+                        .total_cmp(&source.profile.normal[j].abs())
+                })
+                .unwrap();
+            assert_eq!(d.view, format!("v:{}", ["side", "front", "plan"][axis]));
+        }
+    }
+    // Every corner is stated and located: nothing left for lint to report.
+    let r = review(&path, json!({}));
+    let issues: Vec<_> = r
+        .lint
+        .iter()
+        .filter(|i| {
+            i.code.starts_with("angular_requirement_") || i.code == "profile_corner_unlocated"
+        })
+        .map(|i| (&i.code, &i.requirements))
+        .collect();
+    assert!(issues.is_empty(), "{issues:?}");
+    // In inches the start is `.500`.
+    let p = plan(&a, json!({"units": "in"}));
+    let labels: Vec<&str> = p.dimensions.iter().map(|d| d.label.as_str()).collect();
+    assert!(labels.contains(&".500"), "{labels:?}");
+    assert!(labels.contains(&"25°"), "{labels:?}");
+}

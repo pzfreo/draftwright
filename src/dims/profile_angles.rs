@@ -41,7 +41,7 @@
 //! it never moves another item, takes a fallback or asks for more paper.
 use super::{Measurement, Shape, Want, end_on, fmt, want_id};
 use crate::lint::profile_angles::{
-    Corner, chamfer, principal_axes, requirements, undefined_stations,
+    Corner, chamfer, partner, principal_axes, requirements, undefined_stations,
 };
 use crate::model::{Analysis, Invalid, Spec};
 
@@ -109,14 +109,19 @@ fn modes(
 }
 
 /// Every station a linear dimension in *wants* reaches, rooted at the part's box and datums.
-fn located(analysis: &Analysis, wants: &[Want]) -> impl Fn(usize, f64) -> bool + use<> {
-    let spans: Vec<(usize, f64, f64)> = wants
+fn located(
+    analysis: &Analysis,
+    wants: &[Want],
+    derived: &[Span],
+) -> impl Fn(usize, f64) -> bool + use<> {
+    let spans: Vec<Span> = wants
         .iter()
         .filter(|w| !w.terms.first().is_some_and(|t| t.starts_with('(')))
         .filter_map(|w| match w.shape {
             Shape::Linear { a, b, axis, .. } => Some((axis, a[axis], b[axis])),
             _ => None,
         })
+        .chain(derived.iter().copied())
         .collect();
     let roots = crate::lint::location::roots(analysis);
     move |k, v| crate::lint::profile_angles::rooted_at(&roots[k], &spans, k, v)
@@ -175,13 +180,32 @@ fn cut(c: &Corner, corners: &[&Corner]) -> bool {
             let (ids, p) = (d.edge_ids(), d.principal_edges());
             (ids[0] == oblique && p[1]) || (ids[1] == oblique && p[0])
         }
-    })
+    }) || partner(c, corners.iter().copied()).is_some()
+}
+
+/// A corner's angle as an [`super::angular::Angle`]: the corner itself, or (*lean*) how its
+/// oblique edge leans from the principal direction it is measured from.
+fn lean_angle(c: &Corner, reference: [f64; 3], toward: [f64; 3]) -> super::angular::Angle {
+    let length = (0..3)
+        .map(|k| (toward[k] - c.vertex[k]).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    super::angular::Angle {
+        vertex: c.vertex,
+        first: [0, 1, 2].map(|k| c.vertex[k] + reference[k] * length),
+        second: toward,
+    }
 }
 
 fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> Want {
     let c = corners[0];
+    // An obtuse corner of one principal edge and one oblique one states how the oblique edge
+    // leans (25°, not 155°; #520), never the supplement. Counted corners keep the included angle.
+    let lean = (corners.len() == 1 && c.degrees() > 90. + 1e-6)
+        .then(|| c.lean().zip(c.oblique_end()))
+        .flatten();
     // atan2 differs in its last bits between native and WASM libm; the plan's value must not.
-    let value = (c.degrees() * 1e9).round() / 1e9;
+    let value = (lean.map_or(c.degrees(), |(l, _)| l.degrees) * 1e9).round() / 1e9;
     let mut text = format!("{}°", fmt(value));
     if corners.len() > 1 {
         text = format!("{}× {text}", corners.len());
@@ -206,12 +230,31 @@ fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> 
         // Witnesses at the far ends of the corner's straight edges: their lengths bound how far
         // the arc may reach (a rounded corner's tangent points would bound it too tightly).
         shape: Shape::Angular {
-            angle: corner_angle(c),
+            angle: lean.map_or_else(
+                || corner_angle(c),
+                |(l, end)| lean_angle(c, l.reference, end),
+            ),
             alternates: corners[1..].iter().map(|c| corner_angle(c)).collect(),
         },
         turning: None,
         basis: basis.into(),
     }
+}
+
+/// How large a 45° cut across a corner may be and still be an edge break, `C<leg>`: its leg as a
+/// fraction of the part's smaller extent in the view. A larger cut is a feature of the part, and
+/// is dimensioned as one (#519). Jern's corner cut is 53% of the part's width.
+const BREAK: f64 = 0.3;
+
+/// Whether *v* is a round number in the drawing's units: a tenth of a millimetre, or a 32nd of
+/// an inch.
+fn round(v: f64, units: crate::units::Units) -> bool {
+    let x = if units.is_mm() {
+        v * 10.
+    } else {
+        units.from_mm(v) * 32.
+    };
+    (x - x.round()).abs() < 1e-4
 }
 
 /// The equal corners of a closed all-line profile when every corner is issued: one counted angle.
@@ -254,6 +297,9 @@ fn polygon<'a>(
     .then(|| corners.to_vec())
 }
 
+/// A stated distance between two stations of one axis: (axis, from, to).
+type Span = (usize, f64, f64);
+
 /// A completing station: its axis, its witness on the box side, its witness on the corner, its
 /// value and the axis of the view that shows it.
 type Leg = (usize, [f64; 3], [f64; 3], f64, usize);
@@ -264,13 +310,37 @@ pub(super) fn apply(
     spec: &Spec,
     wants: &mut Vec<Want>,
 ) -> Result<(), Invalid> {
+    // A cut stated by a start point and an angle in one view locates its far end for the others
+    // (a compound cut's plan trace follows from its side view): plan again with what the first
+    // pass derived, until it settles.
+    let mut derived: Vec<Span> = Vec::new();
+    let mut added = Vec::new();
+    for _ in 0..3 {
+        let (items, found) = build(analysis, spec, wants, &derived)?;
+        added = items;
+        if found == derived {
+            break;
+        }
+        derived = found;
+    }
+    wants.extend(added);
+    Ok(())
+}
+
+fn build(
+    analysis: &Analysis,
+    spec: &Spec,
+    wants: &[Want],
+    derived: &[Span],
+) -> Result<(Vec<Want>, Vec<Span>), Invalid> {
     let fmt = |v| crate::dims::fmt_in(v, spec.units);
     let corners = requirements(analysis);
     if corners.is_empty() {
-        return Ok(());
+        return Ok((Vec::new(), Vec::new()));
     }
     let modes = modes(analysis, spec)?;
-    let located = located(analysis, wants);
+    let located = located(analysis, wants, derived);
+    let mut found: Vec<Span> = Vec::new();
     let shown = |id: &str| spec.dimensions.get(id).is_some_and(|d| !d.omit);
     let mut faces: Vec<usize> = corners.iter().map(face_of).collect();
     faces.dedup();
@@ -361,8 +431,13 @@ pub(super) fn apply(
                 let Some(o) = mine.iter().position(|d| d.feature == other.feature) else {
                     continue;
                 };
+                let extent = (0..3)
+                    .filter(|&k| k != c.axis)
+                    .map(|k| analysis.envelope[1][k] - analysis.envelope[0][k])
+                    .fold(f64::INFINITY, f64::min);
                 if paired[n]
                     || paired[o]
+                    || leg > BREAK * extent
                     || (missing[n].is_empty() && missing[o].is_empty())
                     || [c, other]
                         .iter()
@@ -428,6 +503,91 @@ pub(super) fn apply(
                         arcs: Vec::new(),
                     },
                     turning: None,
+                });
+            }
+        }
+        // A cut across a corner of principal edges that starts at a round distance and ends where
+        // nothing round is (a slope designed as a start point and an angle) is stated so: the
+        // start's stations and the angle the oblique edge leans by, not a second computed length
+        // for its far end (#520). Never both: the far end follows from them.
+        if mode == CornerMode::Auto {
+            for n in 0..mine.len() {
+                let c = mine[n];
+                let Some(d) = partner(c, mine.iter().copied()) else {
+                    continue;
+                };
+                let Some(o) = mine.iter().position(|x| x.feature == d.feature) else {
+                    continue;
+                };
+                if o < n
+                    || paired[n]
+                    || paired[o]
+                    || (missing[n].is_empty() && missing[o].is_empty())
+                    || [c, d]
+                        .iter()
+                        .any(|x| spec.dimensions.contains_key(&id(&support(x), PARAMETER)))
+                {
+                    continue;
+                }
+                let stated = |axis: usize, v: f64| located(axis, v) || round(v, spec.units);
+                let Some((start, far, k, m)) = [(c, d), (d, c)].into_iter().find_map(|(s, f)| {
+                    let (k, m) = principal_axes(f)?;
+                    (principal_axes(s).is_some()
+                        && (0..3)
+                            .filter(|&i| i != s.axis)
+                            .all(|i| stated(i, s.vertex[i]))
+                        && stated(m, f.vertex[m])
+                        && !stated(k, f.vertex[k]))
+                    .then_some((s, f, k, m))
+                }) else {
+                    continue;
+                };
+                let Some(lean) = start.lean() else {
+                    continue;
+                };
+                paired[n] = true;
+                paired[o] = true;
+                // Its stations, each from the nearer side of the box as they are drawn, are
+                // reached by the other views' corners too.
+                let mut state = |i: usize, v: f64, at: [f64; 3], axis: usize| {
+                    if !located(i, v) {
+                        station(i, v, at, axis);
+                        let [lo, hi] = [analysis.envelope[0][i], analysis.envelope[1][i]];
+                        found.push((i, if v - lo <= hi - v { lo } else { hi }, v));
+                    }
+                };
+                for i in (0..3).filter(|&i| i != start.axis) {
+                    state(i, start.vertex[i], start.vertex, start.axis);
+                }
+                state(m, far.vertex[m], far.vertex, far.axis);
+                found.push((k, start.vertex[k], far.vertex[k]));
+                // atan2 differs in its last bits between native and WASM libm; the plan's value
+                // must not.
+                let value = (lean.degrees * 1e9).round() / 1e9;
+                added.push(Want {
+                    units: spec.units,
+                    id: id(&support(start), PARAMETER),
+                    views: vec![end_on(start.axis)],
+                    value,
+                    terms: vec![format!("{}°", super::fmt(value))],
+                    measurements: [start, far]
+                        .map(|c| Measurement {
+                            feature: c.feature.clone(),
+                            parameter: PARAMETER.into(),
+                            value,
+                        })
+                        .into(),
+                    shape: Shape::Angular {
+                        angle: lean_angle(start, lean.reference, far.vertex),
+                        // The same slope read at the far end, where there is room.
+                        alternates: far
+                            .lean()
+                            .map(|l| lean_angle(far, l.reference, start.vertex))
+                            .into_iter()
+                            .collect(),
+                    },
+                    turning: None,
+                    basis: "a cut across a corner of principal edges stated as designed: its start point and the angle its oblique edge leans by, in the view that shows it true; its far end follows from them".into(),
                 });
             }
         }
@@ -564,8 +724,7 @@ pub(super) fn apply(
             });
         }
     }
-    wants.extend(added);
-    Ok(())
+    Ok((added, found))
 }
 
 /// Whether *w* is a profile-corner angle, placed last and dropped when it cannot be clear.

@@ -114,6 +114,83 @@ impl Corner {
         );
         norm(cross(u, v)).atan2(dot(u, v)).to_degrees()
     }
+
+    /// The far end of its oblique edge, when exactly one of its two edges is principal.
+    pub fn oblique_end(&self) -> Option<P3> {
+        let [a, b] = self.principal_edges();
+        (a != b).then(|| if a { self.ends[1] } else { self.ends[0] })
+    }
+
+    /// How its oblique edge leans from the nearest principal direction of the view (the edge's
+    /// own direction or its perpendicular, either way along): how a cut is designed, a start
+    /// point and a slope, rather than the corner's included angle. Never more than 45°. A tie
+    /// (a 45° cut) takes the direction that lies outside the material.
+    pub fn lean(&self) -> Option<Lean> {
+        let end = self.oblique_end()?;
+        let o = unit(flat(sub(end, self.vertex), self.axis));
+        let (u, v) = (
+            unit(flat(sub(self.first, self.vertex), self.axis)),
+            unit(flat(sub(self.second, self.vertex), self.axis)),
+        );
+        let angle = |a: P3, b: P3| norm(cross(a, b)).atan2(dot(a, b));
+        let inside = |r: P3| (angle(u, r) + angle(r, v) - angle(u, v)).abs() < 1e-6;
+        let mut best: Option<(P3, f64)> = None;
+        for k in (0..3).filter(|&k| k != self.axis) {
+            for sign in [1., -1.] {
+                let mut r = [0.; 3];
+                r[k] = sign;
+                let a = angle(r, o);
+                let better = match best {
+                    None => true,
+                    Some((held, b)) => a < b - 1e-6 || ((a - b).abs() <= 1e-6 && inside(held)),
+                };
+                if better {
+                    best = Some((r, a));
+                }
+            }
+        }
+        best.map(|(reference, a)| Lean {
+            degrees: a.to_degrees(),
+            reference,
+        })
+    }
+
+    /// Whether *text* states this corner's angle: as the corner itself, as its supplement (the
+    /// acute angle to the face it meets) or as its oblique edge's lean.
+    pub fn states(&self, text: &str) -> bool {
+        let Some(t) = text.trim().strip_suffix('°') else {
+            return false;
+        };
+        let d = self.degrees();
+        [Some(d), Some(180. - d), self.lean().map(|l| l.degrees)]
+            .into_iter()
+            .flatten()
+            .any(|x| holes::states(t, x))
+    }
+}
+
+/// A cut edge's slope as a start point and an angle: see [`Corner::lean`].
+#[derive(Clone, Copy, Debug)]
+pub struct Lean {
+    pub degrees: f64,
+    /// The principal direction it is measured from, a unit vector from the corner.
+    pub reference: P3,
+}
+
+/// The corner across *c*'s oblique edge: both are corners of principal-and-oblique edges and each
+/// is the other's far end (the edge may be a straight line the B-rep splits).
+pub fn partner<'a>(
+    c: &Corner,
+    corners: impl IntoIterator<Item = &'a Corner>,
+) -> Option<&'a Corner> {
+    let end = c.oblique_end()?;
+    corners.into_iter().find(|d| {
+        d.feature != c.feature
+            && d.axis == c.axis
+            && norm(sub(d.vertex, end)) < 1e-6
+            && d.oblique_end()
+                .is_some_and(|e| norm(sub(e, c.vertex)) < 1e-6)
+    })
 }
 /// Same-body feature definitions use exact source edge/face identity, never matching values.
 fn bevel_edges(a: &Analysis, s: &Source) -> (bool, Vec<usize>) {
@@ -267,6 +344,21 @@ fn far_end(p: &Profile, i: usize, forward: bool) -> P3 {
             return [0, 1, 2].map(|k| start[k] + t * u[k]);
         }
     }
+    // A straight edge the B-rep splits (the flat an inclined bore breaks out of is one) ends
+    // where its last collinear piece ends: the edge's far end, not the split.
+    let (mut at, mut k) = (at, i);
+    for _ in 0..n {
+        let next = (k + step) % n;
+        let Support::Line { start: c0, end: c1 } = p.supports[next] else {
+            break;
+        };
+        let (here, there) = if forward { (c0, c1) } else { (c1, c0) };
+        let (u, v) = (unit(sub(end, start)), unit(sub(c1, c0)));
+        if norm(sub(here, at)) > 1e-6 || norm(cross(u, v)) > 1e-8 || dot(u, v) <= 0. {
+            break;
+        }
+        (at, k) = (there, next);
+    }
     at
 }
 
@@ -311,7 +403,7 @@ pub fn drawn_spans(a: &Analysis, drawing: &crate::output::Drawing) -> Vec<(usize
             .find(|x| x.name == name)
             .map(|x| crate::output::drawn_body(drawing, x).unwrap_or_default())
     };
-    drawing
+    let base: Vec<(usize, f64, f64)> = drawing
         .sheet
         .items
         .iter()
@@ -336,7 +428,69 @@ pub fn drawn_spans(a: &Analysis, drawing: &crate::output::Drawing) -> Vec<(usize
             let mirror = (counted && (side(p) || side(q))).then_some((k, lo + hi - p, lo + hi - q));
             std::iter::once((k, p, q)).chain(mirror)
         })
-        .collect()
+        .collect();
+    let derived = leaning_spans(a, drawing, &base);
+    base.into_iter().chain(derived).collect()
+}
+
+/// The span a cut's start point and angle give: a plain angle drawn at one end of a cut edge
+/// (a corner of a principal edge and the oblique one, [`partner`]) states where its far end lies
+/// along the principal edge there, once the start's two stations and the far end's offset are
+/// reached (`dims::profile_angles`' start-and-angle form). Chained: a face's start may be
+/// another face's far end.
+fn leaning_spans(
+    a: &Analysis,
+    drawing: &crate::output::Drawing,
+    spans: &[(usize, f64, f64)],
+) -> Vec<(usize, f64, f64)> {
+    let corners = requirements(a);
+    let mut pairs: Vec<(&Corner, &Corner)> = Vec::new();
+    for m in super::marks(drawing) {
+        let plain = m
+            .text
+            .trim()
+            .strip_suffix('°')
+            .is_some_and(|t| t.trim().parse::<f64>().is_ok());
+        let named: Vec<&Corner> = m
+            .claims
+            .iter()
+            .filter(|cl| cl.parameter == "profile_angle.angle")
+            .filter_map(|cl| corners.iter().find(|c| c.feature == cl.feature))
+            .collect();
+        if plain
+            && let [c, d] = named[..]
+            && partner(c, [d]).is_some()
+        {
+            pairs.push((c, d));
+        }
+    }
+    let roots = super::location::roots(a);
+    let mut all = spans.to_vec();
+    let mut derived: Vec<(usize, f64, f64)> = Vec::new();
+    for _ in 0..pairs.len() {
+        let before = derived.len();
+        for &(c, d) in &pairs {
+            for (start, far) in [(c, d), (d, c)] {
+                let Some((k, m)) = principal_axes(far) else {
+                    continue;
+                };
+                let reached = |axis: usize, v: f64| rooted_at(&roots[axis], &all, axis, v);
+                let known = (0..3)
+                    .filter(|&i| i != start.axis)
+                    .all(|i| reached(i, start.vertex[i]))
+                    && reached(m, far.vertex[m]);
+                let span = (k, start.vertex[k], far.vertex[k]);
+                if known && !all.contains(&span) {
+                    all.push(span);
+                    derived.push(span);
+                }
+            }
+        }
+        if derived.len() == before {
+            break;
+        }
+    }
+    derived
 }
 
 /// Whether station *at* on *axis* is reached from the part's roots (its box and datum planes)
@@ -654,11 +808,7 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 })
                 .collect();
             let degrees = c.degrees();
-            if claimed.iter().any(|m| {
-                m.text
-                    .strip_suffix('°')
-                    .is_some_and(|t| holes::states(t, degrees))
-            }) {
+            if claimed.iter().any(|m| c.states(&m.text)) {
                 return None;
             }
             let code = if claimed.is_empty() {
