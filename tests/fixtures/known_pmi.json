@@ -5946,5 +5946,15 @@
     ],
     "verdict": "rust-correct",
     "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+  },
+  {
+    "field": "label",
+    "file": "nist_stc_06_asme1_ap242-e3.stp.gz",
+    "port": "dimension:#9270",
+    "python": "R12.7",
+    "record": "dimension:0:1:4:11",
+    "rust": "(R12.7)",
+    "verdict": "rust-correct",
+    "evidence": "#466 carries AP242 reference dimensions in parentheses. The shape dimension representation #9269 for dimensional size #9270 contains descriptive representation item #9267 ('dimensional note', 'auxiliary'), which quiddity 0.5.4 correctly recognises as DimensionModifier::Reference. The old capture omits the reference spelling. This changes the reader label only: the separate refusal of its non-cylindrical radius reference face remains reported."
   }
 ]

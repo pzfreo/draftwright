@@ -9,7 +9,7 @@
 //!   drawn as a face's AP242 surface texture is (the symbol on a leader from the face's edge);
 //!   `sheet/default_finish`, the same, is the part's default finish beside the title block.
 //! - `features/<id>/thread`: an ISO metric thread `{designation, length?}` (`M6`, `M10x1.25-6g`,
-//!   `M5 LH`) on a hole the callouts state on its own, a hole pattern or a turned step, printed
+//!   `M5 LH`) on a hole the callouts state on its own, a hole pattern or a turned step, its designation printed as written
 //!   after its callout's size as an AP242 thread is (`⌀6 THRU M6`, `ø10 M10; 15 MIN FULL THREAD`).
 //! - `features/<id>/knurl`: `{pattern, pitch}` (`straight` or `diamond`, mm) on a turned step,
 //!   printed after its diameter as an AP242 knurl is (`ø24 STRAIGHT KNURL P0.8`).

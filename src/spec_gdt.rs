@@ -416,6 +416,7 @@ pub(crate) fn record(
         datum_refs: Vec::new(),
         gtol_modifiers: Vec::new(),
         basic: false,
+        reference: false,
         // A Spec record is read from no Part 21 instance; its faces are one placement's, so it
         // states one instance per face (`pmi::placements_reason` reads the two counts).
         face_ids: faces.iter().map(|&f| f as u64).collect(),

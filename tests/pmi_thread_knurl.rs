@@ -1045,7 +1045,7 @@ fn structured_full_thread_aliases_must_agree_with_each_other_and_prose() {
 }
 
 #[test]
-fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
+fn spec_threads_preserve_authored_designations_and_share_style_overrides() {
     let (_, a) = external_thread();
     let id = "d:f:turned_step:f2/step.diameter";
     let pmi = model::plan(&a, &Spec::default()).unwrap();
@@ -1053,10 +1053,9 @@ fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
         pmi.dimensions.iter().find(|d| d.id == id).unwrap().label,
         "M10-6g"
     );
-    for (designation, expected) in [
-        ("M10x1.5-6g RH", "M10-6g"),
-        ("M10x1-6g LH", "M10 x 1-6g LH"),
-    ] {
+    // #464: explicit Spec wording owns the pitch, spacing and hand. Imported
+    // PMI still uses the conventional compact designation asserted above.
+    for designation in ["M10x1.5-6g RH", "M10x1-6g LH"] {
         let spec: Spec = serde_json::from_value(serde_json::json!({
             "features":{"f:turned_step:f2":{"thread":{"designation":designation}}}
         }))
@@ -1064,7 +1063,7 @@ fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
         let plan = model::plan(&a, &spec).unwrap();
         assert_eq!(
             plan.dimensions.iter().find(|d| d.id == id).unwrap().label,
-            expected
+            designation
         );
     }
     let note: Spec = serde_json::from_value(serde_json::json!({
@@ -1339,7 +1338,8 @@ fn identical_threads_on_distinct_owners_keep_two_callouts() {
     let threaded: Vec<(&str, &str)> = plan
         .dimensions
         .iter()
-        .filter(|d| d.label.contains("M12-6H"))
+        // #464: the two authored taps retain their explicit coarse pitch.
+        .filter(|d| d.label.contains("M12x1.75-6H"))
         .map(|d| (d.id.as_str(), d.label.as_str()))
         .collect();
     let ids: Vec<&str> = threaded.iter().map(|t| t.0).collect();
@@ -1350,7 +1350,7 @@ fn identical_threads_on_distinct_owners_keep_two_callouts() {
     );
     for (_, label) in &threaded {
         assert!(
-            label.starts_with("M12-6H THRU\n⌀10 ") && label.ends_with(" THRU"),
+            label.starts_with("M12x1.75-6H THRU\n⌀10 ") && label.ends_with(" THRU"),
             "{label:?}"
         );
     }

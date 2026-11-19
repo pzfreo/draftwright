@@ -5390,6 +5390,7 @@ pub(crate) fn finish_presentation(
             crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
         }
         retry_radial_corridor(effective.as_ref(), spec, &mut plan);
+        crate::dims::finish_texture_lanes(effective.as_ref(), spec, &mut plan);
         crate::dims::callout_routes::finish_inch_contacts(effective.as_ref(), &mut plan);
         crate::dims::gdt::cited_undrawn(&mut plan);
         crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
@@ -6655,6 +6656,7 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 crate::dims::callout_routes::finish_frames(analysis, spec, &mut plan);
             }
             retry_radial_corridor(analysis, spec, &mut plan);
+            crate::dims::finish_texture_lanes(analysis, spec, &mut plan);
             crate::dims::gdt::cited_undrawn(&mut plan);
             if !crate::placement_intent::has_pins(spec) {
                 plan.record_dimension_labels();

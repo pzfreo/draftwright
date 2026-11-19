@@ -1111,6 +1111,50 @@ fn slot_end_witness(
         })
 }
 
+/// Explicitly grouped bores on different axes can share a normal station (#466).
+/// Every cylindrical support must prove that coordinate; each claimed native bore
+/// must be wholly included. A coincident, unreferenced bore is not an alias.
+fn compound_normal_bores<'a>(
+    a: &'a Analysis,
+    group: &[usize],
+    normal: usize,
+    at: f64,
+) -> Vec<&'a str> {
+    let mut axes = BTreeSet::new();
+    for &index in group {
+        let Some(face) = a.face_attachments.get(index) else {
+            return Vec::new();
+        };
+        let Some(axis) = face.exact_axis else {
+            return Vec::new();
+        };
+        if face.surface.as_deref() != Some("cylinder")
+            || axis == normal
+            || face
+                .support
+                .get(normal - usize::from(normal > axis))
+                .is_none_or(|v| !v.is_finite() || (v - at).abs() > EPS)
+        {
+            return Vec::new();
+        }
+        axes.insert(axis);
+    }
+    if axes.len() < 2 {
+        return Vec::new();
+    }
+    a.features
+        .iter()
+        .filter(|f| {
+            f.kind == "hole"
+                && !f.faces.is_empty()
+                && f.faces.iter().all(|i| group.contains(i))
+                && node_feature(a, &f.id, normal).is_some()
+                && station(a, &f.id, normal).is_some_and(|v| (v - at).abs() <= EPS)
+        })
+        .map(|f| f.id.as_str())
+        .collect()
+}
+
 pub(crate) fn identify(a: &Analysis, mark: &Mark, spans: Vec<Edge>) -> Vec<Edge> {
     identify_impl(a, mark, spans, false)
 }
@@ -1304,6 +1348,21 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
                         let Some(group) = r.face_groups.get(side) else {
                             continue;
                         };
+                        if !r.reference {
+                            for feature in
+                                compound_normal_bores(a, group, e.axis, g.stations[side][e.axis])
+                            {
+                                let mut alias = e.clone();
+                                if (g.stations[side][e.axis] - e.a).abs() <= EPS {
+                                    alias.a_feature = Some(feature.into());
+                                } else if (g.stations[side][e.axis] - e.b).abs() <= EPS {
+                                    alias.b_feature = Some(feature.into());
+                                } else {
+                                    continue;
+                                }
+                                out.push(alias);
+                            }
+                        }
                         let Some(axis) = group
                             .first()
                             .and_then(|&f| a.face_attachments.get(f).and_then(|f| f.exact_axis))

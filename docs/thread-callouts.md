@@ -51,7 +51,7 @@ small glyph-clearance adjustment available during final route polish.
 | Source/old leader | Compact leader (line breaks shown with `<br>`) |
 | --- | --- |
 | `M3 x 0.5-6g RH, FULL AVAILABLE LENGTH` | `M3-6g`, when thread extent is depicted |
-| `ø5 M5x0.8-6g` entered through Spec | `M5-6g` |
+| `M5x0.8-6g` entered through Spec | `M5x0.8-6g` |
 | `M8 x 1-6g LH` | `M8 x 1-6g LH` |
 | `⌀1.6 ↧ 4 M2 x 0.4-6H RH; 2.5 MIN FULL THREAD` | `M2-6H ↧ 2.5`<br>`⌀1.6 ↧ 4` |
 | conventional through M4 tap | `M4-6H THRU` |
@@ -60,7 +60,11 @@ small glyph-clearance adjustment available during final route polish.
 
 The knurl diameter is on its own leader line: this keeps maximum-after-knurl
 wording next to its diameter, while the second line identifies pattern and pitch.
-Fine pitches and LH are always retained; the tolerance class is retained exactly.
+Spec thread designations print as written, including explicit coarse pitches,
+spacing and hand. Write `M3x0.5-6H` to keep the adjustment pitch on the callout;
+write `M3-6H` to omit it. This applies to compact, full and note forms. Imported
+AP242 threads use conventional compact wording: fine pitches and LH are always
+retained, and the tolerance class is retained exactly.
 The shared coarse-pitch table covers the ISO 261 coarse entries from M1 through M68;
 unknown diameters never acquire an inferred pitch.
 

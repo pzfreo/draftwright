@@ -852,6 +852,56 @@ fn gramil_products_quantities_and_custom_screw_are_made() {
 }
 
 #[test]
+fn issue466_pack_keeps_the_recessed_tap_and_reference_dimension() {
+    // The affected sheet settings from the original pack Spec. Other parts use
+    // their defaults; the source assembly and all of its PMI stay unchanged.
+    let spec: PackSpec = serde_json::from_value(json!({
+        "parts":{"GRM-04 drive plate":{"drawing":{"sheet":{"size":"A3","scale":"5:1"}}}}
+    }))
+    .unwrap();
+    let pack = pack::build(&fixture("issue466-gramil-pmi.step.gz"), &spec).unwrap();
+    for (name, source) in [
+        ("GRM-01 shank", "manufacturing_requirement:#10445"),
+        ("GRM-01 shank", "dimension:#10411"),
+        ("GRM-04 drive plate", "dimension:#12041"),
+    ] {
+        let row = pack.report.rows.iter().find(|r| r.name == name).unwrap();
+        assert!(row.error.is_none(), "{:?}", row.error);
+        assert!(!row.sheets.is_empty());
+        assert!(
+            !row.problems.iter().any(|p| matches!(
+                p.code.as_str(),
+                "pmi_not_lowered" | "pmi_not_rendered"
+            ) && p.refs.iter().any(|r| r == source)),
+            "{:?}",
+            row.problems
+        );
+    }
+    let text = pack
+        .drawings
+        .iter()
+        .map(|d| d.svg())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("M6-6H THRU"));
+    assert!(text.contains("(4.5)"));
+    let plate = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.name == "GRM-04 drive plate")
+        .unwrap();
+    assert!(
+        plate
+            .problems
+            .iter()
+            .any(|p| p.refs.iter().any(|r| r == "datum:#11997")
+                && p.message.contains("dimension:#12046")
+                && p.message.contains("dimension:#12050"))
+    );
+}
+
+#[test]
 fn single_part_keeps_ordinary_views_measurements_and_all_sheets() {
     let step = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
     let pack = pack::build(&step, &Default::default()).unwrap();

@@ -161,6 +161,9 @@ pub struct Record {
     pub gtol_modifiers: Vec<String>,
     /// Theoretically exact (basic) dimension.
     pub basic: bool,
+    /// A source reference dimension: informational, drawn in parentheses.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reference: bool,
     /// The drawing's faces the record applies to, ascending.
     pub faces: Vec<usize>,
     /// Their `ADVANCED_FACE` instances, ascending.
@@ -211,6 +214,7 @@ pub(crate) fn specify_written(report: &Report, source: &str) -> bool {
 pub(crate) fn specify_general(report: &Report, r: &Record) -> bool {
     r.category == Category::Dimension
         && !r.basic
+        && !r.reference
         && r.upper_tol.is_none()
         && r.lower_tol.is_none()
         && r.lower_bound.is_none()
@@ -428,6 +432,9 @@ pub fn identity(r: &Record, parts: usize) -> String {
     let mut out = format!("{}.{}", category_name(r.category), escaped(&r.kind));
     if r.basic {
         out += ".basic";
+    }
+    if r.reference {
+        out += ".reference";
     }
     if parts > 1 {
         out += &format!(":p{}", r.part);
@@ -2613,6 +2620,7 @@ impl PartReader<'_> {
             datum_refs: Vec::new(),
             gtol_modifiers: Vec::new(),
             basic: false,
+            reference: false,
             dominant_axis: ref_bbox.map_or("?", dominant).into(),
             ref_bbox,
             faces,
@@ -2727,7 +2735,9 @@ impl PartReader<'_> {
             blockers.push(format!("the value qualifier {q:?} is not carried"));
         }
         for m in &d.modifiers {
-            blockers.push(format!("the dimension modifier {m:?} is not carried"));
+            if *m != pmi::DimensionModifier::Reference {
+                blockers.push(format!("the dimension modifier {m:?} is not carried"));
+            }
         }
         if let Some(p) = &d.principle {
             blockers.push(format!("the tolerance principle {p:?} is not carried"));
@@ -2777,6 +2787,7 @@ impl PartReader<'_> {
             }
         }
         r.label = dimension_label(&r, d);
+        r.reference = d.modifiers.contains(&pmi::DimensionModifier::Reference);
         if let Some(suffix) = d.qualifier.as_ref().and_then(|q| match q {
             pmi::Qualifier::Maximum => Some("MAX"),
             pmi::Qualifier::Minimum => Some("MIN"),
@@ -2839,6 +2850,7 @@ impl PartReader<'_> {
         // Keep the source digits until the feature merge proves a blind hole owner.
         // Ordinary locations (including through-hole thicknesses) retain main's label.
         if !r.basic
+            && !r.reference
             && r.kind == "linear"
             && r.type_code == Some(2)
             && r.blockers.is_empty()
@@ -2867,6 +2879,9 @@ impl PartReader<'_> {
                     r.label += &format!(" {suffix}");
                 }
             }
+        }
+        if r.reference {
+            r.label = format!("({})", r.label);
         }
         r
     }
@@ -4579,7 +4594,12 @@ fn face_sites(part: &Part, f: usize, b: &Bounds, kind: &str, k: usize) -> Vec<[f
         };
         let Some((first, sign)) = stations
             .iter()
-            .flat_map(|&st| signs.map(|sg| (st, sg)))
+            .copied()
+            // A groove can remove both preferred stations while leaving a
+            // silhouette near an end. Prove the fallback stations before
+            // declaring that the face has no attachment at all (#461).
+            .chain([0.3, 0.7, 0.15, 0.85, 0.05, 0.95].map(|t| b.min[k] + t * (b.max[k] - b.min[k])))
+            .flat_map(|st| signs.map(|sg| (st, sg)))
             .find_map(|(st, sg)| on(st, sg).map(|s| (s, sg)))
         else {
             return Vec::new();
@@ -4699,6 +4719,17 @@ fn dimension_label(r: &Record, d: &Dimension) -> String {
     let Some(value) = r.value else {
         return String::new();
     };
+    // Measured angles use the ordinary three-place display resolution, but
+    // rounding a model angle to 25.000 does not author three decimal places.
+    // Retain the measured value for geometry/tolerance checks, only trim ink.
+    let nominal = {
+        let text = fmt(value, None);
+        if r.kind == "angular" && text.contains('.') {
+            text.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            text
+        }
+    };
     let prefix = match (&d.kind, r.kind.as_str()) {
         (
             DimensionKind::Size {
@@ -4738,9 +4769,9 @@ fn dimension_label(r: &Record, d: &Dimension) -> String {
             fmt_magnitude(hi, None)
         ),
         (_, _, Some(up), Some(lo)) => {
-            format!("{prefix}{}{}", fmt(value, None), deviations(up, lo, None))
+            format!("{prefix}{nominal}{}", deviations(up, lo, None))
         }
-        _ => format!("{prefix}{}", fmt(value, None)),
+        _ => format!("{prefix}{nominal}"),
     }
 }
 

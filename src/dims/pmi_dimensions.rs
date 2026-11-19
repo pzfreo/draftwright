@@ -987,6 +987,7 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
     if !super::pmi_policy::strict(cx.analysis, cx.spec) {
         for (j, r) in records.iter().enumerate() {
             if let Outcome::Standalone(own) = &outcomes[j]
+                && !r.reference
                 && crate::pmi::specify_general(report, r)
                 && !crate::pmi::datum_referenced(r)
                 // Preserve the composite's explicit patch witnesses (cx/pmi-groups).
@@ -1440,6 +1441,7 @@ fn outcome(
     // A geometric nominal mismatch does not invalidate proven hole endpoint topology.
     // Other attachment refusals still fail closed before the standalone fallback.
     if !r.basic
+        && !r.reference
         && r.kind == "linear"
         && r.type_code == Some(2)
         && r.value.is_some_and(|v| v.is_finite() && v > 0.)
@@ -1538,7 +1540,7 @@ fn outcome(
                     "basic datum-to-bore location on the same proven compound centre",
                 );
             }
-            if !r.basic
+            if !r.basic && !r.reference
                 && band.is_none()
                 && r.label.trim() == fmt(value)
                 // Automatic baseline rungs hide their local step lengths. A derived PMI
@@ -1564,6 +1566,7 @@ fn outcome(
                 None
             };
             if !r.basic
+                && !r.reference
                 && let Some((i, members)) = owner
                 && (band.is_some() || canonical(r, value, units))
             {
@@ -1579,7 +1582,7 @@ fn outcome(
                     "a symbolic fit requires a uniquely matched recognised bore callout",
                 ));
             }
-            if !r.basic && !internal {
+            if !r.basic && !r.reference && !internal {
                 match external_owner(wants, &g.cylinders, value, turned) {
                     Some(Ok(i)) => match band {
                         Some(b) => return Outcome::Band(i, b),
@@ -2168,6 +2171,7 @@ mod tests {
             datum_refs: Vec::new(),
             gtol_modifiers: Vec::new(),
             basic: false,
+            reference: false,
             faces: Vec::new(),
             face_ids: Vec::new(),
             face_groups: Vec::new(),

@@ -27,6 +27,7 @@ mfcadpp_holdout/205.step
 mfcadpp_holdout/238.step
 mfcadpp_holdout/363.step
 mfcadpp_holdout/467.step
+mfcadpp_holdout/520.step
 mfcadpp_regressions/11512.step
 nist/nist_ctc_01_asme1_rd.stp
 nist/nist_ctc_02_asme1_rc.stp
