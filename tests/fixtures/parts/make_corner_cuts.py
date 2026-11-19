@@ -1,9 +1,9 @@
 """#520: 40 x 20 x 10 blocks whose right-hand corner cut starts 8 mm up the side and leans 20, 25
-and 30 degrees from the vertical, plus R3 variants of the 25 degree cut; build123d 0.13.0.
+and 30 degrees from the vertical, plus R3, chamfer and breakout variants; build123d 0.13.0.
 Writes block-cut-*.step.gz here."""
 import gzip, math, tempfile
 from pathlib import Path
-from build123d import Polygon, export_step, extrude, fillet
+from build123d import Align, Cylinder, Polygon, Pos, chamfer, export_step, extrude, fillet
 
 out = Path(__file__).resolve().parent
 
@@ -26,3 +26,8 @@ for degrees in (20, 25, 30):
                 if abs(e.center().X - x) < 1e-6 and abs(e.center().Y - y) < 1e-6
             )
             write(fillet(edge, 3), f"block-cut-25-{end}-r3")
+            write(chamfer(edge, 2), f"block-cut-25-{end}-chamfer")
+        # A Z-axis through-hole intersects the middle of the sloped face and interrupts
+        # its straight outline on both end faces.
+        hole = Pos(36, 14, 0) * Cylinder(3, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        write(part - hole, "block-cut-25-breakout")
