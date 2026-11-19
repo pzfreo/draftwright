@@ -6,6 +6,20 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- PMI finish attachments try intact cylindrical stations beyond grooves (#461).
+  Automatic linear dimensions can yield their strip to a finish's normal leader
+  when the complete drawing proves a clear alternative.
+  Spec thread labels now print exactly as written (pitch, spacing and RH
+  included), so existing labels change: `M12-6H` in a Spec written
+  `M12x1.75-6H` now prints with the pitch (#464).
+  Recessed through taps use native face ownership; mixed-axis bore locations
+  use their proven common datum-normal station. AP242 reference dimensions
+  draw in parentheses, and unavailable oblique datums name dependent dimensions
+  (#466). Repeated reader paths produce one finding with all reasons retained.
+
+- Python `Part.angle()` trims rounded trailing zeroes and keeps the ordinary
+  text clearance from the part when selecting an angular label radius (#505).
+
 ## 0.6.1 (2026-11-18)
 
 - Planning costs about 28% fewer instructions over the 68-part survey, with every plan identical to 0.6.0 (#517).

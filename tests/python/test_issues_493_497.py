@@ -90,6 +90,27 @@ class PythonIssues(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.angle(bottom, other.face(other_shape.faces()[0]))
 
+    def test_505_original_rounded_wedge_angle(self):
+        for height, expected in ((4.663, "25°"), (4.7, "25.174°")):
+            wedge = bd.extrude(bd.Polygon((0, 0), (10, 0), (10, height), align=None), 5)
+            faces = wedge.faces()
+            flat = faces.filter_by(bd.Axis.Y).sort_by(bd.Axis.Y)[0]
+            slope = next(f for f in faces if abs(f.normal_at().X) > 0.05 and abs(f.normal_at().Y) > 0.05)
+            part = Part(wedge, "wedge").general_tolerance("ISO 2768-f")
+            angle = part.angle(flat, slope)
+            self.assertNotEqual(angle.nominal, 25)
+            if height == 4.663:
+                self.assertAlmostEqual(angle.nominal, 25, places=3)
+            angle.tolerance(plus_minus=0.5)
+            drawing, svg, pdf = self.render(part, f"rounded-wedge-{height}")
+            for text in (svg, pdf):
+                self.assertIn(expected, text)
+                self.assertNotIn("25.000", text)
+            self.assertTrue(any(p["code"] == "nominal_rounded" for p in drawing.problems), drawing.problems)
+            self.assertFalse([p for p in drawing.problems if p["code"] in (
+                "pmi_not_lowered", "pmi_not_rendered", "annotation_over_view", "annotation_ink_overlap",
+                "annotation_overlap", "annotation_leader_crossing")], drawing.problems)
+
     def test_494_tester_blind_hole_thread_depth_and_drill_line(self):
         tap = bd.Pos(0, 0, 2) * bd.Cylinder(2.5, 8)
         p = Part(bd.Box(30, 20, 12) - tap, "block")

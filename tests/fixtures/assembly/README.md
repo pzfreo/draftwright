@@ -1,5 +1,12 @@
 # Assembly fixtures
 
+`issue466-gramil-pmi.step.gz` is the unchanged #466 reproduction from
+`pzfreo/gramil`, commit `a0285f66511b3cd64fddb80eae0b2fffee495b42`,
+`pmi/gramil-assembly-pmi.step`, authored with specify-core 0.1.15.
+Copyright Paul Fremantle, OCL v1 (see `LICENSE-gramil`). Gzip uses `mtime=0`.
+It retains the assembly and original semantic/presentation entity IDs; regression
+tests select GRM-01 and GRM-04 from it rather than rewriting their PMI.
+
 `pack-copies.step.gz` (#380) is original synthetic build123d/OCP geometry from
 `pack-copies.py`: an enclosure, two separate 60 × 40 × 3 plate products (the
 first placed twice), four independent M3×8 hex bolt products, and an M3×10

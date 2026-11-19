@@ -219,9 +219,10 @@ fn opposed_coaxial_taps_keep_authored_left_and_right_callouts() {
         );
     }
     let p = model::plan_recovered(&a, &s).unwrap();
+    // Spec designations print as authored, including an explicit coarse pitch (#464).
     for ((f, _), (side, label)) in holes
         .iter()
-        .zip([("left", "M2\n⌀2 ↧ 6"), ("right", "M4\n⌀4 ↧ 3")])
+        .zip([("left", "M2x0.4\n⌀2 ↧ 6"), ("right", "M4x0.7\n⌀4 ↧ 3")])
     {
         let d = p
             .dimensions

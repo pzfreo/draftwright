@@ -102,6 +102,113 @@ pub(crate) fn finish_pmi_witness_routes(analysis: &Analysis, plan: &mut crate::m
         });
     }
 }
+
+/// A finish's leader must leave its surface normally. When an automatic linear
+/// dimension fences off that corridor, try the dimension's opposite strip rather
+/// than bending the finish or accepting a crossing. Judge the complete drawing;
+/// explicit placements and every other item's ink stay fixed.
+pub(crate) fn finish_texture_lanes(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+) {
+    let blocked: BTreeSet<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "annotation_leader_crossing")
+        .filter(|p| {
+            plan.gdt
+                .iter()
+                .any(|g| g.kind == "surface_finish" && p.subjects.contains(&g.id))
+        })
+        .flat_map(|p| p.subjects.iter().cloned())
+        .collect();
+    if blocked.is_empty() {
+        return;
+    }
+    let (raw, ..) = wants(analysis);
+    let cache = footprints::Cache::default();
+    for i in 0..plan.dimensions.len() {
+        let d = &plan.dimensions[i];
+        if d.kind != "linear"
+            || !blocked.contains(&d.id)
+            || spec
+                .dimensions
+                .get(&d.id)
+                .is_some_and(|s| s.place.is_some())
+        {
+            continue;
+        }
+        let (Some(w), Some(p), Some(v)) = (
+            raw.iter().find(|w| w.id == d.id),
+            d.placed.as_ref(),
+            plan.views.iter().find(|v| v.id == d.view),
+        ) else {
+            continue;
+        };
+        let frame = Frame::new(analysis, v);
+        let Some(line) = crate::output::linear_ink(&p.lines) else {
+            continue;
+        };
+        let outline = frame.outline();
+        let side = if line.k == 0 {
+            if line.offset > (outline[1] + outline[3]) / 2. {
+                placement::Side::Below
+            } else {
+                placement::Side::Above
+            }
+        } else if line.offset > (outline[0] + outline[2]) / 2. {
+            placement::Side::Left
+        } else {
+            placement::Side::Right
+        };
+        let mut w = w.clone();
+        w.terms.clone_from(&d.terms);
+        w.measurements.clone_from(&d.measurements);
+        let before = recheck_cached(analysis, plan, &cache);
+        for lane in 0..8 {
+            let Some(candidate) = placement::place(&frame, &w, side, lane) else {
+                continue;
+            };
+            let mut trial = plan.clone();
+            trial.dimensions[i].placed = Some(candidate);
+            // The original reservation followed the original strip. Reclaim
+            // only unused paper for the moved dimension, retaining every
+            // neighbouring view's complete ink, before judging its new lane.
+            crate::sheet_fit::reserve_bounds(
+                analysis,
+                &trial.sheet,
+                &mut trial.views,
+                &trial.dimensions,
+                &trial.gdt,
+                Some(&BTreeSet::from([trial.dimensions[i].id.clone()])),
+            );
+            let after = recheck_cached(analysis, &trial, &cache);
+            let codes: BTreeSet<_> = before.iter().chain(&after).map(|p| &p.code).collect();
+            trial.problems.retain(|p| !codes.contains(&p.code));
+            trial.problems.extend(after);
+            contacts::report(analysis, &mut trial);
+            if callout_routes::no_regression(&plan.problems, &trial.problems)
+                && trial
+                    .problems
+                    .iter()
+                    .filter(|p| p.code == "annotation_leader_crossing")
+                    .count()
+                    < plan
+                        .problems
+                        .iter()
+                        .filter(|p| p.code == "annotation_leader_crossing")
+                        .count()
+                && crate::model::finished_sheets_fit(analysis, &trial)
+            {
+                trial.sheet.fill = crate::sheet_fit::fill(analysis, &trial);
+                trial.status = crate::completeness::status(&trial.problems);
+                *plan = trial;
+                break;
+            }
+        }
+    }
+}
 mod label_lanes;
 mod modelled_threads;
 pub(crate) use modelled_threads::{possible_threads, refused as refused_threads};
@@ -4602,7 +4709,7 @@ fn plan_inventory_ordered(
             basis += interior::BASIS;
         }
         // Drawn in brackets: a reference, with what determines it where consolidation said.
-        let reference = matches!(&w.terms[..], [t] if t.starts_with('(') && t.ends_with(')'));
+        let reference = is_parenthesised_reference(&w.terms);
         let determined_by = if reference {
             references.get(&w.id).cloned().unwrap_or_default()
         } else {
@@ -6179,6 +6286,31 @@ pub(crate) fn recheck_cached(
     checked
 }
 
+/// The whole drawn text is one parenthesised group: `(12.5)`, not `(1) (2)`.
+fn is_parenthesised_reference(terms: &[String]) -> bool {
+    let text = terms.join(" ");
+    if !text.starts_with('(') || !text.ends_with(')') {
+        return false;
+    }
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                let Some(d) = depth.checked_sub(1) else {
+                    return false;
+                };
+                depth = d;
+                if depth == 0 && i + 1 != text.len() {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
 /// A matching chamfer requirement is actually retained by this Spec's dimension set.
 pub(crate) fn chamfer_stated(
     analysis: &Analysis,
@@ -6225,6 +6357,18 @@ pub(crate) fn measurement_ids(analysis: &Analysis) -> BTreeSet<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reference_is_one_whole_parenthesised_group() {
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(super::is_parenthesised_reference(&t(&["(12.5)"])));
+        assert!(super::is_parenthesised_reference(&t(&["(12.5", "TYP)"])));
+        assert!(super::is_parenthesised_reference(&t(&["((a) b)"])));
+        assert!(!super::is_parenthesised_reference(&t(&["(1)", "(2)"])));
+        assert!(!super::is_parenthesised_reference(&t(&["(1) x (2)"])));
+        assert!(!super::is_parenthesised_reference(&t(&["12.5"])));
+        assert!(!super::is_parenthesised_reference(&[]));
+    }
+
     use super::*;
 
     #[test]

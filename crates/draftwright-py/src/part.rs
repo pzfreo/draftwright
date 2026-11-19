@@ -935,6 +935,94 @@ mod tests {
     use super::*;
 
     #[test]
+    fn issue505_rounded_wedge_angle_has_significant_digits_and_clear_label() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/pmi/issue505-wedge.step.gz");
+        let bytes = draftwright::model::read_step_file(&path).unwrap();
+        let (part, analysis) = draftwright::model::analyse_native_bytes("wedge", &bytes).unwrap();
+        let normals: Vec<_> = (0..part.faces.len())
+            .filter_map(|f| part.face_normal(f, 0., 0.).map(|n| (f, n)))
+            .collect();
+        let flat = normals.iter().find(|(_, n)| n[1] < -0.99).unwrap().0;
+        let slope = normals
+            .iter()
+            .find(|(_, n)| n[0].abs() > 0.05 && n[1].abs() > 0.05)
+            .unwrap()
+            .0;
+        let mut pmi = Pmi::new(part.faces.len());
+        let geometry = Geometry {
+            mapping: (0..part.faces.len()).collect(),
+            product_mapping: (0..part.faces.len()).collect(),
+            product: std::sync::Arc::new(haecceity::read_step(&bytes).unwrap()),
+            part,
+            analysis,
+        };
+        let degrees = geometry.angle(&mut pmi, vec![flat], vec![slope]).unwrap();
+        assert!((degrees - 25.).abs() < 0.001 && degrees != 25.);
+        pmi.angular_tolerance(vec![flat], vec![slope], "-0.5", "0.5", false)
+            .unwrap();
+        let (plan, files) = draftwright::api::render_model(
+            &geometry.part,
+            &geometry.analysis,
+            &pmi.model,
+            &Default::default(),
+            &["svg"],
+            150.,
+        )
+        .unwrap();
+        let angle = plan
+            .dimensions
+            .iter()
+            .find(|d| {
+                d.kind == "angular" && d.measurements.iter().any(|m| m.feature.starts_with("pmi:"))
+            })
+            .unwrap();
+        assert_eq!(angle.label, "25° ±0.5°");
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.code == "nominal_rounded" && p.subjects.contains(&angle.id)),
+            "rounding evidence must survive trimming zeroes"
+        );
+        let placed = angle.placed.as_ref().unwrap();
+        let view = plan.views.iter().find(|v| v.id == angle.view).unwrap();
+        let camera = haecceity::hlr::View::new(view.direction, view.up).unwrap();
+        let [lo, hi] = geometry.analysis.envelope;
+        let mut min = [f64::INFINITY; 2];
+        let mut max = [f64::NEG_INFINITY; 2];
+        for corner in 0..8 {
+            let q = camera.map([0, 1, 2].map(|k| if corner >> k & 1 == 0 { lo[k] } else { hi[k] }));
+            for k in 0..2 {
+                min[k] = min[k].min(q[k]);
+                max[k] = max[k].max(q[k]);
+            }
+        }
+        let bounds = [
+            view.at[0] - (max[0] - min[0]) * view.scale / 2.,
+            view.at[1] - (max[1] - min[1]) * view.scale / 2.,
+            view.at[0] + (max[0] - min[0]) * view.scale / 2.,
+            view.at[1] + (max[1] - min[1]) * view.scale / 2.,
+        ];
+        let b = placed.label_box;
+        assert!(
+            b[2] <= bounds[0] - 0.5
+                || b[0] >= bounds[2] + 0.5
+                || b[3] <= bounds[1] - 0.5
+                || b[1] >= bounds[3] + 0.5,
+            "label {b:?} touches part {bounds:?}"
+        );
+        let svg = std::str::from_utf8(&files[0].1).unwrap();
+        assert!(!svg.contains("25.000"));
+        assert!(!plan.problems.iter().any(|p| matches!(
+            p.code.as_str(),
+            "pmi_not_lowered"
+                | "pmi_not_rendered"
+                | "annotation_over_view"
+                | "annotation_ink_overlap"
+        )));
+    }
+
+    #[test]
     fn python_angular_tolerances_round_trip_as_ap242_degree_bounds() {
         let bytes = draftwright::model::read_step_file(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
