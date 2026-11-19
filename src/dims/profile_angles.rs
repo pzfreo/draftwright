@@ -559,20 +559,18 @@ fn build(
                 let Some(lean) = start.lean().filter(|l| clean(l.degrees)) else {
                     continue;
                 };
-                // Drawn at an end whose reference lies along no edge, as lint requires; a cut
-                // leaning from its own principal edge's line at both ends keeps its two lengths.
-                let mut ends: Vec<(&Corner, &Corner, super::angular::Angle)> =
-                    [(start, far), (far, start)]
-                        .into_iter()
-                        .filter_map(|(a, b)| {
-                            let l = a.lean().filter(|l| l.perpendicular)?;
-                            Some((a, b, lean_angle(a, l.reference, b.vertex)))
-                        })
-                        .collect();
-                if ends.is_empty() {
+                // The oblique edge must reach the vertex, with no edge along the reference.
+                // Without a sharp end satisfying both conditions, keep the cut's two lengths.
+                let mut ends = [(start, far), (far, start)]
+                    .into_iter()
+                    .filter(|(a, _)| !a.virtual_vertex)
+                    .filter_map(|(a, b)| {
+                        let l = a.lean().filter(|l| l.perpendicular)?;
+                        Some(lean_angle(a, l.reference, b.vertex))
+                    });
+                let Some(drawn_angle) = ends.next() else {
                     continue;
-                }
-                let (_, _, drawn_angle) = ends.remove(0);
+                };
                 paired[n] = true;
                 paired[o] = true;
                 // Its stations, each from the nearer side of the box as they are drawn, are
@@ -608,7 +606,7 @@ fn build(
                     shape: Shape::Angular {
                         angle: drawn_angle,
                         // The same slope read at the other end, where there is room.
-                        alternates: ends.into_iter().map(|(_, _, a)| a).collect(),
+                        alternates: ends.collect(),
                     },
                     turning: None,
                     basis: "a cut across a corner of principal edges stated as designed: its start point and the angle its oblique edge leans by, in the view that shows it true; its far end follows from them".into(),

@@ -11,6 +11,7 @@ mod corpus;
 
 use draftwright::api::{self, Features};
 use draftwright::dims::PlannedDimension;
+use draftwright::finding::Tier;
 use draftwright::items::State;
 use draftwright::lint::profile_angles::{self, Corner};
 use draftwright::model::{self, Analysis, Plan, Spec};
@@ -452,6 +453,18 @@ fn ctc03() -> &'static std::path::PathBuf {
 fn review(path: &std::path::Path, spec: serde_json::Value) -> api::Review {
     let spec: Spec = serde_json::from_value(spec).unwrap();
     api::review_from(path, Features::Native, &spec).unwrap()
+}
+
+fn findings(r: &api::Review) -> impl Iterator<Item = (&str, Tier)> {
+    r.problems
+        .iter()
+        .map(|f| (f.code.as_str(), f.labels().tier))
+        .chain(
+            r.lint
+                .iter()
+                .chain(&r.structural)
+                .map(|f| (f.code.as_str(), f.labels().tier)),
+        )
 }
 
 fn missing(r: &api::Review) -> Vec<String> {
@@ -1102,13 +1115,8 @@ fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
     );
     // Every corner is stated and located: nothing left for lint to report.
     let r = review(&path, json!({}));
-    let issues: Vec<_> = r
-        .lint
-        .iter()
-        .filter(|i| {
-            i.code.starts_with("angular_requirement_") || i.code == "profile_corner_unlocated"
-        })
-        .map(|i| (&i.code, &i.requirements))
+    let issues: Vec<_> = findings(&r)
+        .filter(|(code, _)| code.starts_with("angular_") || *code == "profile_corner_unlocated")
         .collect();
     assert!(issues.is_empty(), "{issues:?}");
     // Nothing about the corners or their angles needs fixing before printing: only the bore's
@@ -1207,6 +1215,63 @@ fn a_cut_leaning_from_its_side_edge_is_review_clean() {
                 .map(|i| &i.code)
                 .collect();
             assert!(corner_issues.is_empty(), "{degrees}°: {corner_issues:?}");
+        }
+    }
+}
+
+/// The far end is the only place where this cut's reference is perpendicular to the principal
+/// edge. Rounding that end requires two lengths. With a round at the start, the far end can
+/// still carry the angle.
+#[test]
+fn a_fillet_at_either_end_of_a_cut_is_review_clean() {
+    let spec: Spec = serde_json::from_value(json!({})).unwrap();
+    for end in ["far", "start"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "tests/fixtures/parts/block-cut-25-{end}-r3.step.gz"
+        ));
+        for mode in [Features::None, Features::Native] {
+            let r = api::review_from(&path, mode, &spec).unwrap();
+            let corner_issues: Vec<_> = findings(&r)
+                .filter(|(code, _)| {
+                    code.starts_with("angular_") || *code == "profile_corner_unlocated"
+                })
+                .collect();
+            assert!(
+                corner_issues.is_empty(),
+                "{end} {mode:?}: {corner_issues:?}"
+            );
+            let fixes: Vec<_> = findings(&r)
+                .filter_map(|(code, tier)| (tier == Tier::FixBeforePrinting).then_some(code))
+                .collect();
+            assert_eq!(fixes, ["general_tolerance_missing"], "{end} {mode:?}");
+        }
+
+        let p = api::plan_from(&path, Features::None, &spec).unwrap();
+        let lengths = stations(&p);
+        assert!(
+            lengths.iter().any(|d| {
+                d.id.contains("location_y") && d.placed.is_some() && station_reaches(d, 8., 0., 20.)
+            }),
+            "{end}: {lengths:?}"
+        );
+        let angles = angles(&p);
+        if end == "far" {
+            assert!(angles.is_empty(), "{angles:?}");
+            assert_eq!(lengths.len(), 2, "{lengths:?}");
+            let far = 40. - 12. * 25f64.to_radians().tan();
+            assert!(
+                lengths.iter().any(|d| {
+                    d.id.contains("location_x")
+                        && d.placed.is_some()
+                        && station_reaches(d, far, 0., 40.)
+                }),
+                "{lengths:?}"
+            );
+        } else {
+            assert_eq!(lengths.len(), 1, "{lengths:?}");
+            assert_eq!(angles.len(), 1, "{angles:?}");
+            assert_eq!(angles[0].label, "25°");
+            assert!(angles[0].placed.is_some());
         }
     }
 }
