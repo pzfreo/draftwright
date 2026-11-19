@@ -969,8 +969,8 @@ fn a_small_45_degree_chamfer_stays_c() {
     assert_eq!(found[0].label, "C2");
 }
 
-/// #519: a 45° cut of 12 mm across a corner of a 20 mm wide part (60% of its width; the limit is
-/// 30%) is a feature of the part: no `C` callout, its two stations instead.
+/// #519: a 45° cut of 12 mm across a corner of a 40 × 20 part (30% of its length; the limit is
+/// 25% of the larger extent) is a feature of the part: no `C` callout, its two stations instead.
 #[test]
 fn a_large_45_degree_corner_cut_is_dimensioned_as_a_feature() {
     let a = part(&[[0., 0.], [40., 0.], [40., 8.], [28., 20.], [0., 20.]]);
@@ -1158,4 +1158,55 @@ fn a_cut_at_a_computed_angle_keeps_its_two_lengths() {
     let p = plan(&a, json!({}));
     assert!(angles(&p).is_empty(), "{:?}", angles(&p));
     assert_eq!(stations(&p).len(), 2, "{:?}", stations(&p));
+}
+
+/// #520, the review's finding on 18ec88f0: a cut leaning 20°, 25° or 30° from the vertical off a
+/// 40 × 20 × 10 block's side (`block-cut-<n>.step.gz`, 8 mm up the right side) states the 8 and
+/// the angle (without recognition; with it the cut is a chamfer feature), drawn at the end whose reference lies along no edge, and the full review has
+/// nothing to fix about it. Before, the angle was measured from the side edge's own line and
+/// lint refused it as the corner's supplement.
+#[test]
+fn a_cut_leaning_from_its_side_edge_is_review_clean() {
+    for degrees in [20, 25, 30] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("tests/fixtures/parts/block-cut-{degrees}.step.gz"));
+        let none: Spec = serde_json::from_value(json!({})).unwrap();
+        let p = api::plan_from(&path, Features::None, &none).unwrap();
+        let labels: Vec<&str> = p.dimensions.iter().map(|d| d.label.as_str()).collect();
+        assert!(
+            labels.contains(&format!("{degrees}°").as_str()),
+            "{labels:?}"
+        );
+        assert!(labels.contains(&"8"), "{labels:?}");
+        assert_eq!(
+            labels.len(),
+            5,
+            "no computed length for the far end: {labels:?}"
+        );
+        // With and without recognition (which calls the cut a chamfer feature of its own).
+        for r in [
+            api::review_from(&path, Features::None, &none).unwrap(),
+            review(&path, json!({})),
+        ] {
+            let json = serde_json::to_value(&r).unwrap();
+            let fixes: Vec<String> = ["problems", "lint", "structural"]
+                .iter()
+                .flat_map(|k| json[k].as_array().cloned().unwrap_or_default())
+                .filter(|f| f["tier"] == "fix_before_printing")
+                .map(|f| f["code"].as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(
+                fixes,
+                ["general_tolerance_missing"],
+                "{degrees}°: {fixes:?}"
+            );
+            let corner_issues: Vec<_> = r
+                .lint
+                .iter()
+                .filter(|i| i.code.starts_with("angular_") || i.code == "profile_corner_unlocated")
+                .map(|i| &i.code)
+                .collect();
+            assert!(corner_issues.is_empty(), "{degrees}°: {corner_issues:?}");
+        }
+    }
 }

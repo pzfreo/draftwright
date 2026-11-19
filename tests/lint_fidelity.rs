@@ -429,6 +429,8 @@ fn an_edges_inclination_to_a_reference_needs_an_edge_at_the_vertex() {
     };
     // The 75° edge starts at the vertex; the horizontal reference has none.
     assert_eq!(check(vec![Curve::Line(VERTEX, polar(60.0, 75.0))]), 0);
+    // Both rays reversed: the edge lies behind the vertex, the vertically opposite angle.
+    assert_eq!(check(vec![Curve::Line(VERTEX, polar(60.0, 255.0))]), 0);
     // The edge starts 10 mm from the vertex: not a corner.
     assert_eq!(
         check(vec![Curve::Line(polar(10.0, 75.0), polar(60.0, 75.0))]),

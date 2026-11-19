@@ -559,6 +559,20 @@ fn build(
                 let Some(lean) = start.lean().filter(|l| clean(l.degrees)) else {
                     continue;
                 };
+                // Drawn at an end whose reference lies along no edge, as lint requires; a cut
+                // leaning from its own principal edge's line at both ends keeps its two lengths.
+                let mut ends: Vec<(&Corner, &Corner, super::angular::Angle)> =
+                    [(start, far), (far, start)]
+                        .into_iter()
+                        .filter_map(|(a, b)| {
+                            let l = a.lean().filter(|l| l.perpendicular)?;
+                            Some((a, b, lean_angle(a, l.reference, b.vertex)))
+                        })
+                        .collect();
+                if ends.is_empty() {
+                    continue;
+                }
+                let (_, _, drawn_angle) = ends.remove(0);
                 paired[n] = true;
                 paired[o] = true;
                 // Its stations, each from the nearer side of the box as they are drawn, are
@@ -592,13 +606,9 @@ fn build(
                         })
                         .into(),
                     shape: Shape::Angular {
-                        angle: lean_angle(start, lean.reference, far.vertex),
-                        // The same slope read at the far end, where there is room.
-                        alternates: far
-                            .lean()
-                            .map(|l| lean_angle(far, l.reference, start.vertex))
-                            .into_iter()
-                            .collect(),
+                        angle: drawn_angle,
+                        // The same slope read at the other end, where there is room.
+                        alternates: ends.into_iter().map(|(_, _, a)| a).collect(),
                     },
                     turning: None,
                     basis: "a cut across a corner of principal edges stated as designed: its start point and the angle its oblique edge leans by, in the view that shows it true; its far end follows from them".into(),

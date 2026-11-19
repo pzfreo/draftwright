@@ -157,17 +157,18 @@ impl Corner {
         best.map(|(reference, a)| Lean {
             degrees: a.to_degrees(),
             reference,
+            perpendicular: dot(reference, along).abs() < 0.5,
         })
     }
 
-    /// Whether *text* states this corner's angle: as the corner itself, as its supplement (the
-    /// acute angle to the face it meets) or as its oblique edge's lean.
+    /// Whether *text* states this corner's angle: as the corner itself, or as the lean of its
+    /// oblique edge, which a cut's start-and-angle form states for both of its corners
+    /// (`dims::profile_angles`). Not the supplement: nothing draws one.
     pub fn states(&self, text: &str) -> bool {
         let Some(t) = text.trim().strip_suffix('°') else {
             return false;
         };
-        let d = self.degrees();
-        [Some(d), Some(180. - d), self.lean().map(|l| l.degrees)]
+        [Some(self.degrees()), self.lean().map(|l| l.degrees)]
             .into_iter()
             .flatten()
             .any(|x| holes::states(t, x))
@@ -180,6 +181,10 @@ pub struct Lean {
     pub degrees: f64,
     /// The principal direction it is measured from, a unit vector from the corner.
     pub reference: P3,
+    /// Whether that direction is perpendicular to the corner's principal edge, so that it lies
+    /// along no edge there. Measured from the principal edge's own line it would be that edge
+    /// extended, which lint refuses as an angle: the corner's supplement.
+    pub perpendicular: bool,
 }
 
 /// The corner across *c*'s oblique edge: both are corners of principal-and-oblique edges and each
