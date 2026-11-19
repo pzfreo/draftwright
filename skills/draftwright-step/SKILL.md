@@ -37,6 +37,8 @@ on those releases. Over MCP this file is the resource `draftwright://skill/draft
 | Requirements | the purpose needs tolerances, material, finish or GD&T (manufacture, inspection), and the person gives them | Specify writes PMI into a new STEP, then the loop on that file |
 
 PMI already in the STEP (from its CAD tool) is drawn on either route; do not restate it.
+Unattended (no one to answer Specify): never `specify-core write --accept-defaults`; stay on
+the geometry route with `UNSPECIFIED` and list the open questions in the report (rule 0).
 
 ## Setup and versions
 
@@ -100,6 +102,7 @@ Edit ops: `{"op": "set" | "remove" | "add", "path": "a/b/c", "value": ...}`. In 
 | Notes | `{"op":"add","path":"notes","value":{"text":"..."}}` | ids are assigned `n:1`, `n:2` (not `n1`) |
 | Title block | `sheet/title/<key>` | `title`, `number`, `material`, `tolerance`, `drawn_by`, `approved_by`, `date`, `revision`, `company`, `document_type` |
 | Sheet | `sheet/size` (`A4`…`A0`, `ANSI A`…`E`), `sheet/scale` (`"1:1"`, `"2:1"`), `sheet/paper` (`iso`/`ansi`), `sheet/projection` (`first`/`third`) | size and paper must be the same family |
+| Units | `units` (`mm` or `in`) | `in` for a declared-inch STEP or a mm STEP whose sizes are round inches (see Units) |
 
 List the dimensions and the problems (or use MCP `list_items` / `list_problems`):
 
