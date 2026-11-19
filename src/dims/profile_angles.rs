@@ -297,6 +297,9 @@ fn polygon<'a>(
     .then(|| corners.to_vec())
 }
 
+/// What one pass makes: the items, and the spans each face states for the others (face, span).
+type Built = (Vec<Want>, Vec<(usize, Span)>);
+
 /// A stated distance between two stations of one axis: (axis, from, to).
 type Span = (usize, f64, f64);
 
@@ -333,7 +336,7 @@ fn build(
     wants: &[Want],
     derived: &[(usize, Span)],
     share: bool,
-) -> Result<(Vec<Want>, Vec<(usize, Span)>), Invalid> {
+) -> Result<Built, Invalid> {
     let fmt = |v| crate::dims::fmt_in(v, spec.units);
     let corners = requirements(analysis);
     if corners.is_empty() {
