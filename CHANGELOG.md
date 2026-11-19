@@ -13,8 +13,8 @@ All notable changes to draftwright are recorded here, in the style of
   an inch) and ends where nothing is round prints that start station and the angle it leans by,
   never a second computed length (`.500` and `25°`, not `1.067`); its far end, and the same
   cut's trace in another view, follow from them and lint credits that. An obtuse corner of one
-  principal and one oblique edge states the acute lean from the nearest principal direction
-  (`25°`, not `155°` or `115°`; `45°`, not `135°`). A cut the B-rep splits into collinear pieces
+  principal and one oblique edge states the acute angle to the face it meets (`25°`, not `155°`;
+  `45°`, not `135°`); the included angle stays for two oblique edges. A cut the B-rep splits into collinear pieces
   is one edge (#520). A cut sloping on two axes states in each view only the angle of the face
   seen square-on there; auxiliary views remain #521.
 

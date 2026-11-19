@@ -1099,3 +1099,29 @@ fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
     assert!(labels.contains(&".500"), "{labels:?}");
     assert!(labels.contains(&"25°"), "{labels:?}");
 }
+
+/// #520: an obtuse corner of one principal and one oblique edge states the acute angle to the face
+/// it meets, not the obtuse supplement. The pentagon's corners are 123.69° (its sloping side
+/// against the right side) and 146.31° (against the top): under the `angle` choice they print
+/// 56.31° and 33.69°, each claiming its own corner.
+#[test]
+fn an_obtuse_corner_states_its_acute_angle() {
+    let a = part(&PENTAGON);
+    let p = plan(
+        &a,
+        json!({"faces": {"face:1": {"profile_corners": "angle"}}}),
+    );
+    let mut found: Vec<f64> = angles(&p)
+        .iter()
+        .map(|d| d.label.trim_end_matches('°').parse().unwrap())
+        .collect();
+    found.sort_by(f64::total_cmp);
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(
+        (found[0] - 33.69).abs() < 0.01 && (found[1] - 56.31).abs() < 0.01,
+        "{found:?}"
+    );
+    for d in angles(&p) {
+        assert_eq!(d.measurements.len(), 1);
+    }
+}
