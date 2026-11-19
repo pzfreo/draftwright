@@ -21,8 +21,9 @@ views and dimensions, and lays them out on standard sheets. It reports what it c
 
 **Contents:** [Examples](#examples) · [Install](#install) · [Command line](#command-line) · [Output and the Spec](#output-and-the-spec) · [Python](#python) · [What it does](#what-it-does) · [Assemblies and revisions](#assemblies-and-revisions) · [With agents](#with-agents) · [Documentation](#documentation) · [How it's built](#how-its-built) · [Related projects](#related-projects) · [Licence and contributing](#licence-and-contributing)
 
-The current version is **0.6.0**, about ten times faster than the Python 0.4 package in a
-sixth of the memory ([release notes](https://github.com/pzfreo/draftwright/releases/tag/v0.6.0)).
+The current version is **0.6.1** ([release notes](https://github.com/pzfreo/draftwright/releases/tag/v0.6.1)).
+0.6.0 made it about ten times faster than the Python 0.4 package in a sixth of the memory
+([0.6.0 notes](https://github.com/pzfreo/draftwright/releases/tag/v0.6.0)).
 
 ## Examples
 
