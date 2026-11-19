@@ -5,30 +5,34 @@ description: Produce drawings from any STEP file with the draftwright CLI or MCP
 
 # Drawings from STEP files with draftwright
 
-Covers **draftwright 0.6.0** and **specify-core 0.1.18**. Everything below works on those
-releases; anything newer is marked "after 0.6.0". Over MCP this file is the resource
-`draftwright://skill/draftwright-step`.
+Covers **draftwright 0.6.1 and later** and **specify-core 0.1.18**. Everything below was run
+on those releases. Over MCP this file is the resource `draftwright://skill/draftwright-step`.
 
 ## Rules (always)
 
+0. **Ask what the drawing is for before drawing**, if the person has not said: manufacture,
+   inspection, review or communication, assembly, outline or interface, or something else.
+   The purpose decides what the drawing needs. A review drawing needs geometry, not GD&T.
 1. **Requirements live in the STEP as PMI, written with `specify-core`; layout and judgement
    live in the Spec.** Material, fits, threads, GD&T, datums and finish never go in the Spec.
-2. **Never invent a requirement.** No material, finish, fit, tolerance or heat treatment the
-   person did not give you. Leave it open and say so (`UNSPECIFIED`).
-3. **A general tolerance you choose is an assumption.** Prefer `UNSPECIFIED`; if you do write
-   one (e.g. ISO 2768-m), list it as an assumption for the person to confirm.
+2. **Add only the requirements the purpose needs, and never invent them.** When the purpose
+   needs material, tolerances, fits or finish, ask the person. No answer: leave it open and
+   say so (`UNSPECIFIED`).
+3. **Never choose a general tolerance yourself** "to make the drawing complete". If the
+   purpose doesn't need one, write `UNSPECIFIED`; if it does, ask.
 4. **Never override a dimension's value.** `text` may add a prefix or suffix, nothing else.
 5. **Specify defaults are written only when the person has seen and approved them.** Never use
    `--accept-defaults` on your own.
-6. **Incomplete is normal; silent is not.** Finish with a report of assumptions and open items.
+6. **Incomplete is normal; silent is not.** Finish with a report: the purpose, assumptions and
+   open items. (The Spec has no `purpose` field yet; state it in the report.)
 7. **Look at the sheet.** The problem list has blind spots.
 
 ## Two routes; say which you took
 
 | Route | When | Steps |
 | --- | --- | --- |
-| Geometry only | no requirements given, a quick drawing, a review | the loop; title block says `UNSPECIFIED` where unknown |
-| Requirements | the person gives material, tolerance, finish, fits, datums | Specify writes PMI into a new STEP, then the loop on that file |
+| Geometry only | the purpose needs geometry and dimensions only (review, communication, outline), or no answers yet | the loop; title block says `UNSPECIFIED` where unknown |
+| Requirements | the purpose needs tolerances, material, finish or GD&T (manufacture, inspection), and the person gives them | Specify writes PMI into a new STEP, then the loop on that file |
 
 PMI already in the STEP (from its CAD tool) is drawn on either route; do not restate it.
 If the person is not there to answer Specify's questions, take the geometry route and list
@@ -37,22 +41,23 @@ the questions in your report. Do not answer them for the person.
 ## Setup and versions
 
 ```sh
-pipx install draftwright==0.6.0          # or: uvx draftwright@0.6.0 ...
+curl -fsSL https://raw.githubusercontent.com/pzfreo/draftwright/main/install.sh | sh
+# (release binaries; or cargo install draftwright, or pipx install 'draftwright>=0.6.1')
 pipx install specify-core==0.1.18        # only for the requirements route
-draftwright --version                    # draftwright 0.6.0 (quiddity-rust 0.5.4)
+draftwright --version                    # draftwright 0.6.1 (quiddity-rust 0.5.4) or later
 pipx list --short                        # specify-core has no --version flag
 ```
 
-Output is JSON on stdout. **On 0.6.0 a refusal is also JSON on stdout**,
-`{"ok": false, "error": {"code", "message", "choices"?}}`, exit 2 (invalid) or 1 (failed).
-Never redirect over your only copy, and print the error when a command fails:
+A result is JSON on stdout. A refusal is a plain `error:` line on **stderr** (with
+`choose from:` / `entry:` lines when there are choices), empty stdout, and exit 2 (invalid) or
+1 (failed). Keep stderr visible, and don't let a failed edit replace your Spec:
 
 ```sh
-draftwright edit spec.json ops.json > next.json || cat next.json
+draftwright edit spec.json ops.json > next.json && mv next.json spec.json
 ```
 
-(After 0.6.0 refusals move to a plain `error:` line on stderr.) `render -o DIR/stem` needs
-`DIR` to exist: `mkdir -p out` first ("cannot write …: No such file or directory").
+`render -o DIR/stem` needs `DIR` to exist: `mkdir -p out` first ("cannot write …: No such
+file or directory").
 
 ## The working loop
 
@@ -60,23 +65,25 @@ draftwright edit spec.json ops.json > next.json || cat next.json
 mkdir -p out
 draftwright parts part.step                          # an assembly? see "Assemblies"
 draftwright analyse part.step > analysis.json        # declared_length_unit, references
-draftwright render part.step -o out/part --formats svg,pdf,png > r.json || cat r.json
+draftwright render part.step -o out/part --formats svg,pdf,png > r.json
 draftwright spec out/part.pdf > spec.json            # the Spec embedded in the drawing
 # loop: read problems -> write ops.json -> edit -> render with --spec -> open the PNG
-draftwright edit spec.json ops.json > next.json || cat next.json
-draftwright render part.step --spec next.json -o out/part --formats svg,pdf,png > r.json
-draftwright plan part.step --spec next.json > plan.json  # ids, bases, view states; no files
+draftwright edit spec.json ops.json > next.json && mv next.json spec.json
+draftwright render part.step --spec spec.json -o out/part --formats svg,pdf,png > r.json
+draftwright plan part.step --spec spec.json > plan.json  # ids, bases, view states; no files
 ```
 
-Keep the latest Spec (`next.json` becomes `spec.json`). Each problem has `tier`, `code`,
+Each problem has `tier`, `code`,
 `message`, `subjects` (ids) and often `fix`/`fixes` (ready ops; read them before applying):
 
-- `fix_before_printing`: wrong or missing. Fix it, or report why you could not.
+- `fix_before_printing`: wrong or missing. Geometry problems (an unlocated feature, overlaps)
+  matter for every purpose: fix them or report why you could not. A missing requirement
+  matters only if the purpose needs it (rule 2).
 - `tidy`: crowded or crossing. Fix what a reader would trip over.
 - `information`: context. `pmi_not_extracted` about "attribute sets" is normal after Specify.
 
 `general_tolerance_missing` is `fix_before_printing`; its offered fix writes `UNSPECIFIED`
-(rule 3). Open the PNG after every render that changes layout.
+(rule 3), right for a purpose that needs no tolerance. Open the PNG after every render that changes layout.
 
 ## Ids and Spec paths
 
@@ -101,12 +108,16 @@ python3 -c "import json;[print(d['id'],d['label'],d.get('view'),d['state']['kind
 
 Full schema: `draftwright spec_schema` prints `{"spec": {...}, "spec_read": {...}}`; fields are
 in `.spec.properties`, shapes in `.spec.$defs` (`view`, `break`, `dimension`, `place`, `sheet`).
-Prose reference (not installed): https://github.com/pzfreo/draftwright/blob/v0.6.0/docs/model.md
+Prose reference (not installed): https://github.com/pzfreo/draftwright/blob/v0.6.1/docs/model.md
 
-Render flags on 0.6.0: `--title --number --material --tolerance --drawn-by --revision --date
---company --approved-by --units --paper --part --formats --dpi`, and `--scale` as a number
-(`1`, `0.5`, `2`). `--size`, `--max-size` and `--set PATH=VALUE` are after 0.6.0; on 0.6.0
-put sheet size and everything else in the Spec.
+Render, review and plan flags: `--size A3`, `--max-size A3` (largest paper the engine may
+pick), `--scale 1:2` (or `0.5`, `2`), `--units in`, `--paper ansi`, `--part K`, and repeatable
+`--set PATH=VALUE` (value parsed as JSON, else text), e.g.
+`--set views/iso/omit=true --set "sheet/title/title=MOUNTING PLATE"`. Render also takes
+`--title --number --material --tolerance --drawn-by --revision --date --company --approved-by
+--formats --dpi`. Flags override `--spec`, and the drawing embeds the result, so
+`draftwright spec` reads them back. A `--set` path that a named flag also sets is refused. On `pack`, size and
+scale affect only the GA; max-size reaches every sheet.
 
 ## Common edits (ops.json)
 
@@ -238,7 +249,7 @@ Same engine, stateless. `inspect_part {step}` gives `part_ref` and `spec_version
 `get_spec`; `spec_schema`. Read artifacts with `resources/read`. Ids, paths and ops are as above.
 Save the final Spec to a file with your deliverables.
 
-## Known limits on 0.6.0 (state them; do not work around them)
+## Known limits on 0.6.1 (state them; do not work around them)
 
 - No auxiliary views; no dimension to an inclined axis or to a point along it; no angle to a
   cylinder's axis. An inclined bore cannot be fully dimensioned: leave
@@ -265,11 +276,12 @@ Deliver the drawing (`.pdf`, plus `.svg`/`.png` if asked), the final Spec (`spec
 PMI STEP if you wrote one. Then a short report:
 
 ```
+Purpose: e.g. review of geometry | manufacture (machined) | inspection | other: ...
 Route: geometry only | requirements (PMI in part-pmi.step)
 Sheet: A3 1:1; views ...; changes from the automatic drawing: ...
-Assumptions (please confirm): general tolerance ISO 2768-m (my choice) ...
-Open: material, finish, fits not given; remaining problems by code; tool limits hit
+Assumptions (please confirm): ...
+Open: requirements the purpose needs but were not given; remaining problems by code; tool limits hit
 ```
 
-Done means: no `fix_before_printing` left unexplained, every sheet looked at, and on the
+Done means: fit for its stated purpose, no `fix_before_printing` left unexplained, every sheet looked at, and on the
 requirements route every written requirement visible on the sheet.

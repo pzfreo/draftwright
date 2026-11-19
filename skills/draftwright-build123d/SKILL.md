@@ -7,14 +7,19 @@ description: Produce manufacturing drawings from build123d parts and assemblies 
 
 You turn a build123d model into a drawing a machinist can work from. The engine
 chooses views, scale and dimensions; you state the requirements on the faces you
-modelled, render, read the problems, and look at every sheet. Covers **draftwright 0.6.0**.
-The person guide and the full reference (not installed) are
-https://github.com/pzfreo/draftwright/blob/v0.6.0/docs/build123d.md and
-https://github.com/pzfreo/draftwright/blob/v0.6.0/docs/python.md. Spec ids, paths, sections,
+modelled, render, read the problems, and look at every sheet. Covers the draftwright
+Python package **0.6.0 and later** (checked on 0.6.0, the newest on PyPI when written). The person
+guide and the full reference (not installed) are
+https://github.com/pzfreo/draftwright/blob/v0.6.1/docs/build123d.md and
+https://github.com/pzfreo/draftwright/blob/v0.6.1/docs/python.md. Spec ids, paths, sections,
 breaks and authored dimensions are as in the `draftwright-step` skill.
 
 ## Ground rules
 
+- **Ask what the drawing is for first**, if the person has not said: manufacture,
+  inspection, review or communication, assembly, or something else. The purpose decides
+  what the drawing needs: a review drawing needs geometry, not GD&T. State the purpose
+  in your report (there is no Spec field for it yet).
 - **Write the script a person would write.** One line per requirement, on the
   objects the model already has. No wrapper layers, sidecar files, STEP-name parsing
   or helper frameworks to make output look complete. If the API cannot state
@@ -22,10 +27,11 @@ breaks and authored dimensions are as in the `draftwright-step` skill.
 - **Requirements go on the `Part`; layout goes on the `Drawing`.** Never put
   material, fits, threads, GD&T, finish or notes into `Drawing.update()` or
   `render(spec=...)`; they are refused there.
-- **Never invent a requirement.** State only the material, tolerances, fits, threads
-  and finish the person gave you or the design states. Where none was given, say so:
-  `p.material("UNSPECIFIED")`, `p.general_tolerance("UNSPECIFIED")`. A general tolerance
-  you chose yourself is an assumption: list it in your report for the person to confirm.
+- **Add only the requirements the purpose needs, and never invent them.** State only the
+  material, tolerances, fits, threads and finish the person gave you or the design states;
+  when the purpose needs one you don't have, ask. Where none was given, say so:
+  `p.material("UNSPECIFIED")`, `p.general_tolerance("UNSPECIFIED")`. Never choose a general
+  tolerance yourself to make the drawing look complete.
 - **Never override a dimension's value.** `text` may add a prefix or suffix only.
 - **A sheet is not done until you have looked at it.** The problem list misses
   things (see "Check by eye").
@@ -34,7 +40,7 @@ breaks and authored dimensions are as in the `draftwright-step` skill.
 
 ```sh
 uv run --no-project --python 3.12 \
-  --with draftwright==0.6.0 --with "build123d>=0.13" python script.py
+  --with "draftwright>=0.6.0" --with "build123d>=0.13" python script.py
 ```
 
 - build123d 0.10 or later. Unpinned, uv can resolve 0.10 when another package
@@ -156,7 +162,7 @@ for f in pack.findings:
 - The GA keeps the model's orientation. Pass `horizontal_axis="x"|"y"|"z"` only
   when the person asks for a different one.
 
-## Known limits on 0.6.0
+## Known limits
 
 No auxiliary views or dimensions to an inclined axis; no datum on an inclined face; a section
 view carries no dimensions of its own; PMI stays in memory (`export_step` writes plain
@@ -171,9 +177,9 @@ Open the PDF and look at every sheet. Known blind spots, where nothing is report
 - A dimension drawn through a section arrowhead (#498).
 - Every thread, fit, knurl, finish and note you stated actually appears.
 
-Done means: no `fix_before_printing` left unexplained, no row errors, page count
-matches the made parts plus the GA for a pack, every stated requirement found on its
-sheet, and a visual pass over each sheet. Finish with a short report: the files, what
-you changed from the automatic drawing, assumptions to confirm (e.g. a general
-tolerance you chose), and what is still open (material, finish, fits not given;
+Done means: fit for its stated purpose, no `fix_before_printing` left unexplained, no
+row errors, page count matches the made parts plus the GA for a pack, every stated
+requirement found on its sheet, and a visual pass over each sheet. Finish with a short
+report: the purpose, the files, what you changed from the automatic drawing, assumptions
+to confirm, and what is still open (requirements the purpose needs but were not given;
 remaining problems; tool limits hit).

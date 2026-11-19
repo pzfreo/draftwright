@@ -40,12 +40,12 @@ pub const SKILL_URI: &str = "draftwright://skill/draftwright-step";
 macro_rules! skill_head {
     () => {
         "Before drawing, read draftwright://skill/draftwright-step with resources/read: the workflow, ids, limits and the final report.\n\
-Must follow: (1) requirements (material, fits, threads, GD&T, datums, finish) are AP242 PMI written with specify-core; the Spec holds layout and judgement only.\n\
-(2) Never invent a requirement: leave it UNSPECIFIED and say so. A general tolerance you choose yourself is an assumption to report.\n\
+Must follow: (1) ask what the drawing is for (manufacture, inspection, review, ...) if the person has not said; state it in the report.\n\
+(2) Add only the requirements that purpose needs, never invent them: ask, or leave them UNSPECIFIED and say so. Requirements are AP242 PMI written with specify-core; the Spec holds layout and judgement only.\n\
 (3) Never override a dimension's value; text may add only a prefix or suffix.\n\
 (4) Write Specify defaults only when the person has seen and approved them.\n\
 (5) Look at every sheet (view_sheet); the problem list has blind spots.\n\
-(6) Finish with the files, the Spec and a short report of assumptions and open items.\n\n"
+(6) Finish with the files, the Spec and a short report of purpose, assumptions and open items.\n\n"
     };
 }
 pub(crate) use skill_head;
