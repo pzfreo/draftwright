@@ -16,10 +16,11 @@ breaks and authored dimensions are as in the `draftwright-step` skill.
 
 ## Ground rules
 
-- **Ask what the drawing is for first**, if the person has not said: manufacture,
-  inspection, review or communication, assembly, or something else. The purpose decides
-  what the drawing needs: a review drawing needs geometry, not GD&T. State the purpose
-  in your report (there is no Spec field for it yet).
+- **Know what the drawing is for.** If the brief states the purpose (manufacture,
+  inspection, review or communication, assembly, other), use it and don't ask again. If
+  not, and nobody can answer (unattended), draw geometry only with material and general
+  tolerance `UNSPECIFIED` and list the open questions; otherwise ask first. A review drawing
+  needs geometry, not GD&T. State the purpose in your report (no Spec field for it yet).
 - **Write the script a person would write.** One line per requirement, on the
   objects the model already has. No wrapper layers, sidecar files, STEP-name parsing
   or helper frameworks to make output look complete. If the API cannot state
@@ -176,6 +177,10 @@ Open the PDF and look at every sheet. Known blind spots, where nothing is report
 - Angle labels touching the part edge (#505).
 - A dimension drawn through a section arrowhead (#498).
 - Every thread, fit, knurl, finish and note you stated actually appears.
+
+A clean problem list does not mean ready to make: until checks follow the purpose, check
+the title block yourself for missing material, tolerance and finish. Automatic `C` chamfer
+callouts are wrong on corner cuts sloping on two axes (#519); check them.
 
 Done means: fit for its stated purpose, no `fix_before_printing` left unexplained, no
 row errors, page count matches the made parts plus the GA for a pack, every stated

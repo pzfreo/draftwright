@@ -10,9 +10,11 @@ on those releases. Over MCP this file is the resource `draftwright://skill/draft
 
 ## Rules (always)
 
-0. **Ask what the drawing is for before drawing**, if the person has not said: manufacture,
-   inspection, review or communication, assembly, outline or interface, or something else.
-   The purpose decides what the drawing needs. A review drawing needs geometry, not GD&T.
+0. **Know what the drawing is for** (manufacture, inspection, review, assembly, outline,
+   other). If the brief states it, use it; don't ask again. If not and nobody can answer
+   (unattended), draw from geometry only, mark material, tolerance and finish `UNSPECIFIED`,
+   and list the open questions in your report. Otherwise ask the person first. The purpose
+   decides what the drawing needs: a review drawing needs geometry, not GD&T.
 1. **Requirements live in the STEP as PMI, written with `specify-core`; layout and judgement
    live in the Spec.** Material, fits, threads, GD&T, datums and finish never go in the Spec.
 2. **Add only the requirements the purpose needs, and never invent them.** When the purpose
@@ -100,10 +102,11 @@ Edit ops: `{"op": "set" | "remove" | "add", "path": "a/b/c", "value": ...}`. In 
 | Sheet | `sheet/size` (`A4`…`A0`, `ANSI A`…`E`), `sheet/scale` (`"1:1"`, `"2:1"`), `sheet/paper` (`iso`/`ansi`), `sheet/projection` (`first`/`third`) | size and paper must be the same family |
 | Units | `units` (`mm` or `in`) | or `render --units in` |
 
-List the dimensions (id, text, view, state):
+List the dimensions and the problems (or use MCP `list_items` / `list_problems`):
 
 ```sh
-python3 -c "import json;[print(d['id'],d['label'],d.get('view'),d['state']['kind']) for d in json.load(open('plan.json'))['dimensions']]"
+jq -r '.dimensions[] | [.id, .label, .view, .state.kind] | @tsv' plan.json
+jq -r '.problems[] | [.tier, .code, (.subjects | join(" "))] | @tsv' r.json
 ```
 
 Full schema: `draftwright spec_schema` prints `{"spec": {...}, "spec_read": {...}}`; fields are
@@ -167,13 +170,15 @@ scale affect only the GA; max-size reaches every sheet.
 `dimensions/d:authored:<name>` adds a dimension between model references. Keys come from
 `analysis.json` `edge_ink.references` (`face:v1:…`, `edge:v1:…`, `vertex:v1:…`; a key with
 more than one record is ambiguous and refused). `axis:face:v1:…` or `axis:f:hole:f12` names a
-cylinder's axis. List the keys with their geometry:
+cylinder's axis. List the keys with their geometry (over MCP: `get_item` with `detail=true`
+gives an item's resolved geometry and anchors):
 
 ```sh
-python3 -c "
-import json;r=json.load(open('analysis.json'))['edge_ink']['references']
-for k,v in r.items():
-  x=v[0];print(k,x['kind'],x.get('normal') or x.get('axis') or '',x.get('point') or x.get('ends') or x.get('bounds'),x['stock_sides'],x['features'],'AMBIGUOUS' if len(v)>1 else '')"
+jq -r '.edge_ink.references | to_entries[] | [.key, .value[0].kind,
+  ((.value[0].normal // .value[0].axis // "") | tostring),
+  ((.value[0].point // .value[0].ends // .value[0].bounds) | tostring),
+  (.value[0].stock_sides | join(",")), (.value[0].features | join(",")),
+  (if (.value | length) > 1 then "AMBIGUOUS" else "" end)] | @tsv' analysis.json
 ```
 
 ```json
@@ -258,6 +263,12 @@ Save the final Spec to a file with your deliverables.
 - No datum or face label on an inclined face ("not axis-aligned").
 - A section view does not carry its own dimensions; they stay on the principal views.
 - `views/iso/direction` turns a pictorial, but pictorials take no dimensions.
+- An automatic `C` chamfer callout is wrong on a corner cut that slopes on two axes (#519):
+  check every `C` callout against the model; if wrong, omit it and dimension the corner with
+  authored dimensions.
+- Adding a section can push views onto a second sheet; check `plan.json` sheets after adding one.
+- `views/<v>/half_section` is offered but not drawn (#530).
+- Faces named by `unclaimed_geometry` (`face:<n>`) can't be looked up yet (#531).
 - MCP `render` gives PNG or PDF; SVG and DXF come from the CLI `render --formats`.
 - Nothing is reported for: features with no size or location (open slots), angle labels
   touching the part, a dimension through a section arrowhead, or a requirement that did not
@@ -268,7 +279,9 @@ Save the final Spec to a file with your deliverables.
 - Requirements in the Spec (the schema has `features/*/fit`, `controls`, `datum`, `finish`:
   use Specify instead), or layout in Specify answers.
 - Hand-editing the STEP text, sidecar files, or dimension text that replaces the value.
-- Calling a drawing done from the problem list alone.
+- Calling a drawing done from the problem list alone. A clean list does not mean ready to
+  make: until checks follow the purpose (P10), check the title block yourself for missing
+  material, tolerance and finish, and report them if the purpose needs them.
 
 ## Finish
 

@@ -457,7 +457,7 @@ fn both_servers_serve_the_skill_and_point_their_instructions_at_it() {
         instructions.starts_with(&format!("Before drawing, read {uri}")),
         "{instructions}"
     );
-    assert!(instructions.contains("ask what the drawing is for"));
+    assert!(instructions.contains("know the drawing's purpose"));
     assert!(instructions.contains("never invent them"));
     // The mechanical guidance is kept after the head.
     assert!(instructions.contains("Register STEP with inspect_part {step}"));
