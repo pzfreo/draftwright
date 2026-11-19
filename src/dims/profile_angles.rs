@@ -197,12 +197,13 @@ fn lean_angle(c: &Corner, reference: [f64; 3], toward: [f64; 3]) -> super::angul
     }
 }
 
-fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> Want {
+fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str, cut: bool) -> Want {
     let c = corners[0];
-    // An obtuse corner of one principal edge and one oblique one states the acute angle between
+    // An obtuse end of a cut across a corner of principal edges states the acute angle between
     // the oblique edge and the principal edge's extension (25°, not 155°; #520). The included
-    // angle stays for a corner of two oblique edges, and for counted corners.
-    let acute = (corners.len() == 1 && c.degrees() > 90. + 1e-6)
+    // angle stays for every other corner (a bend's 120° is meaningful as it is), and for counted
+    // ones.
+    let acute = (cut && corners.len() == 1 && c.degrees() > 90. + 1e-6)
         .then(|| {
             let [a, b] = c.principal_edges();
             (a != b).then(|| {
@@ -377,6 +378,7 @@ fn build(
                     &group,
                     defined,
                     "the equal corners of a closed polygonal outer profile, one counted angle in the view that shows them true",
+                    false,
                 ));
             }
             continue;
@@ -422,6 +424,7 @@ fn build(
                         &[mine[x], mine[y]],
                         false,
                         "two mirror-equal outer-profile corners its linear dimensions do not fix, one counted angle in the view that shows them true",
+                        false,
                     ));
                 }
             }
@@ -629,6 +632,7 @@ fn build(
                         &[c],
                         false,
                         "a non-right convex outer-profile corner's angle the Spec asks for, in the view that shows it true",
+                        cut(c, &mine),
                     ));
                 }
                 continue;
@@ -640,6 +644,7 @@ fn build(
                     &[c],
                     defined,
                     "a non-right convex outer-profile corner its linear dimensions do not fix, in the view that shows it true",
+                    cut(c, &mine),
                 ));
             }
         }
