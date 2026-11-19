@@ -1,17 +1,27 @@
 ---
 name: draftwright-build123d
-description: Produce manufacturing drawings from build123d parts and assemblies with the draftwright Python API (Part, Drawing, Pack). Use when a build123d script needs a drawing, requirements such as fits, threads, GD&T or surface finish stated on its faces, or an assembly drawing pack.
+description: Produce drawings from build123d parts and assemblies with the draftwright Python API (Part, Drawing, Pack), fit for the purpose the person states (review, manufacture, inspection, assembly). Use when a build123d script needs a drawing, requirements the person gave (fits, threads, GD&T, finish) stated on its faces, or an assembly drawing pack.
 ---
 
 # Drawings from build123d with draftwright
 
-You turn a build123d model into a drawing a machinist can work from. The engine
-chooses views, scale and dimensions; you state the requirements on the faces you
-modelled, render, read the problems, and look at every sheet. The person guide is
-`docs/build123d.md`; the full reference is `docs/python.md`.
+You turn a build123d model into a drawing fit for its purpose: a review drawing needs
+geometry; a manufacturing drawing also needs the requirements the person gives. The engine
+chooses views, scale and dimensions; you state those requirements on the faces you
+modelled, render, read the problems, and look at every sheet. Covers the draftwright
+Python package **0.6.0 and later** (checked on 0.6.0, the newest on PyPI when written). The person
+guide and the full reference (not installed) are
+https://github.com/pzfreo/draftwright/blob/v0.6.1/docs/build123d.md and
+https://github.com/pzfreo/draftwright/blob/v0.6.1/docs/python.md. Spec ids, paths, sections,
+breaks and authored dimensions are as in the `draftwright-step` skill.
 
 ## Ground rules
 
+- **Know what the drawing is for.** If the brief states the purpose (manufacture,
+  inspection, review or communication, assembly, other), use it and don't ask again. If
+  not, and nobody can answer (unattended), draw geometry only with material and general
+  tolerance `UNSPECIFIED` and list the open questions; otherwise ask first. A review drawing
+  needs geometry, not GD&T. State the purpose in your report (no Spec field for it yet).
 - **Write the script a person would write.** One line per requirement, on the
   objects the model already has. No wrapper layers, sidecar files, STEP-name parsing
   or helper frameworks to make output look complete. If the API cannot state
@@ -19,6 +29,12 @@ modelled, render, read the problems, and look at every sheet. The person guide i
 - **Requirements go on the `Part`; layout goes on the `Drawing`.** Never put
   material, fits, threads, GD&T, finish or notes into `Drawing.update()` or
   `render(spec=...)`; they are refused there.
+- **Add only the requirements the purpose needs, and never invent them.** State only the
+  material, tolerances, fits, threads and finish the person gave you or the design states;
+  when the purpose needs one you don't have, ask. Where none was given, say so:
+  `p.material("UNSPECIFIED")`, `p.general_tolerance("UNSPECIFIED")`. Never choose a general
+  tolerance yourself to make the drawing look complete.
+- **Never override a dimension's value.** `text` may add a prefix or suffix only.
 - **A sheet is not done until you have looked at it.** The problem list misses
   things (see "Check by eye").
 
@@ -26,7 +42,7 @@ modelled, render, read the problems, and look at every sheet. The person guide i
 
 ```sh
 uv run --no-project --python 3.12 \
-  --with draftwright --with "build123d>=0.13" python script.py
+  --with "draftwright>=0.6.0" --with "build123d>=0.13" python script.py
 ```
 
 - build123d 0.10 or later. Unpinned, uv can resolve 0.10 when another package
@@ -58,10 +74,14 @@ uv run --no-project --python 3.12 \
 
 ## State requirements
 
+Only what the purpose needs and the person stated; every value below stands for one the
+person gave you. Unknown: `UNSPECIFIED`, and list it as open.
+
 ```python
 p = dw.Part(body, "bracket", number="DWG-210", title="Motor bracket")
-p.process("machined").material("6082-T6").general_tolerance("ISO 2768-mK")
-p.note("Break all sharp edges 0.2 max.").default_finish(3.2)
+p.material(MATERIAL_THE_PERSON_GAVE)          # else p.material("UNSPECIFIED")
+p.general_tolerance(TOLERANCE_THE_PERSON_GAVE) # else p.general_tolerance("UNSPECIFIED")
+p.note(NOTE_THE_PERSON_GAVE)                  # e.g. their edge-break note
 
 A = p.datum("A", bottom_face)                 # declare datums before use
 bearing = p.hole(f.bore).fit("H7").position(0.05, A, B, C)
@@ -89,6 +109,9 @@ for f in dwg.problems:
         print(f["tier"], f["code"], f["message"], f.get("subjects"))
 ```
 
+- A problem's `fix` is written in Spec paths. A `sheet/title/material`,
+  `sheet/title/tolerance` or `notes` fix is a requirement: make it with the `Part` call
+  (`update()` refuses it and names the call). Layout fixes go through `dwg.update()`.
 - `dwg.problems` exists only after `render()`, and any later Part or layout edit
   clears it until you render again.
 - Act on every `fix_before_printing`. Read `tidy` (leader crossings, crowded
@@ -97,6 +120,23 @@ for f in dwg.problems:
 - If the engine drops the scale and leaves the sheet sparse, find what pushed it
   (often one long leader, such as a single face finish) before forcing `scale=`;
   forcing the scale can create overlaps. Re-check `problems` after any forcing.
+
+### Layout: title, views, breaks, units, added dimensions
+
+```python
+dwg = p.drawing(sheet="A4", scale=1, units="in")       # units "mm" or "in"
+dwg.title(drawn_by="PF", date="2026-11-18", revision="A")   # not material/tolerance
+dwg.views(omit=("iso",))
+dwg.update({"views": {"front": {"break": {}}, "plan": {"break": {}}}})   # long bars
+ends = body.faces().filter_by(Axis.X).sort_by(Axis.X)
+dwg.update({"dimensions": {"d:authored:overall": {
+    "between": [p.reference_key(ends[0]), p.reference_key(ends[-1])],
+    "along": "x", "view": "front"}}})
+```
+
+- `update()` validates and raises with the accepted fields; read the message.
+- A model in mm whose sizes are round inches (25.4, 50.8 …) was probably meant in inches:
+  consider `units="in"` and say why.
 
 ### Moving a callout
 
@@ -128,6 +168,12 @@ for f in pack.findings:
 - The GA keeps the model's orientation. Pass `horizontal_axis="x"|"y"|"z"` only
   when the person asks for a different one.
 
+## Known limits
+
+No auxiliary views or dimensions to an inclined axis; no datum on an inclined face; a section
+view carries no dimensions of its own; PMI stays in memory (`export_step` writes plain
+geometry). Tell the person what could not be stated rather than working around it.
+
 ## Check by eye
 
 Open the PDF and look at every sheet. Known blind spots, where nothing is reported:
@@ -137,6 +183,13 @@ Open the PDF and look at every sheet. Known blind spots, where nothing is report
 - A dimension drawn through a section arrowhead (#498).
 - Every thread, fit, knurl, finish and note you stated actually appears.
 
-Done means: no `fix_before_printing`, no row errors, page count matches the made
-parts plus the GA for a pack, every stated requirement found on its sheet, and a
-visual pass over each sheet.
+A clean problem list does not mean ready to make: until checks follow the purpose, check
+the title block yourself for missing material, tolerance and finish. Automatic `C` chamfer
+callouts are wrong on corner cuts sloping on two axes (#519); check them.
+
+Done means: fit for its stated purpose, no `fix_before_printing` left unexplained, no
+row errors, page count matches the made parts plus the GA for a pack, every stated
+requirement found on its sheet, and a visual pass over each sheet. Finish with a short
+report: the purpose, the files, what you changed from the automatic drawing, assumptions
+to confirm, and what is still open (requirements the purpose needs but were not given;
+remaining problems; tool limits hit).

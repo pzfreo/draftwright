@@ -29,7 +29,31 @@ pub const TOOLS: [&str; 14] = [
 const CORRECTION_ATTEMPTS: usize = 8;
 
 pub const VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
-pub const INSTRUCTIONS: &str = "Register STEP with inspect_part {step}; keep part_ref. Call spec_schema {} for the full Spec schema before authoring unfamiliar fields; item_options gives valid edit paths and choices. The Spec is state: pass spec or immutable spec_version to each query. get_spec loads a drawing's current head; apply_ops requires that parent and returns a new version. preview_ops keeps no version. Lists and delta events are paged below 4096 bytes; follow next_cursor. Delta artifacts are lossless and readable with resources/read (events may be paged there without applying again). get_item explains basis and valid operations. view_sheet gives PNG, render_pdf delivery PDF. No live session or authentication; localhost development only.";
+/// The agent skill for drawing from STEP: one source, built into the binary and served as an MCP
+/// resource at [`SKILL_URI`].
+pub const SKILL: &str = include_str!("../skills/draftwright-step/SKILL.md");
+/// The stable URI of [`SKILL`] in resources/list and resources/read.
+pub const SKILL_URI: &str = "draftwright://skill/draftwright-step";
+
+/// The head of every draftwright MCP server's instructions: the rules an agent must follow and
+/// where the full skill is. A macro so each server's instructions stay one `&'static str`.
+macro_rules! skill_head {
+    () => {
+        "Before drawing, read draftwright://skill/draftwright-step with resources/read: the workflow, ids, limits and the final report.\n\
+Must follow: (1) know the drawing's purpose (manufacture, inspection, review, ...): from the brief, else ask; unattended with none given, draw geometry only with material, tolerance and finish UNSPECIFIED. State it in the report.\n\
+(2) Add only the requirements that purpose needs, never invent them: ask, or leave them UNSPECIFIED and say so. Requirements are AP242 PMI written with specify-core; the Spec holds layout and judgement only.\n\
+(3) Never override a dimension's value; text may add only a prefix or suffix.\n\
+(4) Write Specify defaults only when the person has seen and approved them.\n\
+(5) Look at every sheet (view_sheet, or open the PNG/SVG you rendered); the problem list has blind spots.\n\
+(6) Finish with the files, the Spec and a short report of purpose, assumptions and open items.\n\n"
+    };
+}
+pub(crate) use skill_head;
+
+pub const INSTRUCTIONS: &str = concat!(
+    skill_head!(),
+    "Register STEP with inspect_part {step}; keep part_ref. Call spec_schema {} for the full Spec schema before authoring unfamiliar fields; item_options gives valid edit paths and choices. The Spec is state: pass spec or immutable spec_version to each query. get_spec loads a drawing's current head; apply_ops requires that parent and returns a new version. preview_ops keeps no version. Lists and delta events are paged below 4096 bytes; follow next_cursor. Delta artifacts are lossless and readable with resources/read (events may be paged there without applying again). get_item explains basis and valid operations. view_sheet gives PNG, render_pdf delivery PDF. No live session or authentication; localhost development only."
+);
 
 fn description(tool: &str) -> &'static str {
     match tool {
@@ -931,7 +955,17 @@ pub fn reply(cache: &Cache, request: &Value) -> Option<Value> {
             }
             json!({"content":content,"structuredContent":result,"isError":failed})
         }
-        Some("resources/list") => json!({"resources":[]}),
+        Some("resources/list") => json!({"resources":[{
+            "uri": SKILL_URI,
+            "name": "draftwright-step",
+            "title": "Drawings from STEP files with draftwright",
+            "description": "How to make a good drawing: workflow, ids and Spec paths, limits, honesty rules and the final report. Read before drawing.",
+            "mimeType": "text/markdown",
+            "size": SKILL.len(),
+        }]}),
+        Some("resources/read") if params["uri"] == SKILL_URI => {
+            json!({"contents":[{"uri":SKILL_URI,"mimeType":"text/markdown","text":SKILL}]})
+        }
         Some("resources/read") => {
             let uri = params["uri"].as_str().unwrap_or("");
             let read = uri
@@ -964,7 +998,7 @@ pub fn reply(cache: &Cache, request: &Value) -> Option<Value> {
             return Some(rpc_error(
                 id,
                 -32601,
-                "supported methods: initialize, ping, tools/list, tools/call, resources/read",
+                "supported methods: initialize, ping, tools/list, tools/call, resources/list, resources/read",
             ));
         }
     };

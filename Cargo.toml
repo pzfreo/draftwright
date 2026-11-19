@@ -10,7 +10,7 @@ homepage = "https://draftwright.io"
 readme = "README.md"
 keywords = ["cad", "step", "technical-drawing", "drafting", "manufacturing"]
 categories = ["science", "command-line-utilities", "graphics"]
-include = ["/src", "/build.rs", "/build_support.rs", "/fonts", "/schemas", "/docs/finding-impact.md", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CLA.md"]
+include = ["/src", "/build.rs", "/build_support.rs", "/fonts", "/schemas", "/docs/finding-impact.md", "/skills/draftwright-step/SKILL.md", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CLA.md"]
 
 [[bin]]
 name = "draftwright"

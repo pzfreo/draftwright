@@ -13,13 +13,16 @@ use serde_json::{Value, json};
 /// The MCP revisions spoken, newest first. Tools are the same in each.
 const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
-const INSTRUCTIONS: &str = "Draftwright makes engineering drawings from STEP files. A drawing \
+const INSTRUCTIONS: &str = concat!(
+    crate::mcp::skill_head!(),
+    "Draftwright makes engineering drawings from STEP files. A drawing \
 is described by a spec (the author's decisions; JSON) and previewed as a plan (every view, the \
 sheet and scale, each with whether it is a default and why, and any problems). Nothing is kept \
 between calls: pass the spec to each call that takes one, and keep the latest. Usual order: plan \
 the STEP with no spec to see the defaults; edit the spec to change what is wrong; plan or review \
 again; render to write the files. A rendered drawing carries its spec, which the spec tool reads \
-back, so work can resume from a drawing alone.";
+back, so work can resume from a drawing alone."
+);
 
 const SPEC: &str = "The spec: the author's decisions, keyed by stable IDs. Omit it, or pass {}, \
 for all defaults. Use the spec from the plan or the edit tool's result. Shape: {\"sheet\": \

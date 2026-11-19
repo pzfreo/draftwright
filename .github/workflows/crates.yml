@@ -9,6 +9,7 @@ on:
       - 'fonts/**'
       - 'schemas/**'
       - 'docs/finding-impact.md'
+      - 'skills/draftwright-step/SKILL.md'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
