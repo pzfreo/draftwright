@@ -640,9 +640,8 @@ fn angular(drawing: &Drawing, d: &Drawn, label: &str, view: Option<&str>) -> Vec
     // (a cut's 25° from the vertical). The reference is the view's own direction. A ray that does
     // lie along an edge keeps the rule above: against another ray extended behind the vertex it
     // would be the corner's supplement. Two reference rays, or an edge not at the vertex, are
-    // refused. The edge may lie ahead of the vertex or, with the reference reversed too, behind
-    // it: the vertically opposite angle is the same angle, as extending both supports of a
-    // corner is (an edge break's 45° is drawn in the removed corner or beyond it).
+    // refused. The reference direction is the one making an acute angle with the edge.
+    // Reversing both rays keeps that angle; reversing either alone gives its supplement.
     let reference = |r: P| {
         (r[0].abs() > 1.0 - 1e-6 || r[1].abs() > 1.0 - 1e-6)
             && !supported(r, 1.0)
@@ -659,8 +658,9 @@ fn angular(drawing: &Drawing, d: &Drawn, label: &str, view: Option<&str>) -> Vec
         })
     };
     let inclination = |u: P, v: P| {
-        (reference(v) && !reference(u) && at_corner(u))
-            || (reference(u) && !reference(v) && at_corner(v))
+        dot(u, v) > 0.0
+            && ((reference(v) && !reference(u) && at_corner(u))
+                || (reference(u) && !reference(v) && at_corner(v)))
     };
     let quantity = match number(label.trim()) {
         Some((n, rest)) if rest.trim_start().starts_with('×') => n,

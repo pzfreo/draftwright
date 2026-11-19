@@ -423,21 +423,32 @@ fn an_angles_rays_are_the_corners_physical_edges() {
 #[test]
 fn an_edges_inclination_to_a_reference_needs_an_edge_at_the_vertex() {
     let code = "angular_support_mismatch";
-    let check = |edges: Vec<Curve>| {
-        let issues = structural::check(&sheet(1.0, edges, vec![(angle(0.0, 75.0, 20.0), "75")]));
-        found(&issues, code).len()
+    let check = |edges: Vec<Curve>, rays: [f64; 2], label: &str| {
+        fidelity(&structural::check(&sheet(
+            1.0,
+            edges,
+            vec![(angle(rays[0], rays[1], 20.0), label)],
+        )))
     };
-    // The 75° edge starts at the vertex; the horizontal reference has none.
-    assert_eq!(check(vec![Curve::Line(VERTEX, polar(60.0, 75.0))]), 0);
-    // Both rays reversed: the edge lies behind the vertex, the vertically opposite angle.
-    assert_eq!(check(vec![Curve::Line(VERTEX, polar(60.0, 255.0))]), 0);
+    let edge = || vec![Curve::Line(VERTEX, polar(60.0, 75.0))];
+    // Both the edge's inclination and its vertically opposite sector are supported.
+    assert!(check(edge(), [0.0, 75.0], "75").is_empty());
+    assert!(check(edge(), [180.0, 255.0], "75").is_empty());
+    // Reversing either witness alone draws the supplement of the physical inclination.
+    let unsupported = [format!("{code} d:pmi:dimension.angular:f1,2/angular")];
+    assert_eq!(check(edge(), [255.0, 360.0], "105"), unsupported);
+    assert_eq!(check(edge(), [75.0, 180.0], "105"), unsupported);
     // The edge starts 10 mm from the vertex: not a corner.
     assert_eq!(
-        check(vec![Curve::Line(polar(10.0, 75.0), polar(60.0, 75.0))]),
-        1
+        check(
+            vec![Curve::Line(polar(10.0, 75.0), polar(60.0, 75.0))],
+            [0.0, 75.0],
+            "75"
+        ),
+        unsupported
     );
     // Neither ray has an edge.
-    assert_eq!(check(Vec::new()), 1);
+    assert_eq!(check(Vec::new(), [0.0, 75.0], "75"), unsupported);
 }
 
 /// LINT-angular-profile_angle_requirement: a regular polygon's equal corners carry one counted
