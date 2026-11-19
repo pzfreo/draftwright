@@ -11,6 +11,7 @@ mod corpus;
 
 use draftwright::api::{self, Features};
 use draftwright::dims::PlannedDimension;
+use draftwright::finding::Tier;
 use draftwright::items::State;
 use draftwright::lint::profile_angles::{self, Corner};
 use draftwright::model::{self, Analysis, Plan, Spec};
@@ -452,6 +453,18 @@ fn ctc03() -> &'static std::path::PathBuf {
 fn review(path: &std::path::Path, spec: serde_json::Value) -> api::Review {
     let spec: Spec = serde_json::from_value(spec).unwrap();
     api::review_from(path, Features::Native, &spec).unwrap()
+}
+
+fn findings(r: &api::Review) -> impl Iterator<Item = (&str, Tier)> {
+    r.problems
+        .iter()
+        .map(|f| (f.code.as_str(), f.labels().tier))
+        .chain(
+            r.lint
+                .iter()
+                .chain(&r.structural)
+                .map(|f| (f.code.as_str(), f.labels().tier)),
+        )
 }
 
 fn missing(r: &api::Review) -> Vec<String> {
@@ -956,4 +969,354 @@ fn quality_angular_labels_stay_with_their_arcs() {
         count > 0,
         "the quality survey must exercise angular dimensions"
     );
+}
+
+/// #519: `C<leg>` is for edge breaks. The octagon's 5 × 45° chamfers are a quarter of the part's
+/// 20 mm width and stay `C5`; a 2 × 45° chamfer certainly does.
+#[test]
+fn a_small_45_degree_chamfer_stays_c() {
+    let chamfered = part(&[[0., 0.], [40., 0.], [40., 18.], [38., 20.], [0., 20.]]);
+    let p = plan(&chamfered, json!({}));
+    let found = chamfers(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].label, "C2");
+}
+
+/// #519: a 45° cut of 12 mm across a corner of a 40 × 20 part (30% of its length; the limit is
+/// 25% of the larger extent) is a feature of the part: no `C` callout, its two stations instead.
+#[test]
+fn a_large_45_degree_corner_cut_is_dimensioned_as_a_feature() {
+    let a = part(&[[0., 0.], [40., 0.], [40., 8.], [28., 20.], [0., 20.]]);
+    let p = plan(&a, json!({}));
+    assert!(chamfers(&p).is_empty(), "{:?}", chamfers(&p));
+    assert!(
+        p.dimensions.iter().all(|d| !d.label.starts_with('C')),
+        "{:?}",
+        p.dimensions.iter().map(|d| &d.label).collect::<Vec<_>>()
+    );
+    let found = stations(&p);
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(
+        found
+            .iter()
+            .any(|d| d.id.contains("location_y") && station_reaches(d, 8., 0., 20.))
+    );
+    assert!(
+        found
+            .iter()
+            .any(|d| d.id.contains("location_x") && station_reaches(d, 28., 0., 40.))
+    );
+}
+
+/// #520: a cut designed as a start point and an angle (8 mm up the right side, 25° from the
+/// vertical) is stated so: the start's station and `25°` (not the corner's 155°), and no second
+/// computed length for where it meets the top. The far end follows from them.
+#[test]
+fn a_cut_from_a_round_start_is_a_station_and_its_acute_angle() {
+    let far = 40. - 12. * 25f64.to_radians().tan();
+    let a = part(&[[0., 0.], [40., 0.], [40., 8.], [far, 20.], [0., 20.]]);
+    let corners = profile_angles::requirements(&a);
+    // Both corners are obtuse in the profile: 155° and 115°.
+    assert_eq!(corners.len(), 2);
+    let included: Vec<f64> = corners.iter().map(Corner::degrees).collect();
+    assert!(
+        included.iter().any(|d| (d - 155.).abs() < 1e-6),
+        "{included:?}"
+    );
+    let p = plan(&a, json!({}));
+    let found = angles(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].label, "25°");
+    assert_eq!(found[0].view, "v:plan");
+    // It claims both corners of the cut.
+    assert_eq!(found[0].measurements.len(), 2);
+    let found = stations(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].id.contains("location_y") && station_reaches(found[0], 8., 0., 20.),
+        "{}",
+        found[0].label
+    );
+    assert!(chamfers(&p).is_empty());
+    // A Spec asking for the legs instead is honoured: its angle keeps the corner's own id.
+    let p = plan(
+        &a,
+        json!({"faces": {"face:1": {"profile_corners": "linear"}}}),
+    );
+    assert!(angles(&p).is_empty());
+    assert_eq!(stations(&p).len(), 2);
+}
+
+/// #519, #520, Jern's corner-cut block (`corner-cuts.step.gz`, 2.000 × 2.500 × 2.000 in, the file
+/// in mm). Its large planar cut starts 0.500 in from one face at 25°; before, it printed `C27.112`
+/// (the top face's leg), the legs `12.7` and `27.112` on the side and the obtuse 135°, 155° and
+/// 115°. Now: the side view's `12.7` and `25°`, the plan's `45°` (its location follows from the
+/// side view's start and angle), no `C`, no obtuse angle and no computed 1.067 in. The small flat
+/// beside the bore's exit is dimensioned by the legs of its cut, nothing round to start from.
+#[test]
+fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/corner-cuts.step.gz");
+    let a = model::analyse_native(&path).unwrap().1;
+    let p = plan(&a, json!({}));
+    let labels: Vec<(&str, &str)> = p
+        .dimensions
+        .iter()
+        .filter(|d| d.id.starts_with("d:envelope/profile_"))
+        .map(|d| (d.view.as_str(), d.label.as_str()))
+        .collect();
+    assert!(labels.contains(&("v:side", "25°")), "{labels:?}");
+    assert!(labels.contains(&("v:side", "12.7")), "{labels:?}");
+    assert!(labels.contains(&("v:plan", "45°")), "{labels:?}");
+    for (_, label) in &labels {
+        assert!(!label.starts_with('C'), "{labels:?}");
+        for obtuse in ["155°", "135°", "115°", "27.112", "23.688"] {
+            assert_ne!(*label, obtuse, "{labels:?}");
+        }
+    }
+    // The compound cut is stated only where an angle is true: each angle is claimed by corners of
+    // a face seen square-on in its own view, never an angle of the plane foreshortened in another.
+    for d in p.dimensions.iter().filter(|d| d.kind == "angular") {
+        for m in &d.measurements {
+            let face: usize = m
+                .feature
+                .strip_prefix("outer_profile:f")
+                .and_then(|s| s.split(':').next())
+                .and_then(|s| s.parse().ok())
+                .unwrap();
+            let source = a.outer_profiles.iter().find(|s| s.face == face).unwrap();
+            let axis = (0..3)
+                .max_by(|&i, &j| {
+                    source.profile.normal[i]
+                        .abs()
+                        .total_cmp(&source.profile.normal[j].abs())
+                })
+                .unwrap();
+            assert_eq!(d.view, format!("v:{}", ["side", "front", "plan"][axis]));
+        }
+    }
+    // Each station is stated once across the views: the small flat's 11.542 is in the plan only.
+    let mut stated: Vec<(String, String)> = p
+        .dimensions
+        .iter()
+        .filter(|d| d.id.starts_with("d:envelope/profile_location_"))
+        .map(|d| {
+            let axis = d.id.split("profile_location_").nth(1).unwrap()[..1].to_string();
+            (axis, d.label.clone())
+        })
+        .collect();
+    let all = stated.len();
+    stated.sort();
+    stated.dedup();
+    assert_eq!(
+        stated.len(),
+        all,
+        "a station is dimensioned twice: {stated:?}"
+    );
+    // Every corner is stated and located: nothing left for lint to report.
+    let r = review(&path, json!({}));
+    let issues: Vec<_> = findings(&r)
+        .filter(|(code, _)| code.starts_with("angular_") || *code == "profile_corner_unlocated")
+        .collect();
+    assert!(issues.is_empty(), "{issues:?}");
+    // Nothing about the corners or their angles needs fixing before printing: only the bore's
+    // location (#521) and the blank tolerance remain.
+    let json = serde_json::to_value(&r).unwrap();
+    let mut fixes: Vec<String> = ["problems", "lint", "structural"]
+        .iter()
+        .flat_map(|k| json[k].as_array().cloned().unwrap_or_default())
+        .filter(|f| f["tier"] == "fix_before_printing")
+        .map(|f| f["code"].as_str().unwrap().to_string())
+        .collect();
+    fixes.sort();
+    assert_eq!(
+        fixes,
+        [
+            "feature_not_dimensioned",
+            "feature_not_located",
+            "general_tolerance_missing"
+        ],
+        "{fixes:?}"
+    );
+    // In inches the start is `.500`.
+    let p = plan(&a, json!({"units": "in"}));
+    let labels: Vec<&str> = p.dimensions.iter().map(|d| d.label.as_str()).collect();
+    assert!(labels.contains(&".500"), "{labels:?}");
+    assert!(labels.contains(&"25°"), "{labels:?}");
+}
+
+/// #519: the limit is a fraction of the part's larger extent in the view, so a 1 mm edge break on
+/// a 40 × 3 profile (a third of its thickness) stays `C1`.
+#[test]
+fn a_small_chamfer_on_a_thin_profile_stays_c() {
+    let a = part(&[[0., 0.], [39., 0.], [40., 1.], [40., 3.], [0., 3.]]);
+    let p = plan(&a, json!({}));
+    let found = chamfers(&p);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].label, "C1");
+}
+
+/// #520: start point and angle only for an angle that was designed: whole or half degrees. A cut
+/// that ends at a computed intersection (mfcadpp/10155's 2.529°) keeps its two lengths, never a
+/// dropped fractional angle.
+#[test]
+fn a_cut_at_a_computed_angle_keeps_its_two_lengths() {
+    let far = 40. - 12. * 2.529f64.to_radians().tan();
+    let a = part(&[[0., 0.], [40., 0.], [40., 8.], [far, 20.], [0., 20.]]);
+    let p = plan(&a, json!({}));
+    assert!(angles(&p).is_empty(), "{:?}", angles(&p));
+    assert_eq!(stations(&p).len(), 2, "{:?}", stations(&p));
+}
+
+/// #520, the review's finding on 18ec88f0: a cut leaning 20°, 25° or 30° from the vertical off a
+/// 40 × 20 × 10 block's side (`block-cut-<n>.step.gz`, 8 mm up the right side) states the 8 and
+/// the angle (without recognition; with it the cut is a chamfer feature), drawn at the end whose reference lies along no edge, and the full review has
+/// nothing to fix about it. Before, the angle was measured from the side edge's own line and
+/// lint refused it as the corner's supplement.
+#[test]
+fn a_cut_leaning_from_its_side_edge_is_review_clean() {
+    for degrees in [20, 25, 30] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("tests/fixtures/parts/block-cut-{degrees}.step.gz"));
+        let none: Spec = serde_json::from_value(json!({})).unwrap();
+        let p = api::plan_from(&path, Features::None, &none).unwrap();
+        let labels: Vec<&str> = p.dimensions.iter().map(|d| d.label.as_str()).collect();
+        assert!(
+            labels.contains(&format!("{degrees}°").as_str()),
+            "{labels:?}"
+        );
+        assert!(labels.contains(&"8"), "{labels:?}");
+        assert_eq!(
+            labels.len(),
+            5,
+            "no computed length for the far end: {labels:?}"
+        );
+        // With and without recognition (which calls the cut a chamfer feature of its own).
+        for r in [
+            api::review_from(&path, Features::None, &none).unwrap(),
+            review(&path, json!({})),
+        ] {
+            let json = serde_json::to_value(&r).unwrap();
+            let fixes: Vec<String> = ["problems", "lint", "structural"]
+                .iter()
+                .flat_map(|k| json[k].as_array().cloned().unwrap_or_default())
+                .filter(|f| f["tier"] == "fix_before_printing")
+                .map(|f| f["code"].as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(
+                fixes,
+                ["general_tolerance_missing"],
+                "{degrees}°: {fixes:?}"
+            );
+            let corner_issues: Vec<_> = r
+                .lint
+                .iter()
+                .filter(|i| i.code.starts_with("angular_") || i.code == "profile_corner_unlocated")
+                .map(|i| &i.code)
+                .collect();
+            assert!(corner_issues.is_empty(), "{degrees}°: {corner_issues:?}");
+        }
+    }
+}
+
+/// The far end is the only place where this cut's reference is perpendicular to the principal
+/// edge. Rounding that end requires two lengths. With a round at the start, the far end can
+/// still carry the angle.
+#[test]
+fn a_fillet_at_either_end_of_a_cut_is_review_clean() {
+    let spec: Spec = serde_json::from_value(json!({})).unwrap();
+    for end in ["far", "start"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "tests/fixtures/parts/block-cut-25-{end}-r3.step.gz"
+        ));
+        for mode in [Features::None, Features::Native] {
+            let r = api::review_from(&path, mode, &spec).unwrap();
+            let corner_issues: Vec<_> = findings(&r)
+                .filter(|(code, _)| {
+                    code.starts_with("angular_") || *code == "profile_corner_unlocated"
+                })
+                .collect();
+            assert!(
+                corner_issues.is_empty(),
+                "{end} {mode:?}: {corner_issues:?}"
+            );
+            let fixes: Vec<_> = findings(&r)
+                .filter_map(|(code, tier)| (tier == Tier::FixBeforePrinting).then_some(code))
+                .collect();
+            assert_eq!(fixes, ["general_tolerance_missing"], "{end} {mode:?}");
+        }
+
+        let p = api::plan_from(&path, Features::None, &spec).unwrap();
+        let lengths = stations(&p);
+        assert!(
+            lengths.iter().any(|d| {
+                d.id.contains("location_y") && d.placed.is_some() && station_reaches(d, 8., 0., 20.)
+            }),
+            "{end}: {lengths:?}"
+        );
+        let angles = angles(&p);
+        if end == "far" {
+            assert!(angles.is_empty(), "{angles:?}");
+            assert_eq!(lengths.len(), 2, "{lengths:?}");
+            let far = 40. - 12. * 25f64.to_radians().tan();
+            assert!(
+                lengths.iter().any(|d| {
+                    d.id.contains("location_x")
+                        && d.placed.is_some()
+                        && station_reaches(d, far, 0., 40.)
+                }),
+                "{lengths:?}"
+            );
+        } else {
+            assert_eq!(lengths.len(), 1, "{lengths:?}");
+            assert_eq!(angles.len(), 1, "{angles:?}");
+            assert_eq!(angles[0].label, "25°");
+            assert!(angles[0].placed.is_some());
+        }
+    }
+}
+
+/// A chamfer splits a cut into two oblique edges, so locate all their endpoints. A bore
+/// breaking out of one straight edge leaves the cut's start and inclination unchanged.
+#[test]
+fn chamfered_and_interrupted_cuts_are_located() {
+    let spec: Spec = serde_json::from_value(json!({})).unwrap();
+    for geometry in ["start-chamfer", "far-chamfer", "breakout"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "tests/fixtures/parts/block-cut-25-{geometry}.step.gz"
+        ));
+        for mode in [Features::None, Features::Native] {
+            let p = api::plan_from(&path, mode, &spec).unwrap();
+            let lengths = stations(&p);
+            assert!(
+                lengths.iter().all(|d| d.placed.is_some()),
+                "{geometry} {mode:?}: {lengths:?}"
+            );
+            if geometry == "breakout" {
+                assert_eq!(lengths.len(), 1, "{lengths:?}");
+                assert!(station_reaches(lengths[0], 8., 0., 20.));
+                let angles = angles(&p);
+                assert_eq!(angles.len(), 1, "{angles:?}");
+                assert_eq!(angles[0].label, "25°");
+                assert!(angles[0].placed.is_some());
+            } else {
+                assert_eq!(lengths.len(), 4, "{geometry} {mode:?}: {lengths:?}");
+                assert!(angles(&p).is_empty(), "{:?}", angles(&p));
+            }
+            let r = api::review_from(&path, mode, &spec).unwrap();
+            let corner_issues: Vec<_> = findings(&r)
+                .filter(|(code, _)| {
+                    code.starts_with("angular_") || *code == "profile_corner_unlocated"
+                })
+                .collect();
+            assert!(
+                corner_issues.is_empty(),
+                "{geometry} {mode:?}: {corner_issues:?}"
+            );
+            let fixes: Vec<_> = findings(&r)
+                .filter_map(|(code, tier)| (tier == Tier::FixBeforePrinting).then_some(code))
+                .collect();
+            assert_eq!(fixes, ["general_tolerance_missing"], "{geometry} {mode:?}");
+        }
+    }
 }

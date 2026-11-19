@@ -114,6 +114,93 @@ impl Corner {
         );
         norm(cross(u, v)).atan2(dot(u, v)).to_degrees()
     }
+
+    /// The far end of its oblique edge, when exactly one of its two edges is principal.
+    pub fn oblique_end(&self) -> Option<P3> {
+        let [a, b] = self.principal_edges();
+        (a != b).then(|| if a { self.ends[1] } else { self.ends[0] })
+    }
+
+    /// How its oblique edge leans: its angle from the nearest principal direction of the view,
+    /// the edge's own direction or its perpendicular, either way along. Never more than 45°, so
+    /// a trapezoid's designed 60° base angle is stated as the 30° it leans from the vertical,
+    /// and Jern's cut as 25° from the vertical rather than 65° to its base. How a cut is
+    /// designed, a start point and a slope, rather than the corner's included angle. A tie (a
+    /// 45° cut) takes the perpendicular to the principal edge, which is a reference no edge lies
+    /// along.
+    pub fn lean(&self) -> Option<Lean> {
+        let end = self.oblique_end()?;
+        let o = unit(flat(sub(end, self.vertex), self.axis));
+        let [first, _] = self.principal_edges();
+        let along = unit(flat(
+            sub(if first { self.ends[0] } else { self.ends[1] }, self.vertex),
+            self.axis,
+        ));
+        let angle = |a: P3, b: P3| norm(cross(a, b)).atan2(dot(a, b));
+        let mut best: Option<(P3, f64)> = None;
+        for k in (0..3).filter(|&k| k != self.axis) {
+            for sign in [1., -1.] {
+                let mut r = [0.; 3];
+                r[k] = sign;
+                let a = angle(r, o);
+                let better = match best {
+                    None => true,
+                    Some((held, b)) => {
+                        a < b - 1e-6 || ((a - b).abs() <= 1e-6 && dot(held, along).abs() > 0.5)
+                    }
+                };
+                if better {
+                    best = Some((r, a));
+                }
+            }
+        }
+        best.map(|(reference, a)| Lean {
+            degrees: a.to_degrees(),
+            reference,
+            perpendicular: dot(reference, along).abs() < 0.5,
+        })
+    }
+
+    /// Whether *text* states this corner's angle: as the corner itself, or as the lean of its
+    /// oblique edge, which a cut's start-and-angle form states for both of its corners
+    /// (`dims::profile_angles`). Not the supplement: nothing draws one.
+    pub fn states(&self, text: &str) -> bool {
+        let Some(t) = text.trim().strip_suffix('°') else {
+            return false;
+        };
+        [Some(self.degrees()), self.lean().map(|l| l.degrees)]
+            .into_iter()
+            .flatten()
+            .any(|x| holes::states(t, x))
+    }
+}
+
+/// A cut edge's slope as a start point and an angle: see [`Corner::lean`].
+#[derive(Clone, Copy, Debug)]
+pub struct Lean {
+    pub degrees: f64,
+    /// The principal direction it is measured from, a unit vector from the corner.
+    pub reference: P3,
+    /// Whether that direction is perpendicular to the corner's principal edge, so that it lies
+    /// along no edge there. Measured from the principal edge's own line it would be that edge
+    /// extended, which lint refuses as an angle: the corner's supplement.
+    pub perpendicular: bool,
+}
+
+/// The corner across *c*'s oblique edge: both are corners of principal-and-oblique edges and each
+/// is the other's far end (the edge may be a straight line the B-rep splits).
+pub fn partner<'a>(
+    c: &Corner,
+    corners: impl IntoIterator<Item = &'a Corner>,
+) -> Option<&'a Corner> {
+    let end = c.oblique_end()?;
+    corners.into_iter().find(|d| {
+        d.feature != c.feature
+            && d.axis == c.axis
+            && norm(sub(d.vertex, end)) < 1e-6
+            && d.oblique_end()
+                .is_some_and(|e| norm(sub(e, c.vertex)) < 1e-6)
+    })
 }
 /// Same-body feature definitions use exact source edge/face identity, never matching values.
 fn bevel_edges(a: &Analysis, s: &Source) -> (bool, Vec<usize>) {
@@ -249,23 +336,64 @@ fn common_tangent(a: &Analysis, s: &Source, axis: usize, line: (P3, P3)) -> bool
     })
 }
 /// The far end of line support *i*: its start (or its end, *forward*), or the theoretical
-/// sharp vertex with the next line when a single arc rounds that end.
+/// sharp vertex with the next line when a single arc rounds that end. Collinear pieces
+/// continue across a breakout arc to the next actual corner.
 fn far_end(p: &Profile, i: usize, forward: bool) -> P3 {
     let n = p.supports.len();
     let Support::Line { start, end } = p.supports[i] else {
         unreachable!("corner edges are lines")
     };
-    let (at, step) = if forward { (end, 1) } else { (start, n - 1) };
-    let (arc, next) = ((i + step) % n, (i + 2 * step) % n);
-    if let (Support::Arc { .. }, Support::Line { start: c0, end: c1 }) =
-        (&p.supports[arc], &p.supports[next])
-    {
-        let (u, v) = (unit(sub(end, start)), unit(sub(*c1, *c0)));
-        let turn = dot(cross(u, v), p.normal);
-        if turn.abs() > 1e-8 {
-            let t = dot(cross(sub(*c0, start), v), p.normal) / turn;
-            return [0, 1, 2].map(|k| start[k] + t * u[k]);
+    let (mut at, step) = if forward { (end, 1) } else { (start, n - 1) };
+    let u = unit(sub(end, start));
+    let mut k = i;
+    for _ in 0..n {
+        let next = (k + step) % n;
+        let (next, connection, arc_center) = match p.supports[next] {
+            Support::Arc {
+                start: a,
+                end: b,
+                center,
+                ..
+            } => {
+                let (here, there) = if forward { (a, b) } else { (b, a) };
+                if norm(sub(here, at)) > 1e-6 {
+                    break;
+                }
+                ((next + step) % n, there, Some(center))
+            }
+            _ => (next, at, None),
+        };
+        let Support::Line { start: c0, end: c1 } = p.supports[next] else {
+            break;
+        };
+        let (here, there) = if forward { (c0, c1) } else { (c1, c0) };
+        if norm(sub(here, connection)) > 1e-6 {
+            break;
         }
+        let v = unit(sub(c1, c0));
+        let turn = dot(cross(u, v), p.normal);
+        if let Some(center) = arc_center
+            && turn.abs() > 1e-8
+        {
+            // Only a tangent fillet defines a theoretical sharp intersection.
+            if dot(u, sub(at, center)).abs() > 1e-6 || dot(v, sub(connection, center)).abs() > 1e-6
+            {
+                break;
+            }
+            let t = dot(cross(sub(c0, start), v), p.normal) / turn;
+            return [0, 1, 2].map(|j| start[j] + t * u[j]);
+        }
+        // A split straight edge can resume across a hole's arc. Both pieces and the
+        // arc's endpoints must lie on the same line and continue in the same direction.
+        let sense = if forward { 1. } else { -1. };
+        if norm(cross(sub(here, start), u)) > 1e-6
+            || norm(cross(u, v)) > 1e-8
+            || dot(u, v) <= 0.
+            || sense * dot(sub(here, at), u) < -1e-6
+        {
+            break;
+        }
+        (at, k) = (there, next);
     }
     at
 }
@@ -311,7 +439,7 @@ pub fn drawn_spans(a: &Analysis, drawing: &crate::output::Drawing) -> Vec<(usize
             .find(|x| x.name == name)
             .map(|x| crate::output::drawn_body(drawing, x).unwrap_or_default())
     };
-    drawing
+    let base: Vec<(usize, f64, f64)> = drawing
         .sheet
         .items
         .iter()
@@ -336,7 +464,73 @@ pub fn drawn_spans(a: &Analysis, drawing: &crate::output::Drawing) -> Vec<(usize
             let mirror = (counted && (side(p) || side(q))).then_some((k, lo + hi - p, lo + hi - q));
             std::iter::once((k, p, q)).chain(mirror)
         })
-        .collect()
+        .collect();
+    let derived = leaning_spans(a, drawing, &base);
+    base.into_iter().chain(derived).collect()
+}
+
+/// The span a cut's start point and angle give: a plain angle drawn at one end of a cut edge
+/// (a corner of a principal edge and the oblique one, [`partner`]) states where its far end lies
+/// along the principal edge there, once the start's two stations and the far end's offset are
+/// reached (`dims::profile_angles`' start-and-angle form). Chained: a face's start may be
+/// another face's far end.
+fn leaning_spans(
+    a: &Analysis,
+    drawing: &crate::output::Drawing,
+    spans: &[(usize, f64, f64)],
+) -> Vec<(usize, f64, f64)> {
+    let corners = requirements(a);
+    // Only a cut's two corners can be stated together: most parts have none.
+    if !corners.iter().any(|c| partner(c, &corners).is_some()) {
+        return Vec::new();
+    }
+    let mut pairs: Vec<(&Corner, &Corner)> = Vec::new();
+    for m in super::marks(drawing) {
+        let plain = m
+            .text
+            .trim()
+            .strip_suffix('°')
+            .is_some_and(|t| t.trim().parse::<f64>().is_ok());
+        let named: Vec<&Corner> = m
+            .claims
+            .iter()
+            .filter(|cl| cl.parameter == "profile_angle.angle")
+            .filter_map(|cl| corners.iter().find(|c| c.feature == cl.feature))
+            .collect();
+        if plain
+            && let [c, d] = named[..]
+            && partner(c, [d]).is_some()
+        {
+            pairs.push((c, d));
+        }
+    }
+    let roots = super::location::roots(a);
+    let mut all = spans.to_vec();
+    let mut derived: Vec<(usize, f64, f64)> = Vec::new();
+    for _ in 0..pairs.len() {
+        let before = derived.len();
+        for &(c, d) in &pairs {
+            for (start, far) in [(c, d), (d, c)] {
+                let Some((k, m)) = principal_axes(far) else {
+                    continue;
+                };
+                let reached = |axis: usize, v: f64| rooted_at(&roots[axis], &all, axis, v);
+                let known = (0..3)
+                    .filter(|&i| i != start.axis)
+                    .all(|i| reached(i, start.vertex[i]))
+                    && reached(m, far.vertex[m]);
+                let span = (k, start.vertex[k], far.vertex[k]);
+                if known && !all.contains(&span) {
+                    all.push(span);
+                    derived.push(span);
+                }
+            }
+        }
+        if derived.len() == before {
+            break;
+        }
+    }
+    derived
 }
 
 /// Whether station *at* on *axis* is reached from the part's roots (its box and datum planes)
@@ -654,11 +848,7 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 })
                 .collect();
             let degrees = c.degrees();
-            if claimed.iter().any(|m| {
-                m.text
-                    .strip_suffix('°')
-                    .is_some_and(|t| holes::states(t, degrees))
-            }) {
+            if claimed.iter().any(|m| c.states(&m.text)) {
                 return None;
             }
             let code = if claimed.is_empty() {
@@ -680,4 +870,55 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             Some(finding)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_angles_support_walk_stops_at_non_tangent_arcs() {
+        let start = [2., 2., 0.];
+        let end = [3., 2., 0.];
+        // Neither tangent, tangent to the incoming line only, then tangent to the
+        // outgoing line only. All three circles pass through both arc endpoints.
+        for center in [[2.5, 2., 0.], [2.5, 1.5, 0.], [2.5, 2. + 0.5 / 0.999, 0.]] {
+            let radii = [sub(start, center), sub(end, center)];
+            let profile = Profile {
+                origin: [0.; 3],
+                normal: [0., 0., 1.],
+                supports: vec![
+                    Support::Line {
+                        start: [0.; 3],
+                        end: [1., 1., 0.],
+                    },
+                    Support::Line {
+                        start: [1., 1., 0.],
+                        end: start,
+                    },
+                    Support::Arc {
+                        start,
+                        end,
+                        center,
+                        radius: norm(radii[0]),
+                        sweep: cross(radii[0], radii[1])[2].atan2(dot(radii[0], radii[1])),
+                    },
+                    Support::Line {
+                        start: end,
+                        end: [4., 2.999, 0.],
+                    },
+                    Support::Line {
+                        start: [4., 2.999, 0.],
+                        end: [0.; 3],
+                    },
+                ],
+                inner_loop_count: 0,
+                schema_version: 1,
+                boundary_kind: "outer".into(),
+            };
+            // Extending these nearly parallel lines would invent (-997, -997).
+            assert_eq!(far_end(&profile, 0, true), start, "{center:?}");
+            assert_eq!(far_end(&profile, 3, false), end, "{center:?}");
+        }
+    }
 }
