@@ -893,16 +893,16 @@ type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
 /// A recess location coincident with an existing dimension of the same datum span
 /// needs one carrier. Keep every exact measurement claim and an explicit covered ledger row.
-pub(super) fn consolidate(
+pub(super) fn consolidate<'a>(
     analysis: &crate::model::Analysis,
-    kept: &mut Vec<Kept>,
+    kept: &mut Vec<Kept<'a>>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<super::Omitted>,
 ) {
     // Identical, independently located seats in one projection use one counted
     // form callout. Keep every diameter/run/sweep claim and all real attachment
     // stations; their individual axis locations are consolidated separately.
-    let seat_form = |k: &Kept| {
+    let seat_form = |k: &Kept<'a>| {
         let w = &k.0;
         let first = w.measurements.first()?;
         if first.parameter != "seat_diameter.diameter" {
@@ -992,7 +992,7 @@ pub(super) fn consolidate(
     // Equal channel widths in one projection can share a counted size statement.
     // Their stations remain fixed by the wall scheme; retain every independent
     // width claim and the covered IDs for edits and completeness.
-    let channel = |k: &Kept| {
+    let channel = |k: &Kept<'a>| {
         let m = k.0.measurements.first()?;
         if m.parameter != "channel_width.length" {
             return None;
@@ -1055,7 +1055,7 @@ pub(super) fn consolidate(
                 || m.parameter.starts_with("location_pocket_pattern.")
         })
     };
-    let span = |k: &Kept| match k.0.shape {
+    let span = |k: &Kept<'a>| match k.0.shape {
         Shape::Linear { a, b, axis, .. } => {
             Some((k.2.unwrap_or(k.0.views[0]), axis, a[axis], b[axis]))
         }

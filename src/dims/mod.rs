@@ -3716,7 +3716,7 @@ fn plan_inventory_ordered(
         .iter()
         .map(|w| spec.dimensions.get(&w.id).and_then(|e| e.place.as_ref()))
         .collect();
-    let mut occupied: BTreeMap<&'static str, Vec<Vec<[P2; 2]>>> = BTreeMap::new();
+    let mut occupied: BTreeMap<&str, Vec<Vec<[P2; 2]>>> = BTreeMap::new();
     for (i, w) in all.iter().enumerate() {
         if intended[i].is_none()
             && owner[i].is_none()
@@ -5041,9 +5041,9 @@ fn presentation_id(a: &Analysis, w: &Want) -> String {
 /// These are drawn once. The survivor is one the spec lists over a default, then the smaller ID; it
 /// claims every member's measurement and, for a counted size, prints their number (`2× 6`).
 /// Each other moves to *omitted*, `conveyed by` the survivor. *given* stays aligned with *kept*.
-fn share_statements(
+fn share_statements<'a>(
     analysis: &Analysis,
-    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&'a str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
     cross_family: bool,
@@ -5052,7 +5052,7 @@ fn share_statements(
     // Recognition rounds stations to hundredths: cgb202's four ø10 rods end on one plane, read
     // as 152.500000015 and 152.500002497, so the span's ends compare within its tolerance.
     const SPAN_ENDS: f64 = crate::lint::redundancy::TOL;
-    type Span = (String, &'static str, usize, f64, f64, String, f64, bool);
+    type Span<'a> = (String, &'a str, usize, f64, f64, String, f64, bool);
     let coordinate = |p: &str| {
         p.starts_with("location")
             || p.starts_with("seat_location.")
@@ -5061,7 +5061,7 @@ fn share_statements(
     };
     let diameter = |p: &str| matches!(p, "od.diameter" | "boss.diameter");
     let level = |p: &str| p.starts_with("step_height.length.");
-    let span = |(w, _, view, _): &(Want, bool, Option<&str>, Vec<&'static str>)| {
+    let span = |(w, _, view, _): &(Want, bool, Option<&'a str>, Vec<&'static str>)| {
         let parameter = &w.measurements.first()?.parameter;
         // Seat witnesses have their own datum contract. Pocket and pattern centres
         // may share a location when their physical intervals and view coincide.
@@ -5174,10 +5174,10 @@ fn share_statements(
 }
 
 /// PMI precedence is a rooted location network, shared with the drawn-set check.
-fn share_pmi(
+fn share_pmi<'a>(
     analysis: &Analysis,
     references: bool,
-    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&'a str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
     units: crate::units::Units,
@@ -5191,7 +5191,7 @@ fn share_pmi(
             .first()
             .is_some_and(|m| m.feature.starts_with("pmi:") && m.parameter.starts_with("linear"))
     };
-    let span = |(w, _, view, _): &(Want, bool, Option<&str>, Vec<&'static str>)| match w.shape {
+    let span = |(w, _, view, _): &(Want, bool, Option<&'a str>, Vec<&'static str>)| match w.shape {
         Shape::Linear { a, b, axis, .. } => Some((
             view.unwrap_or(w.views[0]),
             axis,
@@ -5571,7 +5571,9 @@ pub(crate) fn placement_options_with_spec(
                 .filter_map(|&name| {
                     let frame = frames.get(name)?;
                     let mut probe = original.clone();
-                    probe.views = vec![name];
+                    if auxiliary.get(&w.id).is_none() {
+                        probe.views = vec![*original.views.iter().find(|&&v| v == name)?];
+                    }
                     let (chosen, _) = route(
                         std::slice::from_mut(&mut probe),
                         &frames,

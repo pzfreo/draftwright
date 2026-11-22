@@ -4282,14 +4282,14 @@ const _: () = assert!(STRAY_TEXT == TEXT);
 /// keep their ink; an item that collides with nothing keeps its requested lane, so a layout with
 /// no shared line is unchanged. *occupied* are the automatic linear items' lines by view.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn respace(
+pub(super) fn respace<'a>(
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    chosen: &[Option<&str>],
+    chosen: &[Option<&'a str>],
     places: &[Option<&crate::placement_intent::Place>],
     sides: &[Option<Side>],
     lanes: &[usize],
-    occupied: &mut BTreeMap<&'static str, Vec<Vec<[P2; 2]>>>,
+    occupied: &mut BTreeMap<&'a str, Vec<Vec<[P2; 2]>>>,
     page: &Page,
     intended: &mut [Option<Placed>],
 ) {

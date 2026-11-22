@@ -705,7 +705,7 @@ pub(crate) fn viewing_arrow(
     // The arrow points along the line of sight, from the viewer to the part.
     let towards = view.map(child.direction);
     let tangent = [-towards[1], towards[0]];
-    let base = std::array::from_fn(|k| {
+    let base: [f64; 2] = std::array::from_fn(|k| {
         target[k].clamp(
             parent.at[k] - size[k] * parent.scale / 2.,
             parent.at[k] + size[k] * parent.scale / 2.,

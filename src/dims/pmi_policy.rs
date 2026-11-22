@@ -564,14 +564,28 @@ pub(super) fn cover(
     // so only identical precedence decisions share this pass-local result.
     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
     let key = serde_json::to_vec(&(&*kept, &*given)).expect("precedence inputs serialize");
+    let carriers: BTreeMap<_, _> = kept
+        .iter()
+        .map(|(w, _, view, _)| (w.id.clone(), *view))
+        .collect();
     let (items, terms, covered) = crate::planning::memo(a, "pmi-precedence", key, || {
         let mut items = kept.clone();
         let mut terms = given.clone();
         let mut covered = Vec::new();
         cover_uncached(a, &mut items, &mut terms, &mut covered);
+        let items: Vec<_> = items
+            .into_iter()
+            .map(|(w, default, _, ends)| (w, default, ends))
+            .collect();
         (items, terms, covered)
     });
-    *kept = items;
+    *kept = items
+        .into_iter()
+        .map(|(w, default, ends)| {
+            let carrier = carriers[&w.id];
+            (w, default, carrier, ends)
+        })
+        .collect();
     *given = terms;
     omitted.extend(covered);
 }
