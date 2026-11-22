@@ -1704,3 +1704,173 @@ fn repeated_sizes_require_matching_effective_tolerances_and_fits() {
             .any(|d| d.id == "d:authored:width" && d.label.contains("H7") && d.placed.is_some())
     );
 }
+
+fn inclined_bracket() -> (draftwright::haecceity::Part, Analysis, Spec) {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/steerability/angle-bracket.step.gz"),
+    )
+    .unwrap();
+    let s = parse(json!({"dimensions": {
+        "d:authored:flange": {
+            "between": ["axis:f:hole:f9", "edge:v1:d8f3565f8d7d9652901a4471ea935e2238a60c080fb95877e8b1378455edcec5"],
+            "along": "true", "view": "front"
+        },
+        "d:authored:across": {
+            "between": ["axis:f:hole:f9", "face:v1:8c6179ca9c5faa7487b11e02aef7f2f765f7e2c34ffc667b925b07b9c2b6a70d"],
+            "along": "y", "view": "side"
+        }
+    }}));
+    (part, a, s)
+}
+
+fn bracket_missing(a: &Analysis, marks: &[draftwright::lint::Mark]) -> bool {
+    draftwright::lint::check(a, marks)
+        .iter()
+        .any(|i| i.code == "feature_not_located" && i.subjects.iter().any(|s| s == "f:hole:f9"))
+}
+
+#[test]
+fn inclined_authored_dimensions_locate_the_piercing_point() {
+    let (part, a, s) = inclined_bracket();
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let marks = draftwright::lint::marks(&drawing);
+    for id in ["d:authored:flange", "d:authored:across"] {
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert!((d.value - 25.).abs() < 1e-6);
+        assert!(d.placed.is_some());
+    }
+    assert!(
+        !draftwright::lint::check(&a, &marks)
+            .iter()
+            .any(|i| i.code == "authored_dimension_invalid")
+    );
+    assert!(
+        !bracket_missing(&a, &marks),
+        "two independent 25 mm dimensions must locate the inclined axis"
+    );
+    assert!(
+        !p.problems
+            .iter()
+            .any(|i| i.code == "feature_not_dimensioned" && i.subjects == ["f:hole:f9"]),
+        "a stated location needs no square-on view"
+    );
+    assert!(
+        p.views
+            .iter()
+            .all(|v| ["v:front", "v:plan", "v:side", "v:iso"].contains(&v.id.as_str()))
+    );
+
+    // Each direction is necessary. Reference ink and a false leading nominal grant no credit.
+    for id in ["d:authored:flange", "d:authored:across"] {
+        let mut altered = marks.clone();
+        altered.retain(|m| m.name != id);
+        assert!(bracket_missing(&a, &altered), "missing {id}");
+        for text in ["(25)", "999 ±25"] {
+            let mut altered = marks.clone();
+            altered.iter_mut().find(|m| m.name == id).unwrap().text = text.into();
+            assert!(bracket_missing(&a, &altered), "{id}: {text}");
+        }
+        let mut partial = s.clone();
+        partial.dimensions.remove(id);
+        let partial = model::plan_recovered(&a, &partial).unwrap();
+        assert!(
+            partial
+                .problems
+                .iter()
+                .any(|i| i.code == "feature_not_dimensioned" && i.subjects == ["f:hole:f9"])
+        );
+    }
+    // Two copies of the across constraint still leave the along-flange freedom.
+    let mut parallel = marks.clone();
+    let across = parallel
+        .iter()
+        .find(|m| m.name == "d:authored:across")
+        .unwrap()
+        .clone();
+    *parallel
+        .iter_mut()
+        .find(|m| m.name == "d:authored:flange")
+        .unwrap() = across;
+    assert!(bracket_missing(&a, &parallel));
+    let mut wrong = marks.clone();
+    for c in &mut wrong
+        .iter_mut()
+        .find(|m| m.name == "d:authored:flange")
+        .unwrap()
+        .claims
+    {
+        if c.feature.starts_with("geometry:") {
+            c.parameter = "linear.z".into();
+        }
+    }
+    assert!(bracket_missing(&a, &wrong));
+
+    // Stable cylinder-face aliases and reversed references carry the same geometry.
+    let mut aliases = s.clone();
+    let cylinder = cylinder_face(&a, "f:hole:f9");
+    for d in aliases.dimensions.values_mut() {
+        let refs = d.between.as_mut().unwrap();
+        refs[0] = format!("axis:{cylinder}");
+        refs.reverse();
+    }
+    let aliased = model::plan_recovered(&a, &aliases).unwrap();
+    let aliased = model::render(&part, &a, &aliased, &font).unwrap();
+    assert!(!bracket_missing(&a, &draftwright::lint::marks(&aliased)));
+}
+
+#[test]
+fn inclined_location_finding_names_reachable_authored_dimensions() {
+    let (part, a, _) = inclined_bracket();
+    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let marks = draftwright::lint::marks(&drawing);
+    assert!(bracket_missing(&a, &marks));
+    let issues = draftwright::lint::check(&a, &marks);
+    let issue = issues
+        .iter()
+        .find(|i| i.code == "feature_not_located" && i.subjects.iter().any(|s| s == "f:hole:f9"))
+        .unwrap();
+    let fix = issue.fix.as_deref().unwrap();
+    assert!(
+        fix.contains("axis:f:hole:f9")
+            && fix.contains("front")
+            && fix.contains("side")
+            && fix.contains("along"),
+        "reachable fix: {fix}"
+    );
+    assert!(!fix.contains("view that looks along it"));
+    assert!(
+        !issue
+            .requirements
+            .iter()
+            .any(|r| r.feature == "f:hole:f9" && r.parameter == "location.length.z")
+    );
+
+    // These three refusals remain geometrically correct; none is a route to a z station.
+    let base = planes(&a, 2).first().unwrap().0.clone();
+    for (along, why) in [
+        ("z", "no unique z station"),
+        ("true", "Intersecting or unsupported supports"),
+    ] {
+        let s = parse(
+            json!({"dimensions":{"d:authored:base":{"between":["axis:f:hole:f9",base],"along":along,"view":"front"}}}),
+        );
+        assert!(
+            model::plan_recovered(&a, &s)
+                .unwrap_err()
+                .message
+                .contains(why)
+        );
+    }
+    let s = parse(json!({"features":{"f:hole:f9":{"note_satisfies":["location.length.z"]}}}));
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("not a measurement role")
+    );
+}
