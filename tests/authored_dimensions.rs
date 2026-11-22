@@ -1919,7 +1919,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
         json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.length.z"]}}}),
     );
     assert!(
-        model::plan_recovered(&a, &s)
+        model::plan(&a, &s)
             .unwrap_err()
             .message
             .contains("not a measurement role")
