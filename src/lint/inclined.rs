@@ -660,12 +660,12 @@ pub(crate) fn fix(
             } else {
                 let anchors = suggested.into_iter().collect::<Vec<_>>().join(" and ");
                 format!(
-                    "locate {anchors} with printed dimensions to a drawing datum and replace the current authored dimensions with {distances}"
+                    "locate {anchors} with printed dimensions to drawing datums and replace the current authored dimensions with {distances}"
                 )
             };
             let anchors = prerequisites.into_iter().collect::<Vec<_>>().join(" and ");
             return Some(format!(
-                "Either {replacement}. Or keep the current authored dimensions and locate {anchors} with printed dimensions to a drawing datum."
+                "Either {replacement}. Or keep the current authored dimensions and locate {anchors} with printed dimensions to drawing datums."
             ));
         }
         prerequisites.extend(suggested);
@@ -684,7 +684,7 @@ pub(crate) fn fix(
 fn anchor_prerequisites(anchors: BTreeSet<String>) -> String {
     anchors
         .into_iter()
-        .map(|anchor| format!("Locate {anchor} with a printed dimension to a drawing datum. "))
+        .map(|anchor| format!("Locate {anchor} with printed dimensions to drawing datums. "))
         .collect()
 }
 
