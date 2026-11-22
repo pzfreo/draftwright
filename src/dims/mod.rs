@@ -799,11 +799,11 @@ fn want_id(feature: &str, parameter: &str) -> String {
     format!("d:{feature}/{parameter}")
 }
 
-fn add(a: P3, b: P3) -> P3 {
+pub(crate) fn add(a: P3, b: P3) -> P3 {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
 
-fn scale3(a: P3, s: f64) -> P3 {
+pub(crate) fn scale3(a: P3, s: f64) -> P3 {
     [a[0] * s, a[1] * s, a[2] * s]
 }
 

@@ -821,6 +821,9 @@ pub(crate) fn caption_obstacles(views: &[PlannedView]) -> Vec<crate::dims::Plann
         .collect()
 }
 pub(crate) fn crop_extent(a: &Analysis, v: &PlannedView) -> ([f64; 2], [f64; 2]) {
+    if let Some(rect) = v.auxiliary.as_ref().and_then(|aux| aux.crop) {
+        return crate::auxiliary::extent(rect);
+    }
     let (mut size, centre) = crate::model::envelope_extent(
         v.detail.as_ref().map_or(a.envelope, |d| d.bounds),
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.

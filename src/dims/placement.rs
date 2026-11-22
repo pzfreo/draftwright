@@ -56,7 +56,7 @@ impl Frame {
     pub(super) fn new(analysis: &Analysis, v: &PlannedView) -> Frame {
         let mut f = Frame::looking(analysis, v.direction, v.up, v.at, v.scale);
         f.broken = v.broken.clone();
-        if v.detail.is_some() || v.broken.is_some() {
+        if v.detail.is_some() || v.auxiliary.is_some() || v.broken.is_some() {
             let (size, centre) = crate::detail::crop_extent(analysis, v);
             f.centre = centre;
             f.outline = [

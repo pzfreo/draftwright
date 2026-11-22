@@ -10879,7 +10879,7 @@ fn projection_cut(v: &PlannedView) -> Option<&Cut> {
 
 fn projection_key(v: &PlannedView) -> Vec<u64> {
     let cut = projection_cut(v);
-    bits(&[
+    let mut key = bits(&[
         &v.direction,
         &v.up,
         cut.map_or(&[], |c| &c.origin[..]),
@@ -10888,7 +10888,11 @@ fn projection_key(v: &PlannedView) -> Vec<u64> {
         v.detail.as_ref().map_or(&[], |d| &d.bounds[1][..]),
         v.half_section.as_ref().map_or(&[], |h| &h.origin[..]),
         v.half_section.as_ref().map_or(&[], |h| &h.keep[..]),
-    ])
+    ]);
+    if let Some(crop) = v.auxiliary.as_ref().and_then(|aux| aux.crop) {
+        key.extend(std::iter::once(0x617578).chain(crop.map(f64::to_bits)));
+    }
+    key
 }
 
 /// Numbers as a map key, by their bits.
@@ -11207,6 +11211,7 @@ impl Projections {
             bbox: None,
             undrawn: 0,
         };
+        let partial_aux = v.auxiliary.as_ref().is_some_and(|aux| aux.crop.is_some());
         let rect = [
             v.at[0] - size[0] * v.scale / 2.0,
             v.at[1] - size[1] * v.scale / 2.0,
@@ -11268,9 +11273,11 @@ impl Projections {
                         } else {
                             &mut geometry.hidden
                         };
-                        if v.detail.is_some() {
+                        if v.detail.is_some() || partial_aux {
                             let clipped = crate::detail::clip(curve.clone(), rect);
-                            boundary.add(&curve, &clipped, rect);
+                            if !partial_aux || piece.visible {
+                                boundary.add(&curve, &clipped, rect);
+                            }
                             items.extend(clipped.into_iter().map(Item::Edge));
                         } else {
                             items.extend(keep(curve).into_iter().map(Item::Edge));
@@ -11290,6 +11297,10 @@ impl Projections {
                 items
                     .into_iter()
                     .flat_map(|item| match (item, half) {
+                        (Item::Edge(c), _) if partial_aux => crate::detail::clip(c, rect)
+                            .into_iter()
+                            .map(Item::Edge)
+                            .collect(),
                         (Item::Edge(c), Some(_)) => keep(c).into_iter().map(Item::Edge).collect(),
                         (item, _) => vec![item],
                     })
@@ -11929,7 +11940,7 @@ fn render_annotations_with_cuts(
                 up: v.up,
                 // DrawnFrame records where the whole part's centre lands. A detail is
                 // laid out about its crop centre; keep lint's world-to-page transform exact.
-                at: if v.detail.is_some() {
+                at: if v.detail.is_some() || v.auxiliary.is_some() {
                     // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
                     let view = View::new(v.direction, v.up).expect("planned view");
                     let whole = extent(analysis, &view).1;
