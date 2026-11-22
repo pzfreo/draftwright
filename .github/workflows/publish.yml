@@ -130,7 +130,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: third-party-licenses
-      # The toolchain comes from rust-toolchain.toml. One abi3 (Python 3.9+) extension
+      # The toolchain comes from rust-toolchain.toml. One abi3 (Python 3.11+) extension
       # provides the small Python API and both console entry points on each platform.
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -149,6 +149,14 @@ jobs:
           draftwright-mcp --version
           draftwright render tests/fixtures/parts/plate.step -o wheel-smoke --formats svg
           test -s wheel-smoke.svg
+      - name: The abi3 wheel on the oldest and newest Python it claims
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          for v in 3.11 3.15; do
+            uv venv --python "$v" ".venv-$v"
+            uv pip install --python ".venv-$v" --no-index --no-cache dist/*.whl
+            ".venv-$v/bin/python" -c "import draftwright; from pathlib import Path; paths = draftwright.make_drawing('tests/fixtures/parts/plate.step', out='py$v-smoke'); assert all(Path(p).is_file() for p in paths)"
+          done
       - name: Python API tests (installed wheel; build123d for the optional Part tests)
         if: matrix.name == 'linux-x86_64'
         run: |

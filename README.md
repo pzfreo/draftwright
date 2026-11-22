@@ -4,6 +4,10 @@
 
 <p align="center">
   <a href="https://crates.io/crates/draftwright"><img src="https://img.shields.io/crates/v/draftwright.svg" alt="crates.io"></a>
+  <a href="https://pypi.org/project/draftwright/"><img src="https://img.shields.io/pypi/v/draftwright.svg" alt="PyPI"></a>
+  <a href="https://pypi.org/project/draftwright/"><img src="https://img.shields.io/pypi/pyversions/draftwright.svg" alt="Python versions"></a>
+  <a href="https://pypistats.org/packages/draftwright"><img src="https://img.shields.io/pypi/dm/draftwright.svg" alt="PyPI downloads per month"></a>
+  <a href="https://docs.rs/draftwright"><img src="https://img.shields.io/docsrs/draftwright" alt="docs.rs"></a>
   <a href="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml"><img src="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-blue.svg" alt="Licence: AGPL-3.0"></a>
 </p>
@@ -85,7 +89,7 @@ or `cargo install draftwright`, or see [Releases](https://github.com/pzfreo/draf
 
 | You use | Install | Platforms |
 | --- | --- | --- |
-| **Python 3.9+ (abi3)** | `pip install draftwright`, or `uv add draftwright` in a uv project ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
+| **Python 3.11+ (abi3)** | `pip install draftwright`, or `uv add draftwright` in a uv project ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
 | **Command line** | `uv tool install draftwright`; installs `draftwright` and `draftwright-mcp` | The same five wheel platforms |
 | **Rust crate** | `cargo install draftwright` for both binaries; `draftwright = "0.6"` for the library ([operations](docs/model.md#the-five-operations)) | Native Rust toolchain |
 | **Prebuilt archives** | Download a CLI archive from [Releases](https://github.com/pzfreo/draftwright/releases); includes both binaries, schemas and agent docs | macOS arm64 / Intel, Linux x86_64 / arm64, Windows x64; availability depends on the release |
