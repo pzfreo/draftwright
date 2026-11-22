@@ -963,12 +963,22 @@ pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
             .iter()
             .filter(|q| q.code == "feature_not_dimensioned")
             .flat_map(|q| &q.subjects)
-            .filter(|id| crate::lint::inclined::located(a, &marks, id))
+            .filter(|id| {
+                let Some(f) = a.features.iter().find(|f| f.id == id.as_str()) else {
+                    return false;
+                };
+                // The hole presenter also uses this code for an unreadable blind
+                // depth. Only its location-only warning can be discharged here.
+                crate::bridge::holes::Hole::read(f, &crate::bridge::holes::frame(a))
+                    .is_ok_and(|h| h.through || h.depth.is_some())
+                    && crate::lint::inclined::located(a, &marks, id)
+            })
             .cloned()
             .collect();
         if !located.is_empty() {
             p.problems.retain(|q| {
                 q.code != "feature_not_dimensioned"
+                    || q.subjects.is_empty()
                     || !q.subjects.iter().all(|id| located.contains(id))
             });
             for d in &mut p.dimensions {

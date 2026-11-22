@@ -1849,6 +1849,31 @@ fn inclined_authored_dimensions_locate_the_piercing_point() {
     let aliased = model::plan_recovered(&a, &aliases).unwrap();
     let aliased = model::render(&part, &a, &aliased, &font).unwrap();
     assert!(!bracket_missing(&a, &draftwright::lint::marks(&aliased)));
+
+    // Location evidence must not clear a warning about an unreadable bore size/depth.
+    let mut missing_depth = a.clone();
+    let hole = missing_depth
+        .features
+        .iter_mut()
+        .find(|f| f.id == "f:hole:f9")
+        .unwrap();
+    hole.parameters.insert("bottom".into(), json!("flat"));
+    hole.parameters.remove("depth");
+    let unreadable = model::plan_recovered(&missing_depth, &s).unwrap();
+    assert!(
+        unreadable
+            .problems
+            .iter()
+            .any(|p| p.code == "feature_not_dimensioned"
+                && p.subjects == ["f:hole:f9"]
+                && p.message.contains("blind and has no depth")),
+        "a stated location does not state the missing blind depth"
+    );
+    let unreadable = model::render(&part, &missing_depth, &unreadable, &font).unwrap();
+    assert!(!bracket_missing(
+        &missing_depth,
+        &draftwright::lint::marks(&unreadable)
+    ));
 }
 
 #[test]
