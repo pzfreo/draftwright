@@ -508,6 +508,9 @@ impl Callout {
         Self::read_units(text, crate::output::Units::Mm)
     }
     fn read_units(text: &str, units: crate::output::Units) -> Callout {
+        let text = text
+            .split_once("⌀ TANGENT TO ")
+            .map_or(text, |(bore, _)| bore);
         let chars: Vec<char> = text.chars().collect();
         let mut out = Callout {
             zero_nominal: None,

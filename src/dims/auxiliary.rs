@@ -4,7 +4,7 @@ use crate::auxiliary::{self, cross, dot, sub, unit};
 use crate::bridge::{Feature, holes};
 use crate::model::dimension_geometry::Reference;
 use crate::model::{Analysis, PlannedView, Problem, Spec};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 type Point = [f64; 3];
 const EPS: f64 = 1e-6;
@@ -74,6 +74,81 @@ impl EdgeStation {
 
 pub(crate) fn independent(a: &EdgeStation, b: &EdgeStation, axis: Point) -> bool {
     dot(cross(a.direction, b.direction), axis).abs() > EPS
+}
+
+/// Count the distinct straight supports of a closed, convex entrance. Every
+/// exposed edge must be one of those supports or a piece of this bore's rim.
+fn inscribed(
+    a: &Analysis,
+    f: &Feature,
+    direction: Point,
+    stations: &[EdgeStation],
+) -> Option<usize> {
+    let h = holes::Hole::read(f, &holes::frame(a)).ok()?;
+    if stations.len() < 3 || h.opening_diameter() != h.diameter || !h.mouth_chamfers.is_empty() {
+        return None;
+    }
+    let (seed, _) = auxiliary::support(a, f, direction)?;
+    let patches = auxiliary::coplanar_patches(a, &seed, &f.faces);
+    let mut boundary = BTreeMap::<usize, (usize, Option<&str>)>::new();
+    for edge in patches
+        .iter()
+        .flat_map(|r| r.membership().edges.iter().flatten())
+    {
+        boundary
+            .entry(edge.index)
+            .and_modify(|e| e.0 += 1)
+            .or_insert((1, edge.reference.as_deref()));
+    }
+    let bore: BTreeSet<_> = a
+        .dimension_references()
+        .values()
+        .flatten()
+        .filter(|r| {
+            matches!(r, Reference::Cylinder { radius, membership, .. }
+            if (radius - h.diameter / 2.).abs() <= 0.0001
+                && membership.faces.iter().any(|i| f.faces.contains(i)))
+        })
+        .flat_map(|r| r.membership().edges.iter().flatten().map(|e| e.index))
+        .collect();
+    let tolerance = 0.001;
+    if stations
+        .iter()
+        .any(|e| (e.length - h.diameter / 2.).abs() > tolerance)
+    {
+        return None;
+    }
+    let mut rim = false;
+    for (index, (incidence, reference)) in boundary {
+        if incidence == 2 {
+            continue;
+        }
+        if incidence != 1 {
+            return None;
+        }
+        let Some(key) = reference else {
+            if !bore.contains(&index) {
+                return None;
+            }
+            rim = true;
+            continue;
+        };
+        let Reference::Edge { ends, .. } = a.dimension_reference(key).ok()? else {
+            return None;
+        };
+        let contained = stations.iter().all(|e| {
+            ends.iter()
+                .all(|&p| dot(sub(p, e.points[0]), e.direction) >= -tolerance)
+        });
+        let supported = stations.iter().any(|e| {
+            ends.iter()
+                .all(|&p| dot(sub(p, e.points[0]), e.direction).abs() <= tolerance)
+        });
+        if !contained || !supported {
+            return None;
+        }
+    }
+    rim.then_some(stations.len())
 }
 
 fn measurement(
@@ -200,7 +275,10 @@ pub(super) fn apply<'a>(
             } else {
                 at
             };
-            circles.insert(f.id.as_str(), (v, site));
+            let tangent = (f.kind == "hole")
+                .then(|| inscribed(a, f, v.direction, &stations))
+                .flatten();
+            circles.insert(f.id.as_str(), (v, site, tangent));
         }
         if f.kind != "boss" {
             continue;
@@ -275,14 +353,14 @@ pub(super) fn apply<'a>(
             .filter_map(|m| {
                 circles
                     .get(m.feature.as_str())
-                    .map(|(v, at)| (*v, *at, m.value))
+                    .map(|(v, at, count)| (*v, *at, m.value, *count))
             });
-        let Some((v, at, diameter)) = targets.next() else {
+        let Some((v, at, diameter, tangent)) = targets.next() else {
             continue;
         };
         let peers: Vec<_> = targets
             .take_while(|(other, ..)| other.id == v.id)
-            .map(|(_, at, d)| (at, d / 2.))
+            .map(|(_, at, d, count)| ((at, d / 2.), count))
             .collect();
         let members = w
             .measurements
@@ -292,7 +370,17 @@ pub(super) fn apply<'a>(
         if peers.len() + 1 != members {
             continue;
         }
-        *sites = std::iter::once((at, diameter / 2.)).chain(peers).collect();
+        if let Some(n) = tangent
+            && peers.iter().all(|(_, count)| *count == Some(n))
+        {
+            w.terms.extend([
+                crate::callouts::BREAK.into(),
+                format!("⌀ TANGENT TO {n} EDGES"),
+            ]);
+        }
+        *sites = std::iter::once((at, diameter / 2.))
+            .chain(peers.into_iter().map(|(site, _)| site))
+            .collect();
         arcs.clear();
         w.basis = "size called out on the true circle in the requested auxiliary view".into();
         routes.insert(w.id.clone(), v.id.trim_start_matches("v:"));
