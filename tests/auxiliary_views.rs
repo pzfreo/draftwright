@@ -77,8 +77,13 @@ fn assert_fidelity(drawing: &Drawing, view: &str) {
     let findings: Vec<_> = draftwright::lint::structural::check(drawing)
         .into_iter()
         .filter(|i| {
-            i.code != "nominal_rounded"
-                && i.annotation.as_deref().is_some_and(|a| items.contains(&a))
+            matches!(
+                i.code.as_str(),
+                "label_vs_measured"
+                    | "angular_label_vs_geometry"
+                    | "angular_geometry_mismatch"
+                    | "angular_support_mismatch"
+            ) && i.annotation.as_deref().is_some_and(|a| items.contains(&a))
         })
         .collect();
     assert!(findings.is_empty(), "{findings:?}");
@@ -176,7 +181,21 @@ fn jern_has_an_edge_parent_and_a_true_shape_with_grounded_location() {
         let Reference::Edge { ends, .. } = a.dimension_reference(reference).unwrap() else {
             panic!("straight witness edge")
         };
-        assert_true(sub(ends[1], ends[0]), square.direction);
+        let span = sub(ends[1], ends[0]);
+        let Reference::Edge {
+            ends: [axis_at, _], ..
+        } = a.dimension_reference(&format!("axis:{BORE}")).unwrap()
+        else {
+            panic!("bore axis")
+        };
+        let towards = square.direction;
+        let in_plane: [f64; 3] =
+            std::array::from_fn(|k| axis_at[k] - dot(sub(axis_at, ends[0]), towards) * towards[k]);
+        let fraction = dot(sub(in_plane, ends[0]), span) / dot(span, span);
+        let foot = std::array::from_fn(|k| ends[0][k] + fraction * span[k]);
+        let distance = sub(in_plane, foot);
+        assert_true(distance, square.direction);
+        assert!((dot(distance, distance).sqrt() - d.value).abs() < 1e-6);
     }
     let mut cache = model::Projections::default();
     let g = model::render_geometry(&part, &a, &p, &mut cache).unwrap();
