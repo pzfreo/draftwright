@@ -2532,10 +2532,12 @@ fingerprints with complete keys from the Analysis):
   both transverse freedoms. Both `feature_not_located` and
   the location-only `feature_not_dimensioned` warning then clear; its existing diameter
   callout remains on the ellipse. Missing size or manufacturing requirements still report.
-  Without a complete pair, the location finding and planner warning name measurable
-  anchors and compatible views. They prefer rooted anchors, then clear dimension
-  lines in the current views. If an authored distance uses an unlocated anchor, the
-  finding names that anchor as needing a printed location. Its inclined-hole requirement
+  Without a complete pair, the location finding names measurable anchors and compatible
+  views, preferring rooted anchors and then clear dimension lines. The planner warning
+  shares the suggestion when one inclined hole needs locating. With several, lint keeps
+  the advice on each hole because placement previews check one pair at a time.
+  If an authored distance uses an unlocated anchor, the finding names that anchor as
+  needing a printed location. Its inclined-hole requirement
   is `location.piercing_point`, a geometric need, not a measurement role a feature note may
   assert through `note_satisfies`.
 

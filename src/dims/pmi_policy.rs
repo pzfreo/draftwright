@@ -972,7 +972,7 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
     let roots = location::drawing_roots(a, &marks);
     let edges = location::drawn_edges(a, &marks);
     let mut located = BTreeSet::new();
-    p.problems.retain_mut(|q| {
+    p.problems.retain(|q| {
         if !warning(q) {
             return true;
         }
@@ -981,16 +981,21 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
             located.insert(id.clone());
             return false;
         }
-        if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, id, false) {
-            q.message = q.message.replace(
-                "so it needs a view square to it;",
-                "so a square-on view could show its location;",
-            );
-            q.message.push(' ');
-            q.message.push_str(&fix);
-        }
         true
     });
+    // The placement preview checks one pair against the existing ink. When
+    // several holes still need locating, use per-hole lint guidance rather
+    // than offering several independent repairs as one plan's next move.
+    let mut unresolved = p.problems.iter_mut().filter(|q| warning(q));
+    if let Some(q) = unresolved.next()
+        && unresolved.next().is_none()
+        && let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false)
+        && let Some((name, _)) = q.message.split_once("'s location is not dimensioned:")
+    {
+        q.message = format!(
+            "{name}'s location is not dimensioned: its axis is inclined to every principal axis. Its size is called out where it is seen most nearly end-on. {fix}"
+        );
+    }
     for d in &mut p.dimensions {
         if d.measurements
             .iter()
