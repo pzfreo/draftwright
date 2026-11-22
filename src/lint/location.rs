@@ -17,7 +17,12 @@ fn states_in(text: &str, value: f64, units: crate::output::Units) -> bool {
     super::holes::states(text, value / if inch { 25.4 } else { units.millimetres() })
 }
 /// A station equation uses the leading nominal, never a tolerance or fit-class number.
-fn nominal_in(text: &str, value: f64, units: crate::output::Units, precision: Option<u8>) -> bool {
+pub(super) fn nominal_in(
+    text: &str,
+    value: f64,
+    units: crate::output::Units,
+    precision: Option<u8>,
+) -> bool {
     if !value.is_finite() {
         return false;
     }
@@ -1793,6 +1798,9 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let roots = drawing_roots(a, marks);
     let mut issues = Vec::new();
     for (feature, k, at) in targets(a) {
+        if super::inclined::located(a, marks, &feature) {
+            continue;
+        }
         let modelled = fully_modelled(a, marks, &feature);
         if !modelled
             && (!active(a, marks)

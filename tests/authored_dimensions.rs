@@ -1808,6 +1808,36 @@ fn inclined_authored_dimensions_locate_the_piercing_point() {
     }
     assert!(bracket_missing(&a, &wrong));
 
+    // A truthful value with detached witnesses or an incompatible view cannot locate it.
+    let mut detached = drawing.clone();
+    let ink = detached
+        .sheet
+        .items
+        .iter_mut()
+        .find(|i| i.name == "d:authored:flange")
+        .unwrap();
+    for line in &mut ink.lines {
+        for point in line {
+            point[0] += 4.;
+        }
+    }
+    assert!(bracket_missing(&a, &draftwright::lint::marks(&detached)));
+    let mut wrong_view = marks.clone();
+    wrong_view
+        .iter_mut()
+        .find(|m| m.name == "d:authored:flange")
+        .unwrap()
+        .view = Some("v:plan".into());
+    assert!(bracket_missing(&a, &wrong_view));
+    assert!(
+        !p.dimensions
+            .iter()
+            .find(|d| d.id == "d:f:hole:f9/bore.diameter")
+            .unwrap()
+            .basis
+            .contains("it is not located")
+    );
+
     // Stable cylinder-face aliases and reversed references carry the same geometry.
     let mut aliases = s.clone();
     let cylinder = cylinder_face(&a, "f:hole:f9");
@@ -1849,6 +1879,22 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
             .iter()
             .any(|r| r.feature == "f:hole:f9" && r.parameter == "location.length.z")
     );
+
+    // The references and routes named in the finding are executable today.
+    let mut dimensions = serde_json::Map::new();
+    for (i, route) in fix.split(" from ").skip(1).enumerate() {
+        let (axis, route) = route.split_once(" to ").unwrap();
+        let (anchor, route) = route.split_once(" with along: ").unwrap();
+        let (along, route) = route.split_once(" in the ").unwrap();
+        let view = route.split_whitespace().next().unwrap();
+        dimensions.insert(format!("d:authored:suggested{i}"), json!({
+            "between": [axis, anchor], "along": along, "view": view
+        }));
+    }
+    assert_eq!(dimensions.len(), 2);
+    let suggested = model::plan_recovered(&a, &parse(json!({"dimensions": dimensions}))).unwrap();
+    let suggested = model::render(&part, &a, &suggested, &font).unwrap();
+    assert!(!bracket_missing(&a, &draftwright::lint::marks(&suggested)));
 
     // These three refusals remain geometrically correct; none is a route to a z station.
     let base = planes(&a, 2).first().unwrap().0.clone();

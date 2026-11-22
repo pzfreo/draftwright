@@ -950,6 +950,37 @@ pub(crate) fn ignore(
 }
 
 pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
+    // The inclined-hole warning concerns location only. Clear it from finished,
+    // controlling authored ink using the same geometric rule as independent lint.
+    if s.dimensions.values().any(|d| d.between.is_some())
+        && p.problems
+            .iter()
+            .any(|q| q.code == "feature_not_dimensioned")
+    {
+        let marks = dimension_marks(a, p, |_| true);
+        let located: BTreeSet<_> = p
+            .problems
+            .iter()
+            .filter(|q| q.code == "feature_not_dimensioned")
+            .flat_map(|q| &q.subjects)
+            .filter(|id| crate::lint::inclined::located(a, &marks, id))
+            .cloned()
+            .collect();
+        if !located.is_empty() {
+            p.problems.retain(|q| {
+                q.code != "feature_not_dimensioned"
+                    || !q.subjects.iter().all(|id| located.contains(id))
+            });
+            for d in &mut p.dimensions {
+                if d.measurements
+                    .iter()
+                    .any(|m| m.parameter == "bore.diameter" && located.contains(&m.feature))
+                {
+                    d.basis = d.basis.replace(", and it is not located (that needs a view square to its axis)", "; its piercing point is located by two independent authored transverse distances");
+                }
+            }
+        }
+    }
     if PLAN_DEPTH.get() > 1 || (!location::has_station_requirements(a) && s.origin.is_empty()) {
         return;
     }

@@ -64,6 +64,7 @@ pub mod grooves;
 pub mod gussets;
 pub mod hole_patterns;
 pub mod holes;
+pub(crate) mod inclined;
 mod interior_voids;
 pub mod leaders;
 pub mod location;
@@ -722,6 +723,7 @@ fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     if location::has_station_requirements(analysis) {
         issues.extend(location::sizes(analysis, printed));
     }
+    inclined::explain(analysis, &mut issues);
     issues
 }
 

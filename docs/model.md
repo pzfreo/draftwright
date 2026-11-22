@@ -2510,6 +2510,29 @@ fingerprints with complete keys from the Analysis):
   incompatible view is refused with the compatible choices. Angular placement uses view,
   radial lane and along; a side does not choose another measured sector. A size leader can attach to any
   cylindrical/spherical face, including an oblique cylinder, using exact surface sites.
+- **Inclined-hole location (#293).** Two independent authored linear distances across a
+  hole's axis locate its piercing point without an end-on view. Lint remeasures the
+  references, checks the leading printed nominal, and checks the extension-line stations
+  when drawing ink is available. The distances must constrain two independent directions
+  perpendicular to the actual axis; a repeated direction, a reference dimension, a distance
+  to the hole's own rim, or a separation from another unlocated axis grants no such credit.
+  True distances to points or parallel lines are radial constraints and do not establish
+  linear stations for this rule.
+
+  For the angle bracket, the hole axis is (−0.866, 0, 0.5). State **25 along the flange**
+  from `axis:f:hole:f9` to the flange's foot edge with `along: "true"` in the front view,
+  and **25 across** from the same axis to a side face with `along: "y"` in the side view.
+  These two distances remove both transverse freedoms. Both `feature_not_located` and
+  the location-only `feature_not_dimensioned` warning then clear; its existing diameter
+  callout remains on the ellipse. Missing size or manufacturing requirements still report.
+  Without a complete pair, the location finding remains and names current measurable
+  references and compatible views where a pair is available. Its inclined-hole requirement
+  is `location.piercing_point`, a geometric need, not a measurement role a feature note may
+  assert through `note_satisfies`.
+
+  The inclined axis has no unique z station, and its supporting line intersects the base
+  plane. Therefore axis-to-base `along: "z"` and `along: "true"` remain refused, as does
+  `note_satisfies: ["location.length.z"]`. Use the two transverse distances above.
 - **One quantity, one owner (K6).** A new dimension duplicating a drawn automatic owner is
   refused, naming that owner ID in the message and choices. Edit its tolerance/view/place
   instead. Coincident principal spans, identical true spans/angular sectors, and the radius
