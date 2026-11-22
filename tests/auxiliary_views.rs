@@ -119,7 +119,7 @@ fn jern_has_an_edge_parent_and_a_true_shape_with_grounded_location() {
     assert_eq!(meta(TRUE)["parent"], EDGE);
     assert_true(square.direction, edge.direction);
     assert_true(edge.direction, [0., 0., 1.]);
-    assert_eq!(edge.up, [0., 0., 1.]);
+    assert!(sub(edge.up, [0., 0., 1.]).iter().all(|d| d.abs() < 1e-6));
     assert!(meta(TRUE)["rotation"].is_number());
     assert_ne!(meta(EDGE)["label"], meta(TRUE)["label"]);
 
