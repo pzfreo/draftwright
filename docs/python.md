@@ -1,6 +1,6 @@
 # Python
 
-Install the platform wheel (Python 3.9 or newer; Rust is not required):
+Install the platform wheel (Python 3.11 or newer; Rust is not required):
 
 ```sh
 pip install draftwright

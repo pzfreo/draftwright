@@ -88,7 +88,7 @@ or `cargo install draftwright`, or see [Releases](https://github.com/pzfreo/draf
 
 | You use | Install | Platforms |
 | --- | --- | --- |
-| **Python 3.9+ (abi3)** | `pip install draftwright`, or `uv add draftwright` in a uv project ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
+| **Python 3.11+ (abi3)** | `pip install draftwright`, or `uv add draftwright` in a uv project ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
 | **Command line** | `uv tool install draftwright`; installs `draftwright` and `draftwright-mcp` | The same five wheel platforms |
 | **Rust crate** | `cargo install draftwright` for both binaries; `draftwright = "0.6"` for the library ([operations](docs/model.md#the-five-operations)) | Native Rust toolchain |
 | **Prebuilt archives** | Download a CLI archive from [Releases](https://github.com/pzfreo/draftwright/releases); includes both binaries, schemas and agent docs | macOS arm64 / Intel, Linux x86_64 / arm64, Windows x64; availability depends on the release |
