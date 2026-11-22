@@ -11268,6 +11268,20 @@ impl Projections {
                     .map(|e| placed(e, v.scale, centre, v.at));
                 match projected(&moved) {
                     Some(curve) => {
+                        // The HLR fallback emits each straight generator segment as a
+                        // degree-one Bézier. Keep the line as a line so a drawn
+                        // inclination can use it as visible support.
+                        let curve = match &curve {
+                            Curve::Beziers(pieces) if v.auxiliary.is_some() => {
+                                match pieces.as_slice() {
+                                    [piece] if let [from, to] = piece.as_slice() => {
+                                        Curve::Line(*from, *to)
+                                    }
+                                    _ => curve,
+                                }
+                            }
+                            _ => curve,
+                        };
                         let curve = crate::linework::stable_curve(curve);
                         let items = if piece.visible {
                             &mut geometry.visible
