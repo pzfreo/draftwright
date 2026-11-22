@@ -1866,7 +1866,9 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
                 .contains(why)
         );
     }
-    let s = parse(json!({"features":{"f:hole:f9":{"note_satisfies":["location.length.z"]}}}));
+    let s = parse(
+        json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.length.z"]}}}),
+    );
     assert!(
         model::plan_recovered(&a, &s)
             .unwrap_err()
