@@ -6986,17 +6986,7 @@ fn exported_cross(a: [P2; 2], b: [P2; 2]) -> bool {
         && side(b[0], b[1], a[0]) * side(b[0], b[1], a[1]) < -1e-12
 }
 
-/// Whether two segments cross at a point inside both (touching ends and collinear runs do not
-/// count).
-pub(super) fn segments_cross(a: [P2; 2], b: [P2; 2]) -> bool {
-    let orient =
-        |p: P2, q: P2, r: P2| (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-    let eps = 1e-9;
-    let (d1, d2) = (orient(b[0], b[1], a[0]), orient(b[0], b[1], a[1]));
-    let (d3, d4) = (orient(a[0], a[1], b[0]), orient(a[0], a[1], b[1]));
-    ((d1 > eps && d2 < -eps) || (d1 < -eps && d2 > eps))
-        && ((d3 > eps && d4 < -eps) || (d3 < -eps && d4 > eps))
-}
+pub(super) use crate::output::segments_cross;
 
 /// How badly two candidates' ink conflicts (`_candidate_conflict`), in crossings: two when it
 /// touches text (labels within [`LABEL_PAD`] of each other, or a line of one through the other's

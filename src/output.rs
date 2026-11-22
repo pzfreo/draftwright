@@ -15,6 +15,17 @@ use serde::{Deserialize, Serialize};
 
 pub type P = [f64; 2];
 
+/// Whether two segments cross at a point inside both (touching ends and collinear runs do not
+/// count).
+pub(crate) fn segments_cross(a: [P; 2], b: [P; 2]) -> bool {
+    let orient = |p: P, q: P, r: P| (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    let eps = 1e-9;
+    let (d1, d2) = (orient(b[0], b[1], a[0]), orient(b[0], b[1], a[1]));
+    let (d3, d4) = (orient(a[0], a[1], b[0]), orient(a[0], a[1], b[1]));
+    ((d1 > eps && d2 < -eps) || (d1 < -eps && d2 > eps))
+        && ((d3 > eps && d4 < -eps) || (d3 < -eps && d4 > eps))
+}
+
 /// Centre baseline label ink on a table/note anchor. Strokes and glyphs share the
 /// same transform; all exporters consume these visible primitives.
 pub(crate) fn centred_label_ink(

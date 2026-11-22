@@ -2510,6 +2510,47 @@ fingerprints with complete keys from the Analysis):
   incompatible view is refused with the compatible choices. Angular placement uses view,
   radial lane and along; a side does not choose another measured sector. A size leader can attach to any
   cylindrical/spherical face, including an oblique cylinder, using exact surface sites.
+- **Inclined-hole location (#293).** Two independent authored linear distances across a
+  hole's axis locate its piercing point without an end-on view. Lint remeasures the
+  references, checks the leading printed nominal, and checks the extension-line stations
+  when drawing ink is available. The distances must constrain two independent directions
+  perpendicular to the actual axis; a repeated direction, a reference dimension, a distance
+  to the hole's own rim, or a separation from another unlocated axis grants no such credit.
+  True distances to points or parallel lines are radial constraints and do not establish
+  linear stations for this rule.
+
+  Each anchor must also have a printed route to a drawing datum on the station axes
+  that contribute to the measured distance. A stock-limit station is already a root.
+  An edge can share its station with its own endpoint or incident datum face. A dimension
+  from the hole's axis cannot serve as evidence for its own anchor.
+
+  For the angle bracket, the hole axis is (−0.866, 0, 0.5). State **25 along the flange**
+  from `axis:f:hole:f9` to the flange's foot edge with `along: "true"` in the front view,
+  and **25 across** from the same axis to a side face with `along: "y"` in the side view.
+  The back face is a stock root; the printed 80 base length locates the flange's foot
+  along x, and the bottom stock plane locates it along z. These two distances remove
+  both transverse freedoms. Both `feature_not_located` and
+  the location-only `feature_not_dimensioned` warning then clear; its existing diameter
+  callout remains on the ellipse. Missing size or manufacturing requirements still report.
+  Without a complete pair, lint and the planner give the same suggestion for each hole.
+  Suggestions use planar faces and edges whose drawn boundary and change of tangent plane
+  are proven. They prefer rooted anchors and then fewer estimated dimension-line crossings.
+  A view with no dimension lines contributes no crossings. The estimate tests one pair
+  against the current drawing.
+  The raw lint fix includes reference handles for copying into a Spec, and its display
+  description uses the anchors' drawing names.
+  If an authored distance uses an unlocated anchor, the finding names that anchor as
+  needing a printed location. When the current pair could be kept by locating its anchors
+  and a preferred replacement is available, the finding offers both remedies.
+  Its inclined-hole requirement
+  is `location.piercing_point`, a geometric need, not a measurement role a feature note may
+  assert through `note_satisfies`.
+
+  The inclined axis has no unique z station, and its supporting line intersects the base
+  plane. Therefore axis-to-base `along: "z"` and `along: "true"` remain refused.
+  The legacy note role `location.length.z` is admitted, but this bracket's note is not
+  drawn because its faces provide no proven leader site; it grants no location credit.
+  Use the two transverse distances above.
 - **One quantity, one owner (K6).** A new dimension duplicating a drawn automatic owner is
   refused, naming that owner ID in the message and choices. Edit its tolerance/view/place
   instead. Coincident principal spans, identical true spans/angular sectors, and the radius

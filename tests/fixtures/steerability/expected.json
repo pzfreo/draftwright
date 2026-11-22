@@ -1,12 +1,4 @@
 {
-  "293": {
-    "case": "steer_293_inclined_hole",
-    "group": "A",
-    "reason": "The requested note role is accepted; inclined-hole location remains missing.",
-    "checks": [
-      "feature_not_located"
-    ]
-  },
   "300": {
     "case": "steer_300_oblique_shoulders",
     "group": "A",
@@ -18,7 +10,7 @@
   "307": {
     "case": "steer_307_completeness_mutations",
     "group": "A",
-    "reason": "The shaft baseline is defined after centred-keyway handling; bracket constraints, mutation attribution and profile redundancy remain incomplete.",
+    "reason": "The shaft baseline is defined; #293 now unmasks missing across-hole and first-hole x locations. Other bracket constraints, mutation attribution and profile redundancy remain incomplete.",
     "checks": [
       "angle-bracket_defined",
       "controlling_overall_is_redundant",
@@ -26,13 +18,11 @@
       "remove_d:authored:flange_length",
       "remove_d:authored:flange_thickness",
       "remove_d:authored:hole2_along_flange",
-      "remove_d:authored:hole2_y",
       "remove_d:authored:keyway_start",
       "remove_d:envelope/od.diameter",
       "remove_d:envelope/width.length",
       "remove_d:f:chamfer:f12/chamfer.length",
       "remove_d:f:hole:f6/bore.diameter",
-      "remove_d:f:hole:f6/location.length.x",
       "remove_d:f:hole:f6/location.length.y",
       "remove_d:f:hole:f9/bore.diameter",
       "remove_d:f:section_recess:f6/pocket_width.length",

@@ -302,7 +302,7 @@ fn located_by(
     if !carries(a) {
         return BTreeMap::new();
     }
-    let marks = dimension_marks(a, p, include);
+    let marks = dimension_marks(a, p, include, false);
     let edges = location::edges(a, &marks);
     let roots = location::drawing_roots(a, &marks);
     a.features
@@ -950,21 +950,71 @@ pub(crate) fn ignore(
 }
 
 pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
+    audit_inclined(a, p);
     if PLAN_DEPTH.get() > 1 || (!location::has_station_requirements(a) && s.origin.is_empty()) {
         return;
     }
     crate::planning::with(a, || audit_inner(a, s, p));
 }
 
+fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
+    use crate::lint::inclined;
+    let warning = |q: &Problem| {
+        q.code == "feature_not_dimensioned"
+            && q.message
+                .contains("location is not dimensioned: its axis is inclined")
+            && matches!(q.subjects.as_slice(), [id] if inclined::is_inclined(a, id))
+    };
+    if !p.problems.iter().any(warning) {
+        return;
+    }
+    let marks = dimension_marks(a, p, |_| true, true);
+    let roots = location::drawing_roots(a, &marks);
+    let edges = location::drawn_edges(a, &marks);
+    let mut located = BTreeSet::new();
+    p.problems.retain(|q| {
+        if !warning(q) {
+            return true;
+        }
+        let id = &q.subjects[0];
+        if inclined::located(a, &marks, &edges, &roots, id) {
+            located.insert(id.clone());
+            return false;
+        }
+        true
+    });
+    for q in p.problems.iter_mut().filter(|q| warning(q)) {
+        if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false)
+            && let Some((name, _)) = q.message.split_once("'s location is not dimensioned:")
+        {
+            q.message = format!(
+                "{name}'s location is not dimensioned: its axis is inclined to every principal axis. Its size is called out where it is seen most nearly end-on. {fix}"
+            );
+        }
+    }
+    for d in &mut p.dimensions {
+        if d.measurements
+            .iter()
+            .any(|m| m.parameter == "bore.diameter" && located.contains(&m.feature))
+        {
+            d.basis = d.basis.replace(
+                ", and it is not located (that needs a view square to its axis)",
+                "; its piercing point is located by two independent authored transverse distances",
+            );
+        }
+    }
+}
+
 fn dimension_marks(
     a: &Analysis,
     p: &crate::model::Plan,
     include: impl Fn(&PlannedDimension) -> bool,
+    keep_witnesses: bool,
 ) -> Vec<crate::lint::Mark> {
     let mut marks: Vec<_> = p
         .dimensions
         .iter()
-        .filter(|d| d.placed.is_some() && !d.reference && include(d))
+        .filter(|d| d.placed.is_some() && (keep_witnesses || !d.reference) && include(d))
         .map(|d| crate::lint::Mark {
             precision: None,
             units: p.sheet.units,
@@ -984,7 +1034,7 @@ fn dimension_marks(
     for (mark, d) in marks.iter_mut().zip(
         p.dimensions
             .iter()
-            .filter(|d| d.placed.is_some() && !d.reference && include(d)),
+            .filter(|d| d.placed.is_some() && (keep_witnesses || !d.reference) && include(d)),
     ) {
         if d.kind != "linear" {
             continue;
@@ -1013,6 +1063,9 @@ fn dimension_marks(
         });
         // Invariant: The preceding dimension iterator selects placed dimensions.
         let placed = d.placed.as_ref().unwrap();
+        if keep_witnesses {
+            location::record_witness(mark, &frame, &placed.lines);
+        }
         let span = location::ink_span(a, &frame, &placed.lines).or_else(|| {
             let owners = location::witness_owners(a, &mark.claims);
             let centres: Vec<_> = view
@@ -1063,7 +1116,7 @@ fn dimension_marks(
 }
 
 fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
-    let mut marks = dimension_marks(a, p, |_| true);
+    let mut marks = dimension_marks(a, p, |_| true, false);
     // A placed coordinate schedule is a drawn locating network too. Verify its cell value
     // in its declared datum frame, then carry that physical edge to the same shared checker.
     for table in p

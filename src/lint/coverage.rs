@@ -28,6 +28,9 @@
 //!   `location.length.<axis>`), or by a dimension's witness point within 0.6 mm of the hole's
 //!   projected centre on that axis. The drawing does not record its dimensions' witness points
 //!   nor the views' projections, so the port reads the structured evidence only.
+//!   For an inclined hole, two independent authored transverse distances also locate
+//!   its axis; see [`super::inclined`]. No principal-axis station along the inclined
+//!   drilling direction is needed.
 //! - **Centre marks** ([`centre_marks`], LINT-code-feature_no_centermark): every hole, pattern
 //!   members included, has a centre mark within 0.6 mm of its centre projected into the view that
 //!   looks along it (the front or rear for a hole along y). The sheet's drawn centre marks and its
@@ -721,6 +724,10 @@ pub fn located(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let roots = super::location::drawing_roots(analysis, marks);
     let mut sites = sites(analysis, marks);
     for site in &mut sites {
+        if super::inclined::located(analysis, marks, &edges, &roots, &site.subject) {
+            site.claimed = [true; 3];
+            continue;
+        }
         for (k, root) in roots.iter().enumerate() {
             // Unsupported relations retain main's verdict. Only a positive printed
             // chain may change it; absence of a graph path is not a new finding.

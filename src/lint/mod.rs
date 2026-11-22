@@ -64,6 +64,7 @@ pub mod grooves;
 pub mod gussets;
 pub mod hole_patterns;
 pub mod holes;
+pub(crate) mod inclined;
 mod interior_voids;
 pub mod leaders;
 pub mod location;
@@ -222,12 +223,42 @@ impl Serialize for LintIssue {
 
 // Advice has no executable edit and cannot promise a sheet re-layout.
 fn advice_description(fix: &str) -> String {
-    let mut chars = fix.trim().trim_end_matches('.').chars();
+    // Copyable geometry handles stay in the raw fix. The description is the
+    // drawing-language version shown beside the advice.
+    let prose: String = fix
+        .split_inclusive(')')
+        .map(|piece| {
+            let Some((words, handle)) = piece
+                .strip_suffix(')')
+                .and_then(|end| end.rsplit_once(" ("))
+            else {
+                return piece;
+            };
+            if reference_handle(handle) {
+                words
+            } else {
+                piece
+            }
+        })
+        .collect();
+    let mut chars = prose.trim().trim_end_matches('.').chars();
     let text = chars
         .next()
         .map(|c| c.to_uppercase().chain(chars).collect::<String>())
         .unwrap_or_default();
     format!("{text}.")
+}
+
+fn reference_handle(key: &str) -> bool {
+    let reference = key.strip_prefix("axis:").unwrap_or(key);
+    (key.starts_with("axis:f:hole:") && !key.contains(char::is_whitespace))
+        || ["edge:v1:", "face:v1:", "vertex:v1:"]
+            .into_iter()
+            .any(|prefix| {
+                reference.strip_prefix(prefix).is_some_and(|fingerprint| {
+                    fingerprint.len() == 64 && fingerprint.bytes().all(|c| c.is_ascii_hexdigit())
+                })
+            })
 }
 
 /// An annotation as lint sees it: the text it prints and the measurements it claims.
@@ -722,6 +753,7 @@ fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     if location::has_station_requirements(analysis) {
         issues.extend(location::sizes(analysis, printed));
     }
+    inclined::explain(analysis, printed, &mut issues);
     issues
 }
 

@@ -17,7 +17,12 @@ fn states_in(text: &str, value: f64, units: crate::output::Units) -> bool {
     super::holes::states(text, value / if inch { 25.4 } else { units.millimetres() })
 }
 /// A station equation uses the leading nominal, never a tolerance or fit-class number.
-fn nominal_in(text: &str, value: f64, units: crate::output::Units, precision: Option<u8>) -> bool {
+pub(super) fn nominal_in(
+    text: &str,
+    value: f64,
+    units: crate::output::Units,
+    precision: Option<u8>,
+) -> bool {
     if !value.is_finite() {
         return false;
     }
@@ -575,6 +580,92 @@ fn reference_node(a: &Analysis, key: &str, axis: usize) -> Option<String> {
     .then(|| key.into())
 }
 
+/// Test a physical anchor in a measured direction using the same typed station
+/// routes as ordinary holes. Coordinates along the support or out of the
+/// measurement direction do not have to be stated.
+pub(super) fn anchor_rooted(
+    a: &Analysis,
+    edges: &[Edge],
+    roots: &[Vec<f64>; 3],
+    support: (&str, &crate::model::dimension_geometry::Reference),
+    normal: [f64; 3],
+    at: [f64; 3],
+    excluded: &BTreeSet<usize>,
+) -> bool {
+    use crate::model::dimension_geometry::Reference;
+    let (key, reference) = support;
+    let axes = (0..3).filter(|&k| normal[k].abs() > EPS);
+    let reaches = |k: usize, value, node: Option<&str>| {
+        route(edges, roots[k].as_slice(), k, value, node, excluded).is_some()
+    };
+    let direct = |k| {
+        let node = reference_node(a, key, k);
+        // An anonymous station at the same coordinate does not identify a
+        // physical anchor. Only use it for exact origin coincidence.
+        reaches(k, at[k], node.as_deref().or(Some(key)))
+    };
+    let face_reaches = |i: usize, k: usize, value: f64| {
+        a.face_attachments
+            .get(i)
+            .is_some_and(|f: &crate::pmi::FaceAttachment| {
+                f.surface.as_deref() == Some("plane")
+                    && f.axis == Some(k)
+                    && f.bounds.is_some_and(|b| (b[k] - value).abs() < EPS)
+                    && reaches(k, value, Some(&format!("face:{i}")))
+            })
+    };
+    let vertex_reaches = |k: usize, point: [f64; 3], faces: &[usize]| {
+        roots[k].iter().any(|r| (r - point[k]).abs() < EPS)
+            || edges.iter()
+                .filter(|e| e.axis == k)
+                .flat_map(|e| [&e.a_feature, &e.b_feature])
+                .flatten()
+                .filter(|node| node.starts_with("vertex:"))
+                .any(|vertex| {
+                    matches!(a.dimension_reference(vertex), Ok(Reference::Vertex {point: p, membership})
+                        if (0..3).all(|j| (p[j] - point[j]).abs() < EPS)
+                            && faces.iter().all(|i| membership.faces.contains(i)))
+                        && reaches(k, point[k], Some(vertex))
+                })
+    };
+    match reference {
+        Reference::Vertex { membership, .. } => axes
+            .clone()
+            .all(|k| direct(k) || membership.faces.iter().any(|&i| face_reaches(i, k, at[k]))),
+        Reference::Edge { ends, membership } => axes.clone().all(|k| {
+            if (ends[0][k] - ends[1][k]).abs() < EPS {
+                direct(k)
+                    || membership.faces.iter().any(|&i| face_reaches(i, k, at[k]))
+                    || ends
+                        .iter()
+                        .any(|&p| vertex_reaches(k, p, &membership.faces))
+            } else {
+                // A skew support can vary on both contributing axes. Prove
+                // both endpoints instead of treating its sampled witness as a station.
+                ends.iter()
+                    .all(|&p| vertex_reaches(k, p, &membership.faces))
+            }
+        }),
+        Reference::Plane { membership, .. } => {
+            (axes.clone().count() == 1 && axes.clone().all(direct))
+                || membership.vertices.iter().flatten().any(|vertex| {
+                    let Ok(Reference::Vertex { point, membership }) = a.dimension_reference(vertex)
+                    else {
+                        return false;
+                    };
+                    axes.clone().all(|k| {
+                        reaches(k, point[k], Some(vertex))
+                            || membership
+                                .faces
+                                .iter()
+                                .any(|&i| face_reaches(i, k, point[k]))
+                    })
+                })
+        }
+        _ => false,
+    }
+}
+
 fn physical_node(node: Option<&str>) -> bool {
     node.is_some_and(|id| {
         ["face:", "edge:", "vertex:"]
@@ -728,6 +819,18 @@ pub(crate) fn centreline_witnesses(
     Some(out)
 }
 
+pub(crate) fn record_witness(
+    mark: &mut Mark,
+    frame: &crate::output::DrawnFrame,
+    lines: &[[[f64; 2]; 2]],
+) {
+    let witness = serde_json::to_string(&(frame, lines)).expect("drawn frame and lines serialize");
+    mark.claims.push(crate::output::Claim {
+        feature: format!("station_witness:{witness}"),
+        parameter: "witnesses".into(),
+    });
+}
+
 /// Ink evidence is local to lint. It is never written into the drawing or its Spec.
 pub(crate) fn drawn_constraints(
     a: &Analysis,
@@ -737,6 +840,7 @@ pub(crate) fn drawn_constraints(
     if drawing.sheet.frames.is_empty() {
         return;
     }
+    let inclined = super::inclined::has_inclined(a);
     for mark in marks {
         let Some(item) = drawing.sheet.items.iter().find(|d| d.name == mark.name) else {
             continue;
@@ -770,6 +874,9 @@ pub(crate) fn drawn_constraints(
             .view
             .as_deref()
             .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")));
+        if inclined && let Some(frame) = frame {
+            record_witness(mark, frame, &item.lines);
+        }
         let span = frame.and_then(|f| ink_span(a, f, &item.lines)).or_else(|| {
             let owners = witness_owners(a, &mark.claims);
             let centres: Vec<_> = drawing
@@ -1793,6 +1900,9 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let roots = drawing_roots(a, marks);
     let mut issues = Vec::new();
     for (feature, k, at) in targets(a) {
+        if super::inclined::located(a, marks, &drawn, &roots, &feature) {
+            continue;
+        }
         let modelled = fully_modelled(a, marks, &feature);
         if !modelled
             && (!active(a, marks)

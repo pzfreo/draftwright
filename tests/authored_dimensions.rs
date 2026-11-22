@@ -1704,3 +1704,510 @@ fn repeated_sizes_require_matching_effective_tolerances_and_fits() {
             .any(|d| d.id == "d:authored:width" && d.label.contains("H7") && d.placed.is_some())
     );
 }
+
+fn inclined_bracket() -> (draftwright::haecceity::Part, Analysis, Spec) {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/steerability/angle-bracket.step.gz"),
+    )
+    .unwrap();
+    let s = parse(json!({"dimensions": {
+        "d:authored:base_length": {
+            "between": [
+                "vertex:v1:049dd438c368093c721cb00f6e0da6f9f4050667018b09e58937a97807fd6db6",
+                "vertex:v1:945c5e8378855c5e64a61f86124370400d2f826721eaea333bd2aba83c29cd7d"
+            ],
+            "along": "x", "view": "front"
+        },
+        "d:authored:flange": {
+            "between": ["axis:f:hole:f9", "edge:v1:d8f3565f8d7d9652901a4471ea935e2238a60c080fb95877e8b1378455edcec5"],
+            "along": "true", "view": "front"
+        },
+        "d:authored:across": {
+            "between": ["axis:f:hole:f9", "face:v1:8c6179ca9c5faa7487b11e02aef7f2f765f7e2c34ffc667b925b07b9c2b6a70d"],
+            "along": "y", "view": "side"
+        }
+    }}));
+    (part, a, s)
+}
+
+fn bracket_missing(a: &Analysis, marks: &[draftwright::lint::Mark]) -> bool {
+    draftwright::lint::check(a, marks)
+        .iter()
+        .any(|i| i.code == "feature_not_located" && i.subjects.iter().any(|s| s == "f:hole:f9"))
+}
+
+#[test]
+fn inclined_authored_dimensions_locate_the_piercing_point() {
+    let (part, a, s) = inclined_bracket();
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let marks = draftwright::lint::marks(&drawing);
+    for id in ["d:authored:flange", "d:authored:across"] {
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert!((d.value - 25.).abs() < 1e-6);
+        assert!(d.placed.is_some());
+    }
+    assert!(
+        !draftwright::lint::check(&a, &marks)
+            .iter()
+            .any(|i| i.code == "authored_dimension_invalid")
+    );
+    assert!(
+        !bracket_missing(&a, &marks),
+        "two independent 25 mm dimensions must locate the inclined axis"
+    );
+    assert!(
+        !p.problems
+            .iter()
+            .any(|i| i.code == "feature_not_dimensioned" && i.subjects == ["f:hole:f9"]),
+        "a stated location needs no square-on view"
+    );
+    assert!(
+        p.views
+            .iter()
+            .all(|v| ["v:front", "v:plan", "v:side", "v:iso"].contains(&v.id.as_str()))
+    );
+
+    // Each direction is necessary. Reference ink and a false leading nominal grant no credit.
+    for id in ["d:authored:flange", "d:authored:across"] {
+        let mut altered = marks.clone();
+        altered.retain(|m| m.name != id);
+        assert!(bracket_missing(&a, &altered), "missing {id}");
+        for text in ["(25)", "999 ±25"] {
+            let mut altered = marks.clone();
+            altered.iter_mut().find(|m| m.name == id).unwrap().text = text.into();
+            assert!(bracket_missing(&a, &altered), "{id}: {text}");
+        }
+        let mut partial = s.clone();
+        partial.dimensions.remove(id);
+        let partial = model::plan_recovered(&a, &partial).unwrap();
+        assert!(
+            partial
+                .problems
+                .iter()
+                .any(|i| i.code == "feature_not_dimensioned" && i.subjects == ["f:hole:f9"])
+        );
+    }
+    // Two copies of the across constraint still leave the along-flange freedom.
+    let mut parallel = marks.clone();
+    let across = parallel
+        .iter()
+        .find(|m| m.name == "d:authored:across")
+        .unwrap()
+        .clone();
+    *parallel
+        .iter_mut()
+        .find(|m| m.name == "d:authored:flange")
+        .unwrap() = across;
+    assert!(bracket_missing(&a, &parallel));
+    let mut wrong = marks.clone();
+    for c in &mut wrong
+        .iter_mut()
+        .find(|m| m.name == "d:authored:flange")
+        .unwrap()
+        .claims
+    {
+        if c.feature.starts_with("geometry:") {
+            c.parameter = "linear.z".into();
+        }
+    }
+    assert!(bracket_missing(&a, &wrong));
+
+    // A truthful value with detached witnesses or an incompatible view cannot locate it.
+    let mut detached = drawing.clone();
+    let ink = detached
+        .sheet
+        .items
+        .iter_mut()
+        .find(|i| i.name == "d:authored:flange")
+        .unwrap();
+    for line in &mut ink.lines {
+        for point in line {
+            point[0] += 4.;
+        }
+    }
+    assert!(bracket_missing(&a, &draftwright::lint::marks(&detached)));
+    let mut wrong_view = marks.clone();
+    wrong_view
+        .iter_mut()
+        .find(|m| m.name == "d:authored:flange")
+        .unwrap()
+        .view = Some("v:plan".into());
+    assert!(bracket_missing(&a, &wrong_view));
+    assert!(
+        !p.dimensions
+            .iter()
+            .find(|d| d.id == "d:f:hole:f9/bore.diameter")
+            .unwrap()
+            .basis
+            .contains("it is not located")
+    );
+
+    // Stable cylinder-face aliases and reversed references carry the same geometry.
+    let mut aliases = s.clone();
+    let cylinder = cylinder_face(&a, "f:hole:f9");
+    for id in ["d:authored:flange", "d:authored:across"] {
+        let d = aliases.dimensions.get_mut(id).unwrap();
+        let refs = d.between.as_mut().unwrap();
+        refs[0] = format!("axis:{cylinder}");
+        refs.reverse();
+    }
+    let aliased = model::plan_recovered(&a, &aliases).unwrap();
+    let aliased = model::render(&part, &a, &aliased, &font).unwrap();
+    assert!(!bracket_missing(&a, &draftwright::lint::marks(&aliased)));
+
+    // Location evidence must not clear a warning about an unreadable bore size/depth.
+    let mut missing_depth = a.clone();
+    let hole = missing_depth
+        .features
+        .iter_mut()
+        .find(|f| f.id == "f:hole:f9")
+        .unwrap();
+    hole.parameters.insert("bottom".into(), json!("flat"));
+    hole.parameters.remove("depth");
+    let unreadable = model::plan_recovered(&missing_depth, &s).unwrap();
+    assert!(
+        unreadable
+            .problems
+            .iter()
+            .any(|p| p.code == "feature_not_dimensioned"
+                && p.subjects == ["f:hole:f9"]
+                && p.message.contains("blind and has no depth")),
+        "a stated location does not state the missing blind depth"
+    );
+    let unreadable = model::render(&part, &missing_depth, &unreadable, &font).unwrap();
+    assert!(!bracket_missing(
+        &missing_depth,
+        &draftwright::lint::marks(&unreadable)
+    ));
+}
+
+fn suggested_inclined_dimensions(fix: &str) -> serde_json::Map<String, serde_json::Value> {
+    fn key(description: &str) -> &str {
+        description
+            .strip_suffix(')')
+            .and_then(|s| s.rsplit_once(" (").map(|(_, key)| key))
+            .unwrap_or(description)
+    }
+    let mut dimensions = serde_json::Map::new();
+    for (i, (start, _)) in fix.match_indices(" from the hole's axis").enumerate() {
+        let route = &fix[start + " from ".len()..];
+        let (axis, route) = route.split_once(" to ").unwrap();
+        let (anchor, route) = route.split_once(" with along: ").unwrap();
+        let (along, route) = route.split_once(" in the ").unwrap();
+        let view = route.split_whitespace().next().unwrap();
+        dimensions.insert(
+            format!("d:authored:suggested{i}"),
+            json!({
+                "between": [key(axis), key(anchor)], "along": along, "view": view
+            }),
+        );
+    }
+    assert_eq!(dimensions.len(), 2);
+    dimensions
+}
+
+#[test]
+fn inclined_location_finding_names_reachable_authored_dimensions() {
+    let (part, a, _) = inclined_bracket();
+    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let marks = draftwright::lint::marks(&drawing);
+    assert!(bracket_missing(&a, &marks));
+    let issues = draftwright::lint::check(&a, &marks);
+    let issue = issues
+        .iter()
+        .find(|i| i.code == "feature_not_located" && i.subjects.iter().any(|s| s == "f:hole:f9"))
+        .unwrap();
+    let fix = issue.fix.as_deref().unwrap();
+    assert!(
+        fix.contains("axis:f:hole:f9")
+            && fix.contains("front")
+            && fix.contains("side")
+            && fix.contains("along"),
+        "reachable fix: {fix}"
+    );
+    assert!(!fix.contains("view that looks along it"));
+    assert!(
+        !issue
+            .requirements
+            .iter()
+            .any(|r| r.feature == "f:hole:f9" && r.parameter == "location.length.z")
+    );
+
+    // The references and routes named in the finding are executable today.
+    let dimensions = suggested_inclined_dimensions(fix);
+    let suggested = model::plan_recovered(&a, &parse(json!({"dimensions": dimensions}))).unwrap();
+    assert!(
+        !suggested
+            .problems
+            .iter()
+            .any(|p| p.code == "dimension_line_crossing"),
+        "{fix}"
+    );
+    let suggested = model::render(&part, &a, &suggested, &font).unwrap();
+    assert!(!bracket_missing(&a, &draftwright::lint::marks(&suggested)));
+    assert!(
+        fix.contains("stock edge") && fix.contains("back stock face"),
+        "{fix}"
+    );
+
+    // Once the printed base length locates the foot, use the local flange route.
+    let (_, _, mut base) = inclined_bracket();
+    base.dimensions
+        .retain(|id, _| id == "d:authored:base_length");
+    let base_plan = model::plan_recovered(&a, &base).unwrap();
+    let base_drawing = model::render(&part, &a, &base_plan, &font).unwrap();
+    let issues = draftwright::lint::lint(&a, &base_drawing);
+    let fix = issues
+        .iter()
+        .find(|i| i.code == "feature_not_located" && i.subjects == ["f:hole:f9"])
+        .unwrap()
+        .fix
+        .as_deref()
+        .unwrap();
+    assert!(
+        fix.contains("25 from the hole's axis") && fix.contains("flange's foot edge"),
+        "{fix}"
+    );
+    base.dimensions
+        .extend(parse(json!({"dimensions": suggested_inclined_dimensions(fix)})).dimensions);
+    let p = model::plan_recovered(&a, &base).unwrap();
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "dimension_line_crossing"),
+        "{fix}"
+    );
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    assert!(!bracket_missing(&a, &draftwright::lint::marks(&drawing)));
+
+    // These geometric refusals remain correct; neither defines a z station.
+    let base = planes(&a, 2).first().unwrap().0.clone();
+    for (along, why) in [
+        ("z", "no unique z station"),
+        ("true", "Intersecting or unsupported supports"),
+    ] {
+        let s = parse(
+            json!({"dimensions":{"d:authored:base":{"between":["axis:f:hole:f9",base],"along":along,"view":"front"}}}),
+        );
+        assert!(
+            model::plan_recovered(&a, &s)
+                .unwrap_err()
+                .message
+                .contains(why)
+        );
+    }
+    // Main already admits the legacy note role, but refuses to draw its unanchored note.
+    let s = parse(
+        json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.length.z"]}}}),
+    );
+    let noted = model::plan_recovered(&a, &s).unwrap();
+    assert!(noted.problems.iter().any(
+        |p| p.code == "pmi_not_lowered" && p.message.contains("no proven site for its leader")
+    ));
+    let noted = model::render(&part, &a, &noted, &font).unwrap();
+    assert!(bracket_missing(&a, &draftwright::lint::marks(&noted)));
+    let s = parse(
+        json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.piercing_point"]}}}),
+    );
+    assert!(
+        model::plan(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("not a measurement role")
+    );
+}
+
+#[test]
+fn inclined_location_requires_the_printed_route_to_its_anchor() {
+    let (part, a, mut s) = inclined_bracket();
+    s.dimensions.remove("d:authored:base_length");
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let issues = draftwright::lint::lint(&a, &drawing);
+    let missing = issues
+        .iter()
+        .find(|i| i.code == "feature_not_located" && i.subjects == ["f:hole:f9"])
+        .expect("the flange foot has no printed route to a root");
+    let fix = missing.fix.as_deref().unwrap();
+    let (replacement, keep) = fix.split_once(" Or ").expect(fix);
+    assert!(replacement.starts_with("Either "), "{fix}");
+    assert!(
+        replacement.contains("left stock edge") && replacement.contains("back stock face"),
+        "{fix}"
+    );
+    assert!(
+        keep.contains("keep the current authored dimensions")
+            && keep.contains("flange's foot edge")
+            && keep.contains("drawing datum"),
+        "{fix}"
+    );
+    assert!(
+        p.problems
+            .iter()
+            .any(|p| p.code == "feature_not_dimensioned" && p.subjects == ["f:hole:f9"])
+    );
+    compound_bore_uses_its_stock_edges_as_roots();
+}
+
+#[test]
+fn inclined_planner_warning_offers_the_drawings_authored_route() {
+    let (part, a, _) = inclined_bracket();
+    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let issues = draftwright::lint::lint(&a, &drawing);
+    let issue = issues
+        .iter()
+        .find(|i| i.code == "feature_not_located" && i.subjects == ["f:hole:f9"])
+        .unwrap();
+    let warning = p
+        .problems
+        .iter()
+        .find(|p| p.code == "feature_not_dimensioned" && p.subjects == ["f:hole:f9"])
+        .unwrap();
+    // The planner's public message uses the same advice, without machine handles.
+    let wire = serde_json::to_value(issue).unwrap();
+    let fix = wire["fix"].as_str().unwrap();
+    let plain = wire["fix_description"].as_str().unwrap();
+    assert!(fix.contains("axis:f:hole:f9") && fix.contains("face:v1:"));
+    assert!(!plain.contains("axis:") && !plain.contains("face:v1:"));
+    assert!(
+        warning.message.ends_with(plain),
+        "{} vs {fix}",
+        warning.message
+    );
+    assert!(warning.message.contains("along: true"));
+    assert!(warning.message.contains("front view"));
+    assert!(warning.message.contains("side view"));
+}
+
+fn cgb217() -> Option<(std::sync::Arc<draftwright::haecceity::Part>, Analysis)> {
+    let path = corpus::dir()?.join("cadgenbench_inputs/cgb217.step.gz");
+    Some(crate::cache::native(&path))
+}
+
+const COMPOUND_HOLES: [&str; 3] = ["f:hole:f26", "f:hole:f28", "f:hole:f41"];
+
+#[test]
+fn inclined_planner_warning_names_each_holes_anchors() {
+    let Some((part, a)) = cgb217() else { return };
+    let p = crate::cache::default_plan(&a, true);
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let lint = draftwright::lint::lint(&a, &drawing);
+    for id in COMPOUND_HOLES {
+        let issue = lint
+            .iter()
+            .find(|i| i.code == "feature_not_located" && i.subjects == [id])
+            .unwrap_or_else(|| panic!("missing lint for {id}"));
+        let warning = p
+            .problems
+            .iter()
+            .find(|p| p.code == "feature_not_dimensioned" && p.subjects == [id])
+            .unwrap_or_else(|| panic!("missing warning for {id}"));
+        let wire = serde_json::to_value(issue).unwrap();
+        let plain = wire["fix_description"].as_str().unwrap();
+        assert!(
+            warning.message.ends_with(plain),
+            "{id}: {} vs {plain}",
+            warning.message
+        );
+        assert_eq!(
+            plain.matches("from the hole's axis to ").count(),
+            2,
+            "{id}: {plain}"
+        );
+        assert!(!plain.contains(":v1:"), "{id}: {plain}");
+    }
+}
+
+#[test]
+fn inclined_suggestions_exclude_tangent_and_silhouette_edges() {
+    use draftwright::haecceity::brep::Arc;
+
+    let Some((part, a)) = cgb217() else { return };
+    let p = crate::cache::default_plan(&a, true);
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let lint = draftwright::lint::lint(&a, &drawing);
+    for id in COMPOUND_HOLES {
+        let fix = lint
+            .iter()
+            .find(|i| i.code == "feature_not_located" && i.subjects == [id])
+            .and_then(|i| i.fix.as_deref())
+            .unwrap();
+        for dimension in suggested_inclined_dimensions(fix).into_values() {
+            let key = dimension["between"][1].as_str().unwrap();
+            match a.dimension_reference(key).unwrap() {
+                Reference::Edge { membership, .. } => {
+                    let [first, second] = membership.faces.as_slice() else {
+                        panic!("{id}: {key} has no two-face corner");
+                    };
+                    assert!(
+                        matches!(part.arc(*first, *second), Some(Arc::Convex | Arc::Concave)),
+                        "{id}: suggestion uses tangent or silhouette edge {key}: {fix}"
+                    );
+                }
+                Reference::Plane { .. } => {}
+                _ => panic!("{id}: {key} is not a plane or a sharp edge"),
+            }
+        }
+    }
+}
+
+#[test]
+fn inclined_and_ordinary_holes_keep_separate_fix_text() {
+    let (_, a, _) = inclined_bracket();
+    let ordinary_fix =
+        "Locate each hole from a datum along each axis named, in the view that looks along it.";
+    let issues = draftwright::lint::check(&a, &[]);
+    let ordinary = issues
+        .iter()
+        .find(|i| i.code == "feature_not_located" && i.subjects == ["f:hole:f6"])
+        .expect("the ordinary hole retains its own finding");
+    assert_eq!(ordinary.fix.as_deref(), Some(ordinary_fix));
+    let inclined = issues
+        .iter()
+        .find(|i| i.code == "feature_not_located" && i.subjects == ["f:hole:f9"])
+        .unwrap();
+    assert_ne!(ordinary.id, inclined.id);
+}
+
+fn compound_bore_uses_its_stock_edges_as_roots() {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/corner-cuts.step.gz"),
+    )
+    .unwrap();
+    let s = parse(json!({"dimensions":{
+        "d:authored:front": {"between":["axis:f:hole:f10","edge:v1:15e77305f96b4fc87ddfd183e2c879eeb7217a190fb18766ac64ef90aed5260e"],
+            "along":"true","view":"front"},
+        "d:authored:plan": {"between":["axis:f:hole:f10","edge:v1:4ac53404350cf08499733b7fca810dac9a6f6d7a4bd94f99a3358290cb6cbed8"],
+            "along":"true","view":"plan"}
+    }}));
+    let p = model::plan_recovered(&a, &s).unwrap();
+    for (id, value) in [("d:authored:front", 3.283), ("d:authored:plan", 44.901)] {
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert!(d.placed.is_some());
+        assert!((d.value - value).abs() < 0.0005);
+    }
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    // The front anchor is at the left/top stock intersection and the plan anchor
+    // at the left/back intersection. Both transverse projections use only roots.
+    assert!(
+        !draftwright::lint::lint(&a, &drawing)
+            .iter()
+            .any(|i| i.code == "feature_not_located" && i.subjects.contains(&"f:hole:f10".into()))
+    );
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "feature_not_dimensioned" && p.subjects == ["f:hole:f10"])
+    );
+}
