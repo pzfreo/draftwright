@@ -29,7 +29,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "type": "boolean"
+                "$ref": "#/C"
               }
             },
             "additionalProperties": false,
@@ -232,7 +232,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "type": "boolean"
+                      "$ref": "#/C"
                     }
                   },
                   "additionalProperties": false
@@ -269,6 +269,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "$ref": "#/C"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -336,7 +399,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "type": "boolean"
+                "$ref": "#/C"
               },
               "items": {
                 "type": "object",
@@ -344,7 +407,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "type": "boolean"
+                      "$ref": "#/C"
                     },
                     "position": {
                       "type": [
@@ -398,7 +461,7 @@
         "minimum": 0
       },
       "detail": {
-        "type": "boolean"
+        "$ref": "#/C"
       },
       "problem_filter": {
         "type": "object",
@@ -449,13 +512,16 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "C": {
+      "type": "boolean"
     }
   },
   "list_items": {
     "type": "object",
     "properties": {
       "part_ref": {
-        "$ref": "#/D"
+        "$ref": "#/E"
       },
       "spec": {
         "type": "object",
@@ -483,14 +549,14 @@
               "keep_together": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/E"
+                  "$ref": "#/F"
                 }
               },
               "hole_table": {
                 "$ref": "#/C"
               },
               "gdt_on_sheet_1": {
-                "type": "boolean"
+                "$ref": "#/H"
               }
             },
             "additionalProperties": false
@@ -535,7 +601,7 @@
               "title": {
                 "type": "object",
                 "additionalProperties": {
-                  "$ref": "#/D"
+                  "$ref": "#/E"
                 }
               },
               "view_gutter": {
@@ -554,7 +620,7 @@
                 ]
               },
               "default_finish": {
-                "$ref": "#/F"
+                "$ref": "#/G"
               },
               "paper": {
                 "enum": [
@@ -671,7 +737,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "type": "boolean"
+                      "$ref": "#/H"
                     }
                   },
                   "additionalProperties": false
@@ -688,7 +754,7 @@
                         "array"
                       ],
                       "items": {
-                        "$ref": "#/D"
+                        "$ref": "#/E"
                       },
                       "minItems": 1
                     },
@@ -708,6 +774,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "square_to": {
+                      "$ref": "#/D"
+                    },
+                    "edge_on": {
+                      "$ref": "#/D"
+                    },
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "$ref": "#/H"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -727,8 +856,7 @@
                       "pattern": "^[A-H]$"
                     },
                     "through": {
-                      "type": "string",
-                      "minLength": 1
+                      "$ref": "#/D"
                     }
                   },
                   "additionalProperties": false,
@@ -754,13 +882,13 @@
             "items": {
               "properties": {
                 "id": {
-                  "$ref": "#/D"
+                  "$ref": "#/E"
                 },
                 "kind": {
-                  "$ref": "#/D"
+                  "$ref": "#/E"
                 },
                 "faces": {
-                  "$ref": "#/E"
+                  "$ref": "#/F"
                 }
               },
               "additionalProperties": false,
@@ -771,7 +899,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "type": "boolean"
+                "$ref": "#/H"
               },
               "items": {
                 "type": "object",
@@ -779,7 +907,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "type": "boolean"
+                      "$ref": "#/H"
                     },
                     "position": {
                       "type": [
@@ -821,15 +949,15 @@
             }
           },
           "^(binding|engine_pins)$(?!\n)": {
-            "$ref": "#/F"
+            "$ref": "#/G"
           }
         }
       },
       "spec_version": {
-        "$ref": "#/D"
+        "$ref": "#/E"
       },
       "drawing_ref": {
-        "$ref": "#/D"
+        "$ref": "#/E"
       },
       "cursor": {
         "type": "integer",
@@ -841,7 +969,7 @@
         "maximum": 100
       },
       "detail": {
-        "type": "boolean"
+        "$ref": "#/H"
       },
       "filter": {
         "type": "object",
@@ -872,7 +1000,7 @@
                         "const": "covered"
                       },
                       "by": {
-                        "$ref": "#/D"
+                        "$ref": "#/E"
                       }
                     },
                     "additionalProperties": false,
@@ -884,7 +1012,7 @@
                         "const": "not_drawable"
                       },
                       "reason_code": {
-                        "$ref": "#/D"
+                        "$ref": "#/E"
                       }
                     },
                     "additionalProperties": false,
@@ -956,19 +1084,26 @@
       ]
     },
     "D": {
+      "minLength": 1,
       "type": "string"
     },
     "E": {
+      "type": "string"
+    },
+    "F": {
       "items": {
-        "$ref": "#/D"
+        "$ref": "#/E"
       },
       "type": "array"
     },
-    "F": {
+    "G": {
       "type": [
         "object",
         "null"
       ]
+    },
+    "H": {
+      "type": "boolean"
     }
   },
   "get_item": {
@@ -1001,7 +1136,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "type": "boolean"
+                "$ref": "#/C"
               }
             },
             "additionalProperties": false,
@@ -1204,7 +1339,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "type": "boolean"
+                      "$ref": "#/C"
                     }
                   },
                   "additionalProperties": false
@@ -1241,6 +1376,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "$ref": "#/C"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -1308,7 +1506,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "type": "boolean"
+                "$ref": "#/C"
               },
               "items": {
                 "type": "object",
@@ -1316,7 +1514,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "type": "boolean"
+                      "$ref": "#/C"
                     },
                     "position": {
                       "type": [
@@ -1366,7 +1564,7 @@
         }
       },
       "detail": {
-        "type": "boolean"
+        "$ref": "#/C"
       }
     },
     "required": [
@@ -1397,6 +1595,9 @@
         "string",
         "null"
       ]
+    },
+    "C": {
+      "type": "boolean"
     }
   },
   "list_problems": {
@@ -1432,7 +1633,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "type": "boolean"
+                "$ref": "#/C"
               }
             },
             "additionalProperties": false,
@@ -1635,7 +1836,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "type": "boolean"
+                      "$ref": "#/C"
                     }
                   },
                   "additionalProperties": false
@@ -1672,6 +1873,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "$ref": "#/C"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -1739,7 +2003,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "type": "boolean"
+                "$ref": "#/C"
               },
               "items": {
                 "type": "object",
@@ -1747,7 +2011,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "type": "boolean"
+                      "$ref": "#/C"
                     },
                     "position": {
                       "type": [
@@ -1812,7 +2076,7 @@
         "maximum": 100
       },
       "detail": {
-        "type": "boolean"
+        "$ref": "#/C"
       },
       "filter": {
         "type": "object",
@@ -1849,6 +2113,9 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "C": {
+      "type": "boolean"
     }
   },
   "item_options": {
@@ -2121,6 +2388,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -2308,7 +2638,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "type": "boolean"
+                "$ref": "#/D"
               }
             },
             "additionalProperties": false,
@@ -2511,7 +2841,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "type": "boolean"
+                      "$ref": "#/D"
                     }
                   },
                   "additionalProperties": false
@@ -2548,6 +2878,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "$ref": "#/D"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -2615,7 +3008,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "type": "boolean"
+                "$ref": "#/D"
               },
               "items": {
                 "type": "object",
@@ -2623,7 +3016,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "type": "boolean"
+                      "$ref": "#/D"
                     },
                     "position": {
                       "type": [
@@ -2688,7 +3081,7 @@
         "maximum": 100
       },
       "detail": {
-        "type": "boolean"
+        "$ref": "#/D"
       },
       "ops": {
         "type": "array",
@@ -2747,6 +3140,9 @@
         "string",
         "null"
       ]
+    },
+    "D": {
+      "type": "boolean"
     }
   },
   "apply_ops": {
@@ -2782,7 +3178,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "type": "boolean"
+                "$ref": "#/D"
               }
             },
             "additionalProperties": false,
@@ -2985,7 +3381,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "type": "boolean"
+                      "$ref": "#/D"
                     }
                   },
                   "additionalProperties": false
@@ -3022,6 +3418,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "$ref": "#/D"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -3089,7 +3548,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "type": "boolean"
+                "$ref": "#/D"
               },
               "items": {
                 "type": "object",
@@ -3097,7 +3556,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "type": "boolean"
+                      "$ref": "#/D"
                     },
                     "position": {
                       "type": [
@@ -3162,7 +3621,7 @@
         "maximum": 100
       },
       "detail": {
-        "type": "boolean"
+        "$ref": "#/D"
       },
       "ops": {
         "type": "array",
@@ -3225,6 +3684,9 @@
         "string",
         "null"
       ]
+    },
+    "D": {
+      "type": "boolean"
     }
   },
   "view_sheet": {
@@ -3500,6 +3962,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -3959,6 +4484,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -4390,6 +4978,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {
@@ -4812,6 +5463,69 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "scale_factor": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "full": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "square_to"
+                      ],
+                      "not": {
+                        "required": [
+                          "edge_on"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "edge_on"
+                      ],
+                      "not": {
+                        "required": [
+                          "square_to"
+                        ]
+                      }
+                    }
+                  ],
+                  "patternProperties": {
+                    "^(square_to|edge_on)$(?!\n)": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "patternProperties": {

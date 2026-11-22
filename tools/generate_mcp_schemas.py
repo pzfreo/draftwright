@@ -2,7 +2,7 @@
 import json
 import re
 from copy import deepcopy
-from mcp_spec import document, outline, pictorial_fields, PAPER_SIZES
+from mcp_spec import auxiliary_request, document, outline, pictorial_fields, PAPER_SIZES
 from pathlib import Path
 MAX_OPS = int(re.search(r'pub const MAX_OPS: usize = (\d+);', (Path(__file__).resolve().parent.parent / 'src/stateless.rs').read_text())[1])
 S = {'type': 'string'}
@@ -21,7 +21,7 @@ def nullable(s):
     return {'anyOf':[s, {'type':'null'}]}
 state={'anyOf':[obj({'kind':{'enum':['shown','omitted_by_user','not_authored']}},['kind']), obj({'kind':{'const':'covered'},'by':S},['kind','by']),obj({'kind':{'const':'not_drawable'},'reason_code':S},['kind','reason_code'])]}
 op={'anyOf':[obj({'op':{'enum':['set','add']},'path':S,'value':{}},['op','path','value']),obj({'op':{'const':'remove'},'path':S},['op','path'])]}
-place=obj({'view':{'enum':['front','plan','side',*[f'detail_{c}' for c in 'abcdefgh']]},'side':{'enum':['above','below','left','right']},'lane':{'type':'integer','minimum':0,'maximum':1000},'along':{'anyOf':[{'enum':['start','middle','end','outside']},{'type':'number','minimum':0,'maximum':1}]},'offset':arr(N,minItems=2,maxItems=2),'pinned':B})
+place=obj({'view':{'anyOf':[{'enum':['front','plan','side',*[f'detail_{c}' for c in 'abcdefgh']]},{'type':'string','pattern':r'^aux:.+'}]},'side':{'enum':['above','below','left','right']},'lane':{'type':'integer','minimum':0,'maximum':1000},'along':{'anyOf':[{'enum':['start','middle','end','outside']},{'type':'number','minimum':0,'maximum':1}]},'offset':arr(N,minItems=2,maxItems=2),'pinned':B})
 compact=obj({'sheet':SHEET,'id':S,'kind':S,'label':nullable(S),'view':nullable(S),'state':ref('state'),'characteristic_numbers':arr(S)},['id','kind','label','view','state'])
 scope={'enum':['local','view','sheet']}
 operation_scopes={'type':'object','additionalProperties':scope}
@@ -53,7 +53,7 @@ spec['properties']['sheet']['properties']['balloons'] = {'enum':['off','all']}
 spec['properties']['sheet']['properties']['keep_layout'] = nullable(B)
 spec['properties']['sheet']['properties']['zones'] = nullable(B)
 spec['properties']['sheet']['properties']['table_columns'] = {'type':'object','additionalProperties':{'type':'integer','minimum':1,'maximum':4}}
-spec['properties']['views']['additionalProperties'] = obj({**line_fields, **pictorial_fields(), 'half_section':nullable(B), 'break':nullable(obj({'axis':{'enum':['x','y','z']},'remove':arr(N,minItems=2,maxItems=2),'gap':{**N,'exclusiveMinimum':0,'description':'Retained gap in paper mm at every scale; default 6.'},'aligned':B})), 'detail':nullable(detail)}, extra=True)
+spec['properties']['views']['additionalProperties'] = obj({**line_fields, **pictorial_fields(), 'half_section':nullable(B), 'break':nullable(obj({'axis':{'enum':['x','y','z']},'remove':arr(N,minItems=2,maxItems=2),'gap':{**N,'exclusiveMinimum':0,'description':'Retained gap in paper mm at every scale; default 6.'},'aligned':B})), 'detail':nullable(detail), 'auxiliary':nullable(auxiliary_request())}, extra=True)
 spec['properties']['views']['properties'] = {'sections': arr(obj({
     'id': {**S, 'pattern': '^[A-H]$'}, 'through': {**S, 'minLength': 1}}, ['id', 'through']))}
 # Share the base map/list shapes while retaining each view/declaration constraint.

@@ -22,18 +22,26 @@
             "type": "object",
             "properties": {
               "view": {
-                "enum": [
-                  "front",
-                  "plan",
-                  "side",
-                  "detail_a",
-                  "detail_b",
-                  "detail_c",
-                  "detail_d",
-                  "detail_e",
-                  "detail_f",
-                  "detail_g",
-                  "detail_h"
+                "anyOf": [
+                  {
+                    "enum": [
+                      "front",
+                      "plan",
+                      "side",
+                      "detail_a",
+                      "detail_b",
+                      "detail_c",
+                      "detail_d",
+                      "detail_e",
+                      "detail_f",
+                      "detail_g",
+                      "detail_h"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^aux:.+"
+                  }
                 ]
               },
               "side": {
