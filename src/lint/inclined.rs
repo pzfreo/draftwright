@@ -67,6 +67,7 @@ struct Constraint<'a> {
     normal: [f64; 3],
     witnesses: [[f64; 3]; 2],
     value: f64,
+    auxiliary: bool,
 }
 
 impl Constraint<'_> {
@@ -152,6 +153,7 @@ fn constraint<'a>(
         normal,
         witnesses,
         value: m.value,
+        auxiliary: false,
     })
 }
 
@@ -174,11 +176,14 @@ fn witness(mark: &Mark) -> Option<Witness> {
     serde_json::from_str(word).ok()
 }
 
-fn constraints<'a>(a: &Analysis, marks: &'a [Mark], id: &str) -> Vec<(&'a str, Constraint<'a>)> {
+fn constraints<'a>(a: &'a Analysis, marks: &'a [Mark], id: &str) -> Vec<(&'a str, Constraint<'a>)> {
     let mut constraints = Vec::new();
     for mark in marks {
         if mark.text.trim_start().starts_with('(') {
             continue;
+        }
+        if let Some(c) = auxiliary_constraint(a, mark, id) {
+            constraints.push((mark.name.as_str(), c));
         }
         for claim in &mark.claims {
             let Some((refs, along)) = claim
@@ -207,6 +212,100 @@ fn constraints<'a>(a: &Analysis, marks: &'a [Mark], id: &str) -> Vec<(&'a str, C
         }
     }
     constraints
+}
+
+/// Rebuild the actual piercing point and edge normal, and require drawn ink
+/// in an end-on camera before a claimed in-face role can enter the chain.
+fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option<Constraint<'a>> {
+    let view = mark.view.as_deref()?;
+    if !view.starts_with("v:aux:") {
+        return None;
+    }
+    let claim = mark
+        .claims
+        .iter()
+        .find(|c| c.feature == id && c.parameter.starts_with("location.length.f"))?;
+    let (_, axis) = axis(a, id)?;
+    let (frame, _) = witness(mark)?;
+    if dot(frame.direction, axis).abs() < 1. - 1e-6 {
+        return None;
+    }
+    let f = a.features.iter().find(|f| f.id == id)?;
+    let station = crate::dims::auxiliary::edge_stations(a, f, frame.direction)
+        .into_iter()
+        .find(|s| s.role() == claim.parameter)?;
+    let (key, _) = a.dimension_references().get_key_value(&station.key)?;
+    let c = Constraint {
+        key,
+        anchor: a.dimension_reference(key).ok()?,
+        anchor_index: 0,
+        normal: station.direction,
+        witnesses: station.points,
+        value: station.length,
+        auxiliary: true,
+    };
+    (super::location::nominal_in(&mark.text, c.value, mark.units, mark.precision)
+        && ink_matches(a, mark, &c))
+    .then_some(c)
+}
+
+/// A printed start-and-angle can establish a physical support edge. The
+/// principal face's station and the corner's trace must both be grounded.
+fn trace_rooted(
+    a: &Analysis,
+    marks: &[Mark],
+    edges: &[super::location::Edge],
+    roots: &[Vec<f64>; 3],
+    excluded: &BTreeSet<usize>,
+    c: &Constraint<'_>,
+) -> bool {
+    let Reference::Edge { ends, membership } = &c.anchor else {
+        return false;
+    };
+    let Some(line) = unit(sub(ends[1], ends[0])) else {
+        return false;
+    };
+    let on_line = |p| {
+        let d = cross(sub(p, ends[0]), line);
+        dot(d, d) < 1e-8
+    };
+    let spans: Vec<_> = edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !excluded.contains(i))
+        .map(|(_, e)| (e.axis, e.a, e.b))
+        .collect();
+    let station = |k: usize, value| super::profile_angles::rooted_at(&roots[k], &spans, k, value);
+    super::profile_angles::requirements(a).iter().any(|corner| {
+        let mut id = corner.feature.split(':');
+        if id.next() != Some("outer_profile") {
+            return false;
+        }
+        let Some(face) = id
+            .next()
+            .and_then(|word| word.strip_prefix('f'))
+            .and_then(|n| n.parse().ok())
+        else {
+            return false;
+        };
+        membership.faces.contains(&face)
+            && on_line(corner.vertex)
+            && corner.oblique_end().is_some_and(on_line)
+            && station(corner.axis, corner.vertex[corner.axis])
+            && (super::profile_angles::undefined_stations(corner, &station).is_empty()
+                || (super::profile_angles::located_with_angle(corner, &station)
+                    && marks.iter().any(|mark| {
+                        mark.view
+                            .as_deref()
+                            .and_then(view_normal)
+                            .is_some_and(|n| n[corner.axis].abs() > 1. - 1e-6)
+                            && mark.claims.iter().any(|cl| {
+                                cl.feature == corner.feature
+                                    && cl.parameter == "profile_angle.angle"
+                            })
+                            && corner.states(&mark.text)
+                    })))
+    })
 }
 
 struct Stations<'a> {
@@ -259,7 +358,9 @@ pub(crate) fn located(
     let excluded = stations.excluding(&constraints);
     let mut normals = Vec::new();
     for (_, c) in constraints {
-        if stations.rooted(&c, &excluded) {
+        if stations.rooted(&c, &excluded)
+            || (c.auxiliary && trace_rooted(a, marks, edges, roots, &excluded, &c))
+        {
             if normals.iter().any(|&n| independent(n, c.normal, d)) {
                 return true;
             }
@@ -788,6 +889,7 @@ mod tests {
             anchor_index: 1,
             witnesses: [[0., -5., 0.], [0., 0., 0.]],
             value: 5.,
+            auxiliary: false,
         };
         assert_eq!(ViewInk::default().crossings(&a, &c), Some(0));
         let ink = ViewInk {

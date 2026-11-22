@@ -1042,7 +1042,7 @@ fn dimension_marks(
         let Some(view) = p.views.iter().find(|v| v.id == d.view) else {
             continue;
         };
-        let at = if view.detail.is_some() {
+        let at = if view.detail.is_some() || view.auxiliary.is_some() {
             Frame::new(a, view).page([0, 1, 2].map(|k| 0.5 * (a.envelope[0][k] + a.envelope[1][k])))
         } else {
             view.at
