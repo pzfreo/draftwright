@@ -946,7 +946,7 @@ pub(crate) fn obstacles(views: &[PlannedView]) -> Vec<PlannedDimension> {
             out.push(obstacle);
         }
     }
-    out.extend(crate::detail::caption_obstacles(views));
+    out.extend(crate::detail::caption_obstacles(analysis, views));
     out
 }
 

@@ -1,6 +1,7 @@
 //! Requested orthographic views whose viewing direction is true in their parent.
 use haecceity::hlr::View;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 use crate::layout::{Rect, Scaled};
 use crate::model::dimension_geometry::Reference;
@@ -32,6 +33,11 @@ pub struct Auxiliary {
     /// Rectangle in the camera plane, in model millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crop: Option<Rect>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    /// Signed rotation of the image from the projected vertical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<f64>,
 }
 
 type Point = [f64; 3];
@@ -294,6 +300,40 @@ fn anchor_references(a: &Analysis, anchor: &str, camera: Point, edge_on: bool) -
         .collect()
 }
 
+fn longest_edge(a: &Analysis, references: &[Reference]) -> Option<Point> {
+    let mut lines: Vec<(Point, Point, f64)> = Vec::new();
+    for edge in references
+        .iter()
+        .flat_map(|r| r.membership().edges.iter().flatten())
+    {
+        let Some(key) = &edge.reference else { continue };
+        let Ok(Reference::Edge {
+            ends: [from, to], ..
+        }) = a.dimension_reference(key)
+        else {
+            continue;
+        };
+        let span = sub(to, from);
+        let Some(direction) = unit(span) else {
+            continue;
+        };
+        let length = dot(direction, span);
+        // The bore can split a straight side into two edges at its tangency.
+        if let Some((_, _, total)) = lines.iter_mut().find(|(p, d, _)| {
+            dot(*d, direction).abs() > 1. - TOLERANCE
+                && dot(cross(sub(from, *p), *d), cross(sub(from, *p), *d)) < TOLERANCE.powi(2)
+        }) {
+            *total += length;
+        } else {
+            lines.push((from, direction, length));
+        }
+    }
+    lines
+        .into_iter()
+        .max_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(_, d, _)| d)
+}
+
 fn fit_points(a: &Analysis, references: &[Reference], view: &View) -> Option<Rect> {
     let ink = a.edge_ink.as_ref()?;
     let mut points = references
@@ -470,13 +510,26 @@ pub(crate) fn requests(
                 ));
             };
             let axes = [[0., 0., 1.], [0., 1., 0.], [1., 0., 0.]];
-            let up = axes
+            let upright = axes
                 .into_iter()
-                .find(|axis| dot(*axis, direction).abs() <= TOLERANCE)
-                .unwrap_or(axes[0]);
-            let camera =
-                View::new(direction, up).ok_or_else(|| invalid(name, "has a degenerate camera"))?;
-            let references = anchor_references(a, anchor, camera.toward, edge);
+                .find(|axis| dot(*axis, direction).abs() <= TOLERANCE);
+            let base = View::new(direction, upright.unwrap_or(axes[0]))
+                .ok_or_else(|| invalid(name, "has a degenerate camera"))?;
+            let references = anchor_references(a, anchor, base.toward, edge);
+            let (camera, rotation) = if upright.is_none()
+                && let Some(horizontal) = longest_edge(a, &references)
+                && let Some(up) = unit(cross(base.toward, horizontal))
+            {
+                let up = if dot(up, base.y) < 0. {
+                    up.map(|x| -x)
+                } else {
+                    up
+                };
+                let angle = dot(up, base.x).atan2(dot(up, base.y)).to_degrees();
+                (View::new(direction, up).unwrap_or(base), Some(angle))
+            } else {
+                (base, None)
+            };
             let crop = (!aux.full).then(|| crop(a, &references, &camera)).flatten();
             if !aux.full && crop.is_none() {
                 return Err(invalid(
@@ -495,6 +548,8 @@ pub(crate) fn requests(
                     edge_on: edge,
                     full: aux.full,
                     crop,
+                    label: String::new(),
+                    rotation,
                 },
                 factor: aux.scale_factor.unwrap_or(1.),
             });
@@ -548,7 +603,7 @@ pub(crate) fn place(
                 basis: "requested auxiliary projection, placed by reference arrow".into(),
                 state: crate::items::State::Shown,
                 sheet: 1,
-                scale_note: None,
+                scale_note: (r.factor != 1.).then(|| crate::model::scale_name(scale * r.factor)),
                 xref: None,
                 line_pose: None,
                 line_work: Vec::new(),
@@ -573,4 +628,138 @@ pub(crate) fn place(
             });
         }
     }
+}
+
+/// Assign each letter on the sheet where its reference arrow is read. Also
+/// reserve it on the destination sheet if the view is carried there.
+pub(crate) fn letters(views: &mut [PlannedView]) {
+    if !views.iter().any(|v| v.auxiliary.is_some()) {
+        return;
+    }
+    let mut used = std::collections::BTreeMap::<u32, BTreeSet<String>>::new();
+    let sheets: std::collections::BTreeMap<_, _> =
+        views.iter().map(|v| (v.id.clone(), v.sheet)).collect();
+    for v in views.iter() {
+        if let Some(d) = &v.detail {
+            used.entry(v.sheet).or_default().insert(d.label.clone());
+        }
+        if let Some(c) = &v.cut {
+            used.entry(v.sheet).or_default().insert(c.label.clone());
+            if let Some(sheet) = sheets.get(&c.marked_in) {
+                used.entry(*sheet).or_default().insert(c.label.clone());
+            }
+        }
+    }
+    for v in views {
+        let Some(aux) = &mut v.auxiliary else {
+            continue;
+        };
+        let parent = sheets.get(&aux.parent).copied().unwrap_or(v.sheet);
+        let label = (0..)
+            .map(|i| {
+                let letter = char::from(b'A' + (i % 26) as u8);
+                std::iter::repeat_n(letter, 1 + i / 26).collect::<String>()
+            })
+            .find(|s| {
+                !used.get(&parent).is_some_and(|u| u.contains(s))
+                    && !used.get(&v.sheet).is_some_and(|u| u.contains(s))
+            })
+            .expect("finite view inventory");
+        used.entry(parent).or_default().insert(label.clone());
+        used.entry(v.sheet).or_default().insert(label.clone());
+        aux.label = label;
+    }
+}
+
+pub(crate) fn caption(v: &PlannedView, aux: &Auxiliary) -> String {
+    let mut title = format!("VIEW {}", aux.label);
+    if let Some(scale) = &v.scale_note {
+        title.push_str(&format!(" ({scale})"));
+    }
+    title
+}
+
+pub(crate) fn caption_at(a: &Analysis, v: &PlannedView) -> [f64; 2] {
+    crate::detail::below(v, crate::detail::crop_extent(a, v).0[1] * v.scale)
+}
+
+pub(crate) fn viewing_arrow(
+    a: &Analysis,
+    child: &PlannedView,
+    parent: &PlannedView,
+    views: &[PlannedView],
+    page: [f64; 2],
+    avoid: &[Rect],
+) -> Option<(Vec<crate::output::Curve>, [f64; 2])> {
+    use crate::output::Curve;
+    let aux = child.auxiliary.as_ref()?;
+    let view = View::new(parent.direction, parent.up)?;
+    let references = anchor_references(a, &aux.anchor, child.direction, aux.edge_on);
+    let (size, centre) = crate::detail::crop_extent(a, parent);
+    let target = fit_points(a, &references, &view).map_or(centre, |r| extent(r).1);
+    let target: [f64; 2] =
+        std::array::from_fn(|k| parent.at[k] + parent.scale * (target[k] - centre[k]));
+    // The arrow points along the line of sight, from the viewer to the part.
+    let towards = view.map(child.direction);
+    let tangent = [-towards[1], towards[0]];
+    let base = std::array::from_fn(|k| {
+        target[k].clamp(
+            parent.at[k] - size[k] * parent.scale / 2.,
+            parent.at[k] + size[k] * parent.scale / 2.,
+        )
+    });
+    let tip: [f64; 2] = std::array::from_fn(|k| base[k] + 3. * towards[k]);
+    let tail: [f64; 2] = std::array::from_fn(|k| tip[k] + 9. * towards[k]);
+    let label_positions = [1., -1.].into_iter().flat_map(|side| {
+        [4., 7., 10., 15.]
+            .into_iter()
+            .map(move |gap| std::array::from_fn(|k| tail[k] + side * gap * tangent[k]))
+    });
+    let obstacles = crate::detail::marker_obstacles(a, views, avoid);
+    let label_at = crate::detail::marker_label(&aux.label, label_positions, page, &obstacles)
+        .unwrap_or_else(|| std::array::from_fn(|k| tail[k] + 4. * tangent[k]));
+    Some((
+        vec![
+            Curve::Line(tail, tip),
+            Curve::Line(
+                tip,
+                std::array::from_fn(|k| tip[k] + 3. * towards[k] + tangent[k]),
+            ),
+            Curve::Line(
+                tip,
+                std::array::from_fn(|k| tip[k] + 3. * towards[k] - tangent[k]),
+            ),
+        ],
+        label_at,
+    ))
+}
+
+/// ASME Y14.3-2012 §6.4.1 and Figs. 6-4/6-5 specify an arc with an arrow
+/// for a rotated reference-arrow view, with its angle in degrees beside it.
+pub(crate) fn rotation(angle: f64, at: [f64; 2]) -> (Vec<crate::output::Curve>, String, [f64; 2]) {
+    use crate::output::Curve;
+    let sense = angle.signum();
+    let centre = [at[0] - 5., at[1] - 7.];
+    let arc = Curve::Conic {
+        centre,
+        radii: [2.; 2],
+        x_axis: [1., 0.],
+        y_axis: [0., sense],
+        t0: 0.,
+        t1: 4.5,
+    };
+    let tip = arc.at(1.);
+    let before = arc.at(0.84);
+    let tangent = [tip[0] - before[0], tip[1] - before[1]];
+    let normal = [-0.35 * tangent[1], 0.35 * tangent[0]];
+    let mut curves = vec![arc];
+    curves.extend(
+        [-1., 1.]
+            .map(|side| Curve::Line(tip, std::array::from_fn(|k| before[k] + side * normal[k]))),
+    );
+    (
+        curves,
+        format!("{:.1}°", angle.abs()),
+        [at[0] + 3., centre[1]],
+    )
 }

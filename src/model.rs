@@ -8233,6 +8233,7 @@ fn plan_with_presentation(
         }
     }
     crate::auxiliary::place(&mut views, auxiliary, &g.derived, pick.scale, &mut problems);
+    crate::auxiliary::letters(&mut views);
     if require_automatic
         && !views
             .iter()
@@ -11711,6 +11712,54 @@ pub fn render_annotations(
 }
 
 /// Assembles the same drawing, reusing independently rendered annotations by ID.
+#[allow(clippy::too_many_arguments)]
+fn auxiliary_marker(
+    analysis: &Analysis,
+    plan: &Plan,
+    child: &PlannedView,
+    parent: &PlannedView,
+    sheet: &mut Sheet,
+    ink: &mut Vec<Item>,
+    captions: &mut Vec<(String, [f64; 2])>,
+    names: &mut Vec<String>,
+) {
+    let Some(aux) = &child.auxiliary else { return };
+    let avoid: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter_map(|d| d.placed.as_ref().map(|p| p.label_box))
+        .collect();
+    let Some((curves, at)) = crate::auxiliary::viewing_arrow(
+        analysis,
+        child,
+        parent,
+        &plan.views,
+        plan.sheet.page,
+        &avoid,
+    ) else {
+        return;
+    };
+    let items: Vec<_> = curves.iter().cloned().map(Item::Edge).collect();
+    if let Some(bbox) = items_bbox(&items) {
+        sheet.items.push(Drawn {
+            datum_triangle: None,
+            heads: Vec::new(),
+            name: format!("{}/arrow/{}", parent.id, child.id),
+            kind: Kind::Centreline,
+            ink: bbox,
+            label: None,
+            lines: curves.iter().map(|c| [c.at(0.), c.at(1.)]).collect(),
+            elbow: None,
+            interior: false,
+        });
+    }
+    ink.extend(items);
+    let name = format!("{}/arrow_label", child.id);
+    captions.push((aux.label.clone(), at));
+    names.push(name.clone());
+    sheet.dxf.furniture_views.insert(name, parent.id.clone());
+}
+
 pub fn render_annotations_with_items(
     part: &Part,
     analysis: &Analysis,
@@ -12088,6 +12137,37 @@ fn render_annotations_with_cuts(
             sheet.dxf.furniture_views.insert(
                 format!("detail_marker_label_{}", d.label),
                 source.id.clone(),
+            );
+        }
+    }
+    for v in &plan.views {
+        let Some(aux) = &v.auxiliary else { continue };
+        let at = crate::auxiliary::caption_at(analysis, v);
+        let name = format!("{}/caption", v.id);
+        captions.push((crate::auxiliary::caption(v, aux), at));
+        caption_names.push(name.clone());
+        sheet.dxf.furniture_views.insert(name, v.id.clone());
+        if let Some(angle) = aux.rotation {
+            let (curves, text, at) = crate::auxiliary::rotation(angle, at);
+            furniture.extend(curves.into_iter().map(Item::Edge));
+            let name = format!("{}/rotation", v.id);
+            captions.push((text, at));
+            caption_names.push(name.clone());
+            sheet.dxf.furniture_views.insert(name, v.id.clone());
+        }
+    }
+    for child in plan.views.iter().filter(|c| c.auxiliary.is_some()) {
+        let aux = child.auxiliary.as_ref().expect("filtered auxiliary");
+        if let Some(parent) = plan.views.iter().find(|v| v.id == aux.parent) {
+            auxiliary_marker(
+                analysis,
+                plan,
+                child,
+                parent,
+                &mut sheet,
+                &mut furniture,
+                &mut captions,
+                &mut caption_names,
             );
         }
     }

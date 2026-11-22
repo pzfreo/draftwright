@@ -1647,7 +1647,7 @@ pub(crate) fn reserve_bounds(
         .collect();
     // Caption paper belongs to the crop too; a neighbouring annotation may
     // reclaim empty detail bands, but never its caption or readable gap.
-    for caption in crate::detail::caption_obstacles(views) {
+    for caption in crate::detail::caption_obstacles(analysis, views) {
         if let (Some(i), Some(p)) = (
             views.iter().position(|v| v.id == caption.view),
             caption.placed.as_ref(),
