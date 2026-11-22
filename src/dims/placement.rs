@@ -427,68 +427,6 @@ fn aligned_strip(a: P2, b: P2, outline: [f64; 4], preferred: Side) -> Side {
     }
 }
 
-/// Compare nearby feasible lanes for an authored distance against the ink in its view.
-pub(crate) fn inclined_dimension_crossings(
-    analysis: &Analysis,
-    drawn: &crate::output::DrawnFrame,
-    view: &str,
-    [a, b]: [P3; 2],
-    along: &str,
-    label: &str,
-    peers: &[[P2; 2]],
-) -> Option<usize> {
-    if drawn.half_axis.is_some()
-        || drawn.broken.is_some()
-        || !drawn.scale.is_finite()
-        || drawn.scale <= 0.
-    {
-        return None;
-    }
-    View::new(drawn.direction, drawn.up)?;
-    let frame = Frame::looking(analysis, drawn.direction, drawn.up, drawn.at, drawn.scale);
-    let terms = [label.to_string()];
-    let [p, q] = [frame.page(a), frame.page(b)];
-    let side = strip(view, (p[0] - q[0]).abs() >= (p[1] - q[1]).abs());
-    let (axis, side) = if along == "true" {
-        (None, aligned_strip(p, q, frame.outline(), side))
-    } else {
-        (
-            Some(["x", "y", "z"].iter().position(|&k| k == along)?),
-            side,
-        )
-    };
-    let mut best = None;
-    for side in [side, opposite(side)] {
-        for lane in 0..3 {
-            let placed = if let Some(axis) = axis {
-                let shape = Shape::Linear {
-                    a,
-                    b,
-                    axis,
-                    a_edge: false,
-                    b_edge: false,
-                    order: 0,
-                };
-                place_linear(&frame, &shape, &terms, side, lane)
-            } else {
-                place_aligned(&frame, a, b, &terms, side, lane)
-            };
-            let Some(line) = placed.as_ref().and_then(|p| p.lines.get(2)) else {
-                continue;
-            };
-            let count = peers
-                .iter()
-                .filter(|&&peer| super::leaders::segments_cross(*line, peer))
-                .count();
-            if count == 0 {
-                return Some(0);
-            }
-            best = Some(best.map_or(count, |previous: usize| previous.min(count)));
-        }
-    }
-    best
-}
-
 /// The page position of lane *lane* in strip *side*, and the outward sign.
 fn lane_at(o: [f64; 4], side: Side, lane: usize) -> (f64, f64) {
     let d = first_line() + lane as f64 * lane_pitch();

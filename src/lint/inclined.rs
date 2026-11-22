@@ -321,6 +321,61 @@ struct ViewInk {
     strokes: Vec<[[f64; 2]; 2]>,
 }
 
+impl ViewInk {
+    /// Estimate crossings from the rendered view frame and its dimension
+    /// strokes. Try paper offsets beside the projected envelope on both sides
+    /// of the dimension rather than assuming a single occupied line is fixed.
+    fn crossings(&self, a: &Analysis, constraint: &Constraint<'_>) -> Option<usize> {
+        let frame = self.frame.as_ref()?;
+        if frame.half_axis.is_some()
+            || frame.broken.is_some()
+            || !frame.scale.is_finite()
+            || frame.scale <= 0.
+        {
+            return None;
+        }
+        let view = haecceity::hlr::View::new(frame.direction, frame.up)?;
+        let direction = view.map(constraint.normal);
+        let length = direction[0].hypot(direction[1]);
+        if length < 1e-6 || dot(constraint.normal, view.toward).abs() > 1e-6 {
+            return None;
+        }
+        let normal = [-direction[1] / length, direction[0] / length];
+        let project = |p: [f64; 2]| p[0] * normal[0] + p[1] * normal[1];
+        let [lo, hi] = a.envelope;
+        let centre = view.map(std::array::from_fn(|k| (lo[k] + hi[k]) / 2.));
+        let page = |p| {
+            let projected = view.map(p);
+            std::array::from_fn(|k| frame.at[k] + frame.scale * (projected[k] - centre[k]))
+        };
+        let witnesses = constraint.witnesses.map(page);
+        let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+        for i in 0..8 {
+            let corner = std::array::from_fn(|k| if i >> k & 1 == 0 { lo[k] } else { hi[k] });
+            let station = project(page(corner));
+            min = min.min(station);
+            max = max.max(station);
+        }
+        let mut best = usize::MAX;
+        for offset in [10., 17., 24.] {
+            for station in [min - offset, max + offset] {
+                let stroke = witnesses
+                    .map(|p| std::array::from_fn(|k| p[k] + (station - project(p)) * normal[k]));
+                let count = self
+                    .strokes
+                    .iter()
+                    .filter(|&&peer| crate::output::segments_cross(stroke, peer))
+                    .count();
+                if count == 0 {
+                    return Some(0);
+                }
+                best = best.min(count);
+            }
+        }
+        Some(best)
+    }
+}
+
 fn view_ink(marks: &[Mark]) -> BTreeMap<&str, ViewInk> {
     let mut ink = BTreeMap::<_, ViewInk>::new();
     for mark in marks {
@@ -355,12 +410,12 @@ impl Suggestion<'_> {
         )
     }
 
-    fn text(&self, a: &Analysis, id: &str, units: crate::units::Units, handles: bool) -> String {
+    fn text(&self, a: &Analysis, id: &str, units: crate::output::Units, handles: bool) -> String {
         let axis = handle("the hole's axis".into(), &format!("axis:{id}"), handles);
         let anchor = handle(anchor_name(a, id, &self.c), self.c.key, handles);
         format!(
             "{} from {axis} to {anchor} with along: {} in the {} view",
-            crate::dims::fmt_in(self.c.value, units),
+            units.format(self.c.value),
             self.along,
             self.view
         )
@@ -420,7 +475,8 @@ fn anchor_name(a: &Analysis, id: &str, c: &Constraint<'_>) -> String {
     let owner = membership
         .features
         .first()
-        .map(|f| format!(" of {}", crate::wording::feature_id(a, f)))
+        .and_then(|id| a.features.iter().find(|f| &f.id == id))
+        .map(|f| format!(" of {}", super::parameters::feature_name(f)))
         .unwrap_or_default();
     format!("the {kind}{owner} at {stations} mm from the stock minimum")
 }
@@ -447,7 +503,7 @@ pub(crate) fn fix(
     let ink = view_ink(marks);
     let units = marks
         .first()
-        .map_or(crate::units::Units::default(), |m| m.units);
+        .map_or(crate::output::Units::default(), |m| m.units);
     let axis_key = format!("axis:{id}");
     let mut candidates = BTreeMap::<&str, Suggestion>::new();
     for along in ["true", "y", "x", "z"] {
@@ -466,17 +522,7 @@ pub(crate) fn fix(
                 }
                 let crossing = ink
                     .get(view)
-                    .and_then(|v| {
-                        crate::dims::inclined_dimension_crossings(
-                            a,
-                            v.frame.as_ref()?,
-                            view,
-                            c.witnesses,
-                            along,
-                            &crate::dims::fmt_in(c.value, units),
-                            &v.strokes,
-                        )
-                    })
+                    .and_then(|ink| ink.crossings(a, &c))
                     .unwrap_or(1);
                 let back_face = matches!(&c.anchor, Reference::Plane { membership, .. }
                     if membership.stock_sides.iter().any(|side| side == "back"));
@@ -603,10 +649,16 @@ fn describe(
     issue: &mut super::LintIssue,
 ) {
     issue.subjects = vec![id.into()];
-    issue.message = format!(
-        "{} has no complete location to drawing datums.",
-        crate::wording::capital(&crate::wording::feature_id(a, id))
-    );
+    let hole = a
+        .features
+        .iter()
+        .find(|f| f.id == id)
+        .and_then(|f| f.parameters.get("diameter"))
+        .and_then(serde_json::Value::as_f64)
+        .map_or("The inclined hole".into(), |d| {
+            format!("The ⌀{} hole", super::coverage::fmt(d))
+        });
+    issue.message = format!("{hole} has no complete location to drawing datums.");
     issue.requirements = vec![super::Requirement {
         feature: id.into(),
         parameter: "location.piercing_point".into(),
