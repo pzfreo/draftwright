@@ -8,6 +8,8 @@ mod cache;
 mod angled_steps;
 #[path = "../authored_dimensions.rs"]
 mod authored_dimensions;
+#[path = "../auxiliary_views.rs"]
+mod auxiliary_views;
 #[path = "../coverage_holes.rs"]
 mod coverage_holes;
 #[path = "../datum_placement.rs"]
