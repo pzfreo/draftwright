@@ -2536,6 +2536,8 @@ fingerprints with complete keys from the Analysis):
   views, preferring rooted anchors and then clear dimension lines. The planner warning
   shares the suggestion when one inclined hole needs locating. With several, lint keeps
   the advice on each hole because placement previews check one pair at a time.
+  The raw lint fix includes reference handles for copying into a Spec, and its display
+  description uses the anchors' drawing names.
   If an authored distance uses an unlocated anchor, the finding names that anchor as
   needing a printed location. Its inclined-hole requirement
   is `location.piercing_point`, a geometric need, not a measurement role a feature note may

@@ -2055,12 +2055,9 @@ fn inclined_planner_warning_offers_the_drawings_authored_route() {
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let issues = draftwright::lint::lint(&a, &drawing);
-    let fix = issues
+    let issue = issues
         .iter()
         .find(|i| i.code == "feature_not_located" && i.subjects == ["f:hole:f9"])
-        .unwrap()
-        .fix
-        .as_deref()
         .unwrap();
     let warning = p
         .problems
@@ -2068,15 +2065,13 @@ fn inclined_planner_warning_offers_the_drawings_authored_route() {
         .find(|p| p.code == "feature_not_dimensioned" && p.subjects == ["f:hole:f9"])
         .unwrap();
     // The planner's public message uses the same advice, without machine handles.
-    let mut plain = String::new();
-    let mut rest = fix;
-    while let Some((before, handle)) = rest.split_once(" (") {
-        plain.push_str(before);
-        rest = handle.split_once(')').unwrap().1;
-    }
-    plain.push_str(rest);
+    let wire = serde_json::to_value(issue).unwrap();
+    let fix = wire["fix"].as_str().unwrap();
+    let plain = wire["fix_description"].as_str().unwrap();
+    assert!(fix.contains("axis:f:hole:f9") && fix.contains("face:v1:"));
+    assert!(!plain.contains("axis:") && !plain.contains("face:v1:"));
     assert!(
-        warning.message.ends_with(&plain),
+        warning.message.ends_with(plain),
         "{} vs {fix}",
         warning.message
     );
