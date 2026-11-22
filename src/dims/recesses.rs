@@ -889,7 +889,7 @@ fn corner_wants(cx: &Context, out: &mut Vec<Want>) {
     }
 }
 
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
 /// A recess location coincident with an existing dimension of the same datum span
 /// needs one carrier. Keep every exact measurement claim and an explicit covered ledger row.

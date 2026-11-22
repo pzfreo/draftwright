@@ -1620,7 +1620,7 @@ pub(crate) fn reserve_bounds(
                     v.at[1] + v.scale * analysis.drawing_iso_bounds()[3],
                 ]
             } else {
-                let size = if v.detail.is_some() || v.broken.is_some() {
+                let size = if v.detail.is_some() || v.auxiliary.is_some() || v.broken.is_some() {
                     // A crop owns only its enlarged local outline. Reserving the
                     // whole part at the detail scale strands neighbouring bands.
                     crate::detail::crop_extent(analysis, v).0
@@ -1647,7 +1647,7 @@ pub(crate) fn reserve_bounds(
         .collect();
     // Caption paper belongs to the crop too; a neighbouring annotation may
     // reclaim empty detail bands, but never its caption or readable gap.
-    for caption in crate::detail::caption_obstacles(analysis, views) {
+    for caption in crate::detail::caption_obstacles(views) {
         if let (Some(i), Some(p)) = (
             views.iter().position(|v| v.id == caption.view),
             caption.placed.as_ref(),

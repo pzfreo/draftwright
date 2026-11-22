@@ -69,6 +69,7 @@ fn warning(code: &str, subject: &str, message: String, subjects: Vec<String>) ->
 
 pub mod angular;
 pub(crate) mod authored;
+pub(crate) mod auxiliary;
 pub(crate) mod blends;
 mod bosses;
 mod callouts;
@@ -281,6 +282,7 @@ pub(crate) fn check_views(spec: &Spec) -> Result<(), Invalid> {
             && !NAMES.contains(&v.as_str())
             && !crate::detail::NAMES.contains(&v.as_str())
             && !crate::sections::NAMES.contains(&v.as_str())
+            && !crate::auxiliary::is_name(v)
         {
             return Err(Invalid {
                 path: None,
@@ -325,6 +327,7 @@ fn chosen_views(
     wants: &mut [Want],
     spec: &Spec,
     frames: &BTreeMap<&str, Frame>,
+    auxiliary: &auxiliary::Routes<'_>,
 ) -> Result<Vec<Problem>, Invalid> {
     let mut problems = Vec::new();
     for w in wants.iter_mut() {
@@ -336,6 +339,9 @@ fn chosen_views(
         }) else {
             continue;
         };
+        if auxiliary.get(&w.id).copied() == Some(v) {
+            continue;
+        }
         let able: Vec<&'static str> = w.views.iter().copied().filter(|c| carries(w, c)).collect();
         let Some(&v) = able.iter().find(|c| **c == v) else {
             return Err(Invalid {
@@ -1553,15 +1559,21 @@ fn route_sites(analysis: &Analysis, w: &mut Want, view: &str) {
 /// The view that carries each of *wants*: its first choice that is shown (in *frames*) and does
 /// not look along it (a turned part's diameter turns to the radial axis the view shows). A later
 /// choice says so in its basis; its ID stays. Those with none keep the views that were shown but look along them.
-fn route(
+fn route<'a>(
     wants: &mut [Want],
     frames: &BTreeMap<&str, Frame>,
     analysis: &Analysis,
-) -> (Vec<Option<&'static str>>, Vec<Vec<&'static str>>) {
+    auxiliary: &auxiliary::Routes<'a>,
+) -> (Vec<Option<&'a str>>, Vec<Vec<&'static str>>) {
     let [lo, hi] = analysis.envelope;
-    let mut chosen: Vec<Option<&'static str>> = Vec::new();
+    let mut chosen: Vec<Option<&'a str>> = Vec::new();
     let mut end_on: Vec<Vec<&'static str>> = Vec::new();
     for w in wants.iter_mut() {
+        if let Some(view) = auxiliary.get(&w.id).copied() {
+            chosen.push(frames.contains_key(view).then_some(view));
+            end_on.push(Vec::new());
+            continue;
+        }
         let mut view = None;
         let mut along = Vec::new();
         for v in w.views.clone() {
@@ -1980,7 +1992,7 @@ fn lanes_uncached(
         })
         .collect();
     if spec.dimensions.values().any(|d| d.between.is_some()) {
-        problems.extend(chosen_views(&mut wants, spec, &frames)?);
+        problems.extend(chosen_views(&mut wants, spec, &frames, &BTreeMap::new())?);
     }
     // A cut corner's station drawn on the open side its corner lies on (#217,
     // [`placement::station_strip`]) may take a strip nothing else uses: it reserves its lane.
@@ -2012,7 +2024,7 @@ fn lanes_uncached(
                 }))
     }));
     plates::prefer_readable(analysis, &mut wants, &frames, None);
-    let (chosen, _) = route(&mut wants, &frames, analysis);
+    let (chosen, _) = route(&mut wants, &frames, analysis, &BTreeMap::new());
     let wants: Vec<_> = wants
         .into_iter()
         .zip(chosen)
@@ -2397,9 +2409,9 @@ pub(crate) fn reserve_linear_intent(
             )
         })
         .collect();
-    chosen_views(&mut wants, spec, &frames)?;
+    chosen_views(&mut wants, spec, &frames, &BTreeMap::new())?;
     plates::prefer_readable(analysis, &mut wants, &frames, Some(spec));
-    let (chosen, _) = route(&mut wants, &frames, analysis);
+    let (chosen, _) = route(&mut wants, &frames, analysis, &BTreeMap::new());
     let owner = placement::owners(analysis, spec, &wants, &chosen);
     let (sides, lane) = placement::lanes(
         analysis,
@@ -3212,6 +3224,7 @@ fn plan_inventory_ordered(
     problems.extend(authored::append(analysis, spec, &mut wants)?);
     profile_angles::apply(analysis, spec, &mut wants)?;
 
+    let auxiliary = auxiliary::apply(analysis, spec, views, &mut wants, &mut problems);
     let retired: Vec<_> = if scheme_covered.is_empty() {
         Vec::new()
     } else {
@@ -3229,15 +3242,16 @@ fn plan_inventory_ordered(
             let name = v.id.strip_prefix("v:")?;
             (NAMES.contains(&name)
                 || crate::detail::NAMES.contains(&name)
+                || v.auxiliary.is_some()
                 || (!spec.views.sections.is_empty() && v.cut.is_some()))
             .then(|| (name, Frame::new(analysis, v)))
         })
         .collect();
     detail_routes(analysis, &mut wants, views);
     let authored_ownership = authored::ownership(analysis, spec, &wants);
-    problems.extend(chosen_views(&mut wants, spec, &frames)?);
+    problems.extend(chosen_views(&mut wants, spec, &frames, &auxiliary)?);
     plates::prefer_readable(analysis, &mut wants, &frames, Some(spec));
-    let (mut chosen, mut end_on) = route(&mut wants, &frames, analysis);
+    let (mut chosen, mut end_on) = route(&mut wants, &frames, analysis, &auxiliary);
     // Display intent may not silently undo the established one-owner span grouping.
     let display_owners = if spec.precision.is_empty() {
         Vec::new()
@@ -4572,7 +4586,7 @@ fn plan_inventory_ordered(
         all.into_iter().map(|w| w.id).zip(placed).collect();
 
     // Undrawn items by the views that could carry them and those of them that look along them.
-    type Undrawn = (Vec<&'static str>, Vec<&'static str>);
+    type Undrawn<'a> = (Vec<&'a str>, Vec<&'a str>);
     let mut missing: BTreeMap<Undrawn, Vec<String>> = BTreeMap::new();
     let mut out = Vec::new();
     for ((mut w, default, chosen, along), mut from_spec) in kept.into_iter().zip(given) {
@@ -4658,7 +4672,9 @@ fn plan_inventory_ordered(
         {
             from_spec.push("place".into());
         }
-        let view = chosen.unwrap_or(w.views[0]);
+        let view = chosen
+            .or_else(|| auxiliary.get(&w.id).copied())
+            .unwrap_or_else(|| w.views[0]);
         let dropped_angle =
             placed.is_none() && chosen.is_some() && profile_angles::is_profile_angle(&w);
         if dropped_angle {
@@ -4675,7 +4691,12 @@ fn plan_inventory_ordered(
             });
         } else if placed.is_none() {
             missing
-                .entry((w.views.clone(), along))
+                .entry((
+                    auxiliary
+                        .get(&w.id)
+                        .map_or_else(|| w.views.clone(), |v| vec![*v]),
+                    along,
+                ))
                 .or_default()
                 .push(w.id.clone());
         }
@@ -4859,7 +4880,7 @@ const SHARED: [(&str, bool); 6] = [
 // reservations, so consolidating their ink does not move unrelated items.
 fn share(
     analysis: &Analysis,
-    kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) {
@@ -5022,7 +5043,7 @@ fn presentation_id(a: &Analysis, w: &Want) -> String {
 /// Each other moves to *omitted*, `conveyed by` the survivor. *given* stays aligned with *kept*.
 fn share_statements(
     analysis: &Analysis,
-    kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
     cross_family: bool,
@@ -5040,7 +5061,7 @@ fn share_statements(
     };
     let diameter = |p: &str| matches!(p, "od.diameter" | "boss.diameter");
     let level = |p: &str| p.starts_with("step_height.length.");
-    let span = |(w, _, view, _): &(Want, bool, Option<&'static str>, Vec<&'static str>)| {
+    let span = |(w, _, view, _): &(Want, bool, Option<&str>, Vec<&'static str>)| {
         let parameter = &w.measurements.first()?.parameter;
         // Seat witnesses have their own datum contract. Pocket and pattern centres
         // may share a location when their physical intervals and view coincide.
@@ -5156,7 +5177,7 @@ fn share_statements(
 fn share_pmi(
     analysis: &Analysis,
     references: bool,
-    kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
     units: crate::units::Units,
@@ -5170,16 +5191,15 @@ fn share_pmi(
             .first()
             .is_some_and(|m| m.feature.starts_with("pmi:") && m.parameter.starts_with("linear"))
     };
-    let span =
-        |(w, _, view, _): &(Want, bool, Option<&'static str>, Vec<&'static str>)| match w.shape {
-            Shape::Linear { a, b, axis, .. } => Some((
-                view.unwrap_or(w.views[0]),
-                axis,
-                a[axis].min(b[axis]),
-                a[axis].max(b[axis]),
-            )),
-            Shape::Callout { .. } | Shape::Angular { .. } | Shape::Aligned { .. } => None,
-        };
+    let span = |(w, _, view, _): &(Want, bool, Option<&str>, Vec<&'static str>)| match w.shape {
+        Shape::Linear { a, b, axis, .. } => Some((
+            view.unwrap_or(w.views[0]),
+            axis,
+            a[axis].min(b[axis]),
+            a[axis].max(b[axis]),
+        )),
+        Shape::Callout { .. } | Shape::Angular { .. } | Shape::Aligned { .. } => None,
+    };
     let mut gone = BTreeSet::new();
     let order: Vec<usize> = {
         let mut o: Vec<usize> = (0..kept.len()).filter(|&i| pmi(&kept[i].0)).collect();
@@ -5438,6 +5458,7 @@ pub(crate) fn leader_reentry(
             v.id == d.view
                 && (NAMES.contains(&name)
                     || crate::detail::NAMES.contains(&name)
+                    || v.auxiliary.is_some()
                     || v.cut.is_some())
         }),
         d.placed.as_ref().and_then(|p| p.lines.first()),
@@ -5470,6 +5491,7 @@ pub(crate) fn callout_members(
     {
         return Vec::new();
     }
+    auxiliary::apply(analysis, spec, &plan.views, &mut wants, &mut Vec::new());
     detail_routes(analysis, &mut wants, &plan.views);
     let Some(v) = plan.views.iter().find(|v| v.id == view) else {
         return Vec::new();
@@ -5522,6 +5544,7 @@ pub(crate) fn placement_options_with_spec(
     {
         return BTreeMap::new();
     }
+    let auxiliary = auxiliary::apply(analysis, spec, views, &mut wants, &mut Vec::new());
     detail_routes(analysis, &mut wants, views);
     let original = wants.clone();
     let frames: BTreeMap<&str, Frame> = views
@@ -5530,23 +5553,31 @@ pub(crate) fn placement_options_with_spec(
             let name = v.id.strip_prefix("v:")?;
             (NAMES.contains(&name)
                 || crate::detail::NAMES.contains(&name)
+                || v.auxiliary.is_some()
                 || (!spec.views.sections.is_empty() && v.cut.is_some()))
             .then(|| (name, Frame::new(analysis, v)))
         })
         .collect();
-    route(&mut wants, &frames, analysis);
+    route(&mut wants, &frames, analysis, &auxiliary);
     wants
         .iter()
         .zip(original)
         .map(|(w, original)| {
-            let options = original
-                .views
+            let carriers = auxiliary
+                .get(&w.id)
+                .map_or(original.views.as_slice(), std::slice::from_ref);
+            let options = carriers
                 .iter()
                 .filter_map(|&name| {
                     let frame = frames.get(name)?;
                     let mut probe = original.clone();
                     probe.views = vec![name];
-                    let (chosen, _) = route(std::slice::from_mut(&mut probe), &frames, analysis);
+                    let (chosen, _) = route(
+                        std::slice::from_mut(&mut probe),
+                        &frames,
+                        analysis,
+                        &auxiliary,
+                    );
                     if chosen[0] != Some(name) {
                         return None;
                     }
@@ -5707,7 +5738,14 @@ fn local_placement_candidate(
             want.measurements = d.measurements.clone();
             want.views.retain(|v| *v == name);
             if want.views.is_empty()
-                || route(std::slice::from_mut(&mut want), &frames, analysis).0[0] != Some(name)
+                || route(
+                    std::slice::from_mut(&mut want),
+                    &frames,
+                    analysis,
+                    &BTreeMap::new(),
+                )
+                .0[0]
+                    != Some(name)
             {
                 continue;
             }
@@ -6562,10 +6600,10 @@ mod tests {
         }
     }
 
-    type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+    type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
     /// A default size of *feature* in the plan, along x from *lo* to *hi*, labelled *label*.
-    fn size(feature: &str, parameter: &str, lo: f64, hi: f64, label: &[&str]) -> Kept {
+    fn size(feature: &str, parameter: &str, lo: f64, hi: f64, label: &[&str]) -> Kept<'static> {
         let want = Want {
             units: Default::default(),
             id: want_id(feature, parameter),

@@ -749,9 +749,9 @@ pub(super) fn owners(
     analysis: &Analysis,
     spec: &crate::model::Spec,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
 ) -> Vec<Option<usize>> {
-    let mut kept: Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)> = items
+    let mut kept: Vec<(Want, bool, Option<&str>, Vec<&'static str>)> = items
         .iter()
         .zip(views_of)
         .map(|(w, view)| (w.clone(), true, *view, Vec::new()))
@@ -838,7 +838,7 @@ fn through_notch_strip(
 pub(super) fn lanes<'a>(
     analysis: &Analysis,
     frames: &BTreeMap<&str, Frame>,
-    items: impl ExactSizeIterator<Item = (&'a Want, Option<&'static str>)>,
+    items: impl ExactSizeIterator<Item = (&'a Want, Option<&'a str>)>,
     owner: &[Option<usize>],
 ) -> (Vec<Option<Side>>, Vec<usize>) {
     let items: Vec<_> = items.collect();
@@ -1157,7 +1157,7 @@ pub(super) fn share_lanes(
 pub(super) fn separate(
     owner: &[Option<usize>],
     drawn: &[bool],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     sides: &[Option<Side>],
     lanes: &mut [usize],
 ) -> Vec<bool> {
@@ -1196,7 +1196,7 @@ pub(super) fn separate(
 /// give (above the front, below the plan, left of the front or the side, right of the plan) is a
 /// bug.
 pub(super) fn band_lanes<'a>(
-    items: impl Iterator<Item = ((&'a Option<&'static str>, Option<Side>), usize)>,
+    items: impl Iterator<Item = ((&'a Option<&'a str>, Option<Side>), usize)>,
 ) -> Lanes {
     let mut out = Lanes::default();
     for ((view, side), lane) in items {
@@ -1251,7 +1251,7 @@ fn opposite(side: Side) -> Side {
 pub(super) fn fall_through(
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     owner: &[Option<usize>],
     sides: &mut [Option<Side>],
     lanes: &mut [usize],
@@ -1538,7 +1538,7 @@ pub(super) fn fall_through(
 fn share_held(
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     owner: &[Option<usize>],
     sides: &mut [Option<Side>],
     lanes: &mut [usize],
@@ -4285,7 +4285,7 @@ const _: () = assert!(STRAY_TEXT == TEXT);
 pub(super) fn respace(
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    chosen: &[Option<&'static str>],
+    chosen: &[Option<&str>],
     places: &[Option<&crate::placement_intent::Place>],
     sides: &[Option<Side>],
     lanes: &[usize],
@@ -4634,7 +4634,7 @@ pub(super) fn intent(
 pub(super) fn place_merged(
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     owner: &[Option<usize>],
     alone: &[bool],
     drawn: &[bool],
@@ -5136,7 +5136,7 @@ pub(super) fn make_room(
     candidate: &Placed,
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     sides: &[Option<Side>],
     fixed: &[bool],
     placed: &[Option<Placed>],
@@ -5194,7 +5194,7 @@ struct Room<'a, 'p> {
     candidate: &'a Placed,
     frames: &'a BTreeMap<&'a str, Frame>,
     items: &'a [Want],
-    views_of: &'a [Option<&'static str>],
+    views_of: &'a [Option<&'a str>],
     sides: &'a [Option<Side>],
     fixed: &'a [bool],
     obstacles: &'a [PlannedDimension],
@@ -5294,7 +5294,7 @@ impl Room<'_, '_> {
 pub(super) fn clear_aligned(
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     sides: &[Option<Side>],
     fixed: &[bool],
     placed: &mut [Option<Placed>],

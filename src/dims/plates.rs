@@ -65,7 +65,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     (out, problems)
 }
 
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
 /// Covered items keep their IDs. Only actually retained owner measurements count;
 /// omitting an alternative restores the plate's own dimension.
@@ -508,7 +508,7 @@ pub(super) fn prefer_readable(
     }
 }
 
-pub(super) fn default_terms(a: &Analysis, wants: &mut [Want], chosen: &[Option<&'static str>]) {
+pub(super) fn default_terms(a: &Analysis, wants: &mut [Want], chosen: &[Option<&str>]) {
     let mut kept: Vec<_> = wants
         .iter()
         .zip(chosen)

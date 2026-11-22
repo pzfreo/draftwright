@@ -23,7 +23,7 @@ pub(crate) fn planning<T>(run: impl FnOnce() -> T) -> T {
     run()
 }
 
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 pub(crate) fn carries(a: &Analysis) -> bool {
     matches!(&a.pmi, Some(Reading::Read(r)) if !r.records.is_empty())
 }

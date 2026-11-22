@@ -30,9 +30,8 @@ pub struct Auxiliary {
     pub parent: String,
     pub edge_on: bool,
     pub full: bool,
-    /// Rectangle in the camera plane, in model millimetres.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub crop: Option<Rect>,
+    /// Full or cropped rectangle in the camera plane, in model millimetres.
+    pub bounds: Rect,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
     /// Signed rotation of the image from the projected vertical.
@@ -402,7 +401,6 @@ pub(crate) struct Request {
     camera: View,
     meta: Auxiliary,
     factor: f64,
-    extent: [f64; 2],
 }
 
 pub(crate) fn requests(
@@ -537,17 +535,22 @@ pub(crate) fn requests(
                     "needs boundary geometry for a partial view; analyse the STEP again or request full",
                 ));
             }
+            let bounds = crop.unwrap_or_else(|| {
+                let (size, centre) = crate::model::extent(a, &camera);
+                std::array::from_fn(|k| {
+                    centre[k % 2] + if k < 2 { -0.5 } else { 0.5 } * size[k % 2]
+                })
+            });
             out.push(Request {
                 name: name.clone(),
                 id,
-                extent: crop.map_or_else(|| crate::model::extent(a, &camera).0, |r| extent(r).0),
                 camera,
                 meta: Auxiliary {
                     anchor: anchor.clone(),
                     parent,
                     edge_on: edge,
                     full: aux.full,
-                    crop,
+                    bounds,
                     label: String::new(),
                     rotation,
                 },
@@ -569,7 +572,7 @@ const PAD: [f64; 2] = [22., 22.];
 
 pub(crate) fn reserve(mut scaled: Scaled, requests: &[Request], scale: f64) -> Scaled {
     scaled.derived.extend(requests.iter().map(|r| {
-        let [w, h] = r.extent.map(|d| d * scale * r.factor);
+        let [w, h] = extent(r.meta.bounds).0.map(|d| d * scale * r.factor);
         (r.name.clone(), (w + 2. * PAD[0]).max(65.), h + 2. * PAD[1])
     }));
     scaled
@@ -679,8 +682,8 @@ pub(crate) fn caption(v: &PlannedView, aux: &Auxiliary) -> String {
     title
 }
 
-pub(crate) fn caption_at(a: &Analysis, v: &PlannedView) -> [f64; 2] {
-    crate::detail::below(v, crate::detail::crop_extent(a, v).0[1] * v.scale)
+pub(crate) fn caption_at(v: &PlannedView, aux: &Auxiliary) -> [f64; 2] {
+    crate::detail::below(v, extent(aux.bounds).0[1] * v.scale)
 }
 
 pub(crate) fn viewing_arrow(

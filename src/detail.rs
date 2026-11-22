@@ -792,10 +792,7 @@ pub(crate) fn below(v: &PlannedView, height: f64) -> [f64; 2] {
 
 /// Reserve the caption before solving dimensions, including its half-text-height gap.
 /// Otherwise a dimension below the crop can occupy the newly corrected caption row.
-pub(crate) fn caption_obstacles(
-    a: &Analysis,
-    views: &[PlannedView],
-) -> Vec<crate::dims::PlannedDimension> {
+pub(crate) fn caption_obstacles(views: &[PlannedView]) -> Vec<crate::dims::PlannedDimension> {
     views
         .iter()
         .filter_map(|v| {
@@ -811,7 +808,7 @@ pub(crate) fn caption_obstacles(
                 (
                     format!("{}/caption", v.id),
                     crate::auxiliary::caption(v, aux),
-                    crate::auxiliary::caption_at(a, v),
+                    crate::auxiliary::caption_at(v, aux),
                     aux.rotation.is_some(),
                 )
             };
@@ -841,7 +838,7 @@ pub(crate) fn caption_obstacles(
         .collect()
 }
 pub(crate) fn crop_extent(a: &Analysis, v: &PlannedView) -> ([f64; 2], [f64; 2]) {
-    if let Some(rect) = v.auxiliary.as_ref().and_then(|aux| aux.crop) {
+    if let Some(rect) = v.auxiliary.as_ref().map(|aux| aux.bounds) {
         return crate::auxiliary::extent(rect);
     }
     let (mut size, centre) = crate::model::envelope_extent(

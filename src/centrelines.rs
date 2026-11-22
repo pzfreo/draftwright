@@ -648,7 +648,7 @@ fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
             work.retain(|w| !w.curves.is_empty());
             v.line_work = work;
         }
-        if v.detail.is_some() || v.auxiliary.as_ref().is_some_and(|aux| aux.crop.is_some()) {
+        if v.detail.is_some() || v.auxiliary.as_ref().is_some_and(|aux| !aux.full) {
             let (size, _) = crate::detail::crop_extent(a, v);
             let rect = [
                 v.at[0] - size[0] * v.scale / 2.0,
@@ -946,7 +946,7 @@ pub(crate) fn obstacles(views: &[PlannedView]) -> Vec<PlannedDimension> {
             out.push(obstacle);
         }
     }
-    out.extend(crate::detail::caption_obstacles(analysis, views));
+    out.extend(crate::detail::caption_obstacles(views));
     out
 }
 

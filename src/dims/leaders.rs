@@ -782,7 +782,7 @@ pub(super) fn place(
     views: &[crate::model::PlannedView],
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     sides: &[Option<Side>],
     placed: &mut [Option<Placed>],
     page: &Page,
@@ -1079,7 +1079,7 @@ pub(super) fn place_with_obstacles(
     views: &[crate::model::PlannedView],
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     sides: &[Option<Side>],
     placed: &mut [Option<Placed>],
     page: &Page,
@@ -1146,7 +1146,7 @@ fn place_with_obstacles_uncached(
     views: &[crate::model::PlannedView],
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     sides: &[Option<Side>],
     placed: &mut [Option<Placed>],
     page: &Page,
@@ -1747,7 +1747,7 @@ pub(crate) fn settle_after_furniture(
                 // router, including section and detail transformations.
                 if !compact {
                     super::detail_routes(analysis, &mut wants, views);
-                    super::route(&mut wants, &frames, analysis);
+                    super::route(&mut wants, &frames, analysis, &BTreeMap::new());
                 }
                 wants
             })
@@ -6758,7 +6758,7 @@ pub fn clear_routes(
         })
         .collect();
     super::detail_routes(analysis, &mut wants, views);
-    super::route(&mut wants, &frames, analysis);
+    super::route(&mut wants, &frames, analysis, &BTreeMap::new());
     let w = wants.iter().find(|w| w.id == id)?;
     let Shape::Callout { sites, arcs } = &w.shape else {
         return None;

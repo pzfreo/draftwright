@@ -10890,7 +10890,7 @@ fn projection_key(v: &PlannedView) -> Vec<u64> {
         v.half_section.as_ref().map_or(&[], |h| &h.origin[..]),
         v.half_section.as_ref().map_or(&[], |h| &h.keep[..]),
     ]);
-    if let Some(crop) = v.auxiliary.as_ref().and_then(|aux| aux.crop) {
+    if let Some(crop) = v.auxiliary.as_ref().map(|aux| aux.bounds) {
         key.extend(std::iter::once(0x617578).chain(crop.map(f64::to_bits)));
     }
     key
@@ -11212,7 +11212,7 @@ impl Projections {
             bbox: None,
             undrawn: 0,
         };
-        let partial_aux = v.auxiliary.as_ref().is_some_and(|aux| aux.crop.is_some());
+        let partial_aux = v.auxiliary.as_ref().is_some_and(|aux| !aux.full);
         let rect = [
             v.at[0] - size[0] * v.scale / 2.0,
             v.at[1] - size[1] * v.scale / 2.0,
@@ -12142,7 +12142,7 @@ fn render_annotations_with_cuts(
     }
     for v in &plan.views {
         let Some(aux) = &v.auxiliary else { continue };
-        let at = crate::auxiliary::caption_at(analysis, v);
+        let at = crate::auxiliary::caption_at(v, aux);
         let name = format!("{}/caption", v.id);
         captions.push((crate::auxiliary::caption(v, aux), at));
         caption_names.push(name.clone());
