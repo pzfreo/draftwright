@@ -973,6 +973,26 @@ pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
 
 fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
     use crate::lint::inclined;
+    if p.views.iter().any(|v| v.auxiliary.is_some()) {
+        for q in p.problems.iter_mut().filter(|q| {
+            q.code == "feature_not_dimensioned"
+                && q.message
+                    .contains("height and location are not dimensioned: its axis is inclined")
+        }) {
+            if let Some(id) = q.subjects.first()
+                && p.dimensions.iter().any(|d| {
+                    d.id == format!("d:{id}/boss_height.length")
+                        && d.view.starts_with("v:aux:")
+                        && d.placed.is_some()
+                })
+            {
+                q.message = format!(
+                    "{} has its height in the auxiliary view. Its foot still needs a location.",
+                    crate::wording::capital(&crate::wording::feature_id(a, id))
+                );
+            }
+        }
+    }
     let warning = |q: &Problem| {
         q.code == "feature_not_dimensioned"
             && q.message
@@ -998,6 +1018,18 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
         true
     });
     for q in p.problems.iter_mut().filter(|q| warning(q)) {
+        let true_size = p.dimensions.iter().any(|d| {
+            d.view.starts_with("v:aux:")
+                && d.id == format!("d:{}/bore.diameter", q.subjects[0])
+                && d.placed.is_some()
+        });
+        if true_size {
+            let name = crate::wording::capital(&crate::wording::feature_id(a, &q.subjects[0]));
+            q.message = format!(
+                "{name} has its size in the auxiliary view. Its location still needs two perpendicular distances from grounded edges."
+            );
+            continue;
+        }
         if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false)
             && let Some((name, _)) = q.message.split_once("'s location is not dimensioned:")
         {

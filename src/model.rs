@@ -11729,7 +11729,22 @@ fn auxiliary_marker(
     let avoid: Vec<_> = plan
         .dimensions
         .iter()
-        .filter_map(|d| d.placed.as_ref().map(|p| p.label_box))
+        .filter_map(|d| d.placed.as_ref())
+        .flat_map(|p| {
+            std::iter::once(p.label_box).chain(p.lines.iter().map(|[a, b]| {
+                [
+                    a[0].min(b[0]) - 0.5,
+                    a[1].min(b[1]) - 0.5,
+                    a[0].max(b[0]) + 0.5,
+                    a[1].max(b[1]) + 0.5,
+                ]
+            }))
+        })
+        .chain(
+            plan.gdt
+                .iter()
+                .filter_map(|g| g.placed.as_ref().map(|p| p.label_box)),
+        )
         .collect();
     let Some((curves, at)) = crate::auxiliary::viewing_arrow(
         analysis,

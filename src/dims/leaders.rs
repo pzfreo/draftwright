@@ -8618,7 +8618,7 @@ mod tests {
                     .then(|| (name, Frame::new(&analysis, v)))
             })
             .collect();
-        super::super::route(&mut wants, &frames, &analysis);
+        super::super::route(&mut wants, &frames, &analysis, &BTreeMap::new());
         let want = wants.iter().find(|w| w.id == d.id).unwrap();
         let proof = super::super::interior::proofs(&analysis, &plan.views);
         let arcs = radius_route_evidence(&analysis, d, view).unwrap();

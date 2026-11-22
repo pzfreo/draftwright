@@ -308,8 +308,8 @@ fn trace_rooted(
             continue;
         };
         let fixed = station(corner.axis, corner.vertex[corner.axis])
-            && (super::profile_angles::undefined_stations(corner, &station).is_empty()
-                || (super::profile_angles::located_with_angle(corner, &station)
+            && (super::profile_angles::undefined_stations(&corner, &station).is_empty()
+                || (super::profile_angles::located_with_angle(&corner, &station)
                     && marks.iter().any(|mark| {
                         mark.view
                             .as_deref()
