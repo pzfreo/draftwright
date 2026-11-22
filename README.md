@@ -6,6 +6,7 @@
   <a href="https://crates.io/crates/draftwright"><img src="https://img.shields.io/crates/v/draftwright.svg" alt="crates.io"></a>
   <a href="https://pypi.org/project/draftwright/"><img src="https://img.shields.io/pypi/v/draftwright.svg" alt="PyPI"></a>
   <a href="https://pypi.org/project/draftwright/"><img src="https://img.shields.io/pypi/pyversions/draftwright.svg" alt="Python versions"></a>
+  <a href="https://pypistats.org/packages/draftwright"><img src="https://img.shields.io/pypi/dm/draftwright.svg" alt="PyPI downloads per month"></a>
   <a href="https://docs.rs/draftwright"><img src="https://img.shields.io/docsrs/draftwright" alt="docs.rs"></a>
   <a href="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml"><img src="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-blue.svg" alt="Licence: AGPL-3.0"></a>
