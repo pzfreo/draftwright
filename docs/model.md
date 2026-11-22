@@ -2519,14 +2519,23 @@ fingerprints with complete keys from the Analysis):
   True distances to points or parallel lines are radial constraints and do not establish
   linear stations for this rule.
 
+  Each anchor must also have a printed route to a drawing datum on the station axes
+  that contribute to the measured distance. A stock-limit station is already a root.
+  An edge can share its station with its own endpoint or incident datum face. A dimension
+  from the hole's axis cannot serve as evidence for its own anchor.
+
   For the angle bracket, the hole axis is (−0.866, 0, 0.5). State **25 along the flange**
   from `axis:f:hole:f9` to the flange's foot edge with `along: "true"` in the front view,
   and **25 across** from the same axis to a side face with `along: "y"` in the side view.
-  These two distances remove both transverse freedoms. Both `feature_not_located` and
+  The back face is a stock root; the printed 80 base length locates the flange's foot
+  along x, and the bottom stock plane locates it along z. These two distances remove
+  both transverse freedoms. Both `feature_not_located` and
   the location-only `feature_not_dimensioned` warning then clear; its existing diameter
   callout remains on the ellipse. Missing size or manufacturing requirements still report.
-  Without a complete pair, the location finding remains and names current measurable
-  references and compatible views where a pair is available. Its inclined-hole requirement
+  Without a complete pair, the location finding and planner warning name measurable
+  anchors and compatible views. They prefer rooted anchors, then clear dimension
+  lines in the current views. If an authored distance uses an unlocated anchor, the
+  finding names that anchor as needing a printed location. Its inclined-hole requirement
   is `location.piercing_point`, a geometric need, not a measurement role a feature note may
   assert through `note_satisfies`.
 

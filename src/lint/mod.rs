@@ -723,7 +723,7 @@ fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     if location::has_station_requirements(analysis) {
         issues.extend(location::sizes(analysis, printed));
     }
-    inclined::explain(analysis, &mut issues);
+    inclined::explain(analysis, printed, &mut issues);
     issues
 }
 

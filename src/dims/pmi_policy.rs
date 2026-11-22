@@ -302,7 +302,7 @@ fn located_by(
     if !carries(a) {
         return BTreeMap::new();
     }
-    let marks = dimension_marks(a, p, include);
+    let marks = dimension_marks(a, p, include, false);
     let edges = location::edges(a, &marks);
     let roots = location::drawing_roots(a, &marks);
     a.features
@@ -950,62 +950,70 @@ pub(crate) fn ignore(
 }
 
 pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
-    // The inclined-hole warning concerns location only. Clear it from finished,
-    // controlling authored ink using the same geometric rule as independent lint.
-    if s.dimensions.values().any(|d| d.between.is_some())
-        && p.problems
-            .iter()
-            .any(|q| q.code == "feature_not_dimensioned")
-    {
-        let marks = dimension_marks(a, p, |_| true);
-        let located: BTreeSet<_> = p
-            .problems
-            .iter()
-            .filter(|q| q.code == "feature_not_dimensioned")
-            .flat_map(|q| &q.subjects)
-            .filter(|id| {
-                let Some(f) = a.features.iter().find(|f| f.id == id.as_str()) else {
-                    return false;
-                };
-                // The hole presenter also uses this code for an unreadable blind
-                // depth. Only its location-only warning can be discharged here.
-                crate::bridge::holes::Hole::read(f, &crate::bridge::holes::frame(a))
-                    .is_ok_and(|h| h.through || h.depth.is_some())
-                    && crate::lint::inclined::located(a, &marks, id)
-            })
-            .cloned()
-            .collect();
-        if !located.is_empty() {
-            p.problems.retain(|q| {
-                q.code != "feature_not_dimensioned"
-                    || q.subjects.is_empty()
-                    || !q.subjects.iter().all(|id| located.contains(id))
-            });
-            for d in &mut p.dimensions {
-                if d.measurements
-                    .iter()
-                    .any(|m| m.parameter == "bore.diameter" && located.contains(&m.feature))
-                {
-                    d.basis = d.basis.replace(", and it is not located (that needs a view square to its axis)", "; its piercing point is located by two independent authored transverse distances");
-                }
-            }
-        }
-    }
+    audit_inclined(a, p);
     if PLAN_DEPTH.get() > 1 || (!location::has_station_requirements(a) && s.origin.is_empty()) {
         return;
     }
     crate::planning::with(a, || audit_inner(a, s, p));
 }
 
+fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
+    use crate::lint::inclined;
+    let warning = |q: &Problem| {
+        q.code == "feature_not_dimensioned"
+            && q.message
+                .contains("location is not dimensioned: its axis is inclined")
+            && matches!(q.subjects.as_slice(), [id] if inclined::is_inclined(a, id))
+    };
+    if !p.problems.iter().any(warning) {
+        return;
+    }
+    let marks = dimension_marks(a, p, |_| true, true);
+    let roots = location::drawing_roots(a, &marks);
+    let edges = location::drawn_edges(a, &marks);
+    let mut located = BTreeSet::new();
+    p.problems.retain_mut(|q| {
+        if !warning(q) {
+            return true;
+        }
+        let id = &q.subjects[0];
+        if inclined::located(a, &marks, &edges, &roots, id) {
+            located.insert(id.clone());
+            return false;
+        }
+        if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, id, false) {
+            q.message = q.message.replace(
+                "so it needs a view square to it;",
+                "so a square-on view could show its location;",
+            );
+            q.message.push(' ');
+            q.message.push_str(&fix);
+        }
+        true
+    });
+    for d in &mut p.dimensions {
+        if d.measurements
+            .iter()
+            .any(|m| m.parameter == "bore.diameter" && located.contains(&m.feature))
+        {
+            d.basis = d.basis.replace(
+                ", and it is not located (that needs a view square to its axis)",
+                "; its piercing point is located by two independent authored transverse distances",
+            );
+        }
+    }
+}
+
 fn dimension_marks(
     a: &Analysis,
     p: &crate::model::Plan,
     include: impl Fn(&PlannedDimension) -> bool,
+    keep_witnesses: bool,
 ) -> Vec<crate::lint::Mark> {
     let mut marks: Vec<_> = p
         .dimensions
         .iter()
-        .filter(|d| d.placed.is_some() && !d.reference && include(d))
+        .filter(|d| d.placed.is_some() && (keep_witnesses || !d.reference) && include(d))
         .map(|d| crate::lint::Mark {
             precision: None,
             units: p.sheet.units,
@@ -1025,7 +1033,7 @@ fn dimension_marks(
     for (mark, d) in marks.iter_mut().zip(
         p.dimensions
             .iter()
-            .filter(|d| d.placed.is_some() && !d.reference && include(d)),
+            .filter(|d| d.placed.is_some() && (keep_witnesses || !d.reference) && include(d)),
     ) {
         if d.kind != "linear" {
             continue;
@@ -1054,6 +1062,9 @@ fn dimension_marks(
         });
         // Invariant: The preceding dimension iterator selects placed dimensions.
         let placed = d.placed.as_ref().unwrap();
+        if keep_witnesses {
+            location::record_witness(mark, &frame, &placed.lines);
+        }
         let span = location::ink_span(a, &frame, &placed.lines).or_else(|| {
             let owners = location::witness_owners(a, &mark.claims);
             let centres: Vec<_> = view
@@ -1104,7 +1115,7 @@ fn dimension_marks(
 }
 
 fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
-    let mut marks = dimension_marks(a, p, |_| true);
+    let mut marks = dimension_marks(a, p, |_| true, false);
     // A placed coordinate schedule is a drawn locating network too. Verify its cell value
     // in its declared datum frame, then carry that physical edge to the same shared checker.
     for table in p

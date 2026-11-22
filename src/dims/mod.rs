@@ -233,6 +233,7 @@ mod pads;
 pub(crate) mod pin_geometry;
 mod placement;
 pub(crate) use placement::displaced_linear_fields;
+pub(crate) use placement::inclined_dimension_crossings;
 mod plates;
 pub(crate) mod pmi_dimensions;
 pub(crate) mod pmi_policy;

@@ -724,7 +724,7 @@ pub fn located(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let roots = super::location::drawing_roots(analysis, marks);
     let mut sites = sites(analysis, marks);
     for site in &mut sites {
-        if super::inclined::located(analysis, marks, &site.subject) {
+        if super::inclined::located(analysis, marks, &edges, &roots, &site.subject) {
             site.claimed = [true; 3];
             continue;
         }
