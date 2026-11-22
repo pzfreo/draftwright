@@ -1887,9 +1887,12 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
         let (anchor, route) = route.split_once(" with along: ").unwrap();
         let (along, route) = route.split_once(" in the ").unwrap();
         let view = route.split_whitespace().next().unwrap();
-        dimensions.insert(format!("d:authored:suggested{i}"), json!({
-            "between": [axis, anchor], "along": along, "view": view
-        }));
+        dimensions.insert(
+            format!("d:authored:suggested{i}"),
+            json!({
+                "between": [axis, anchor], "along": along, "view": view
+            }),
+        );
     }
     assert_eq!(dimensions.len(), 2);
     let suggested = model::plan_recovered(&a, &parse(json!({"dimensions": dimensions}))).unwrap();
