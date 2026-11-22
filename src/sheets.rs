@@ -147,6 +147,12 @@ fn groups(spec: &Spec) -> Vec<Vec<String>> {
         .into_iter()
         .map(|s| vec![s.into()])
         .collect();
+    out.extend(
+        spec.views
+            .keys()
+            .filter(|name| crate::auxiliary::is_name(name))
+            .map(|name| vec![name.clone()]),
+    );
     let mut links = spec
         .sheets
         .as_ref()
@@ -306,6 +312,7 @@ pub(crate) fn validate(spec: &Spec) -> Result<(), Invalid> {
                 || group.iter().any(|n| {
                     !["front", "plan", "side", "iso", "section_aa", "hole_table"]
                         .contains(&n.as_str())
+                        && !spec.views.get(n).is_some_and(|v| v.auxiliary.is_some())
                 })
             {
                 return Err(refuse(
@@ -678,8 +685,8 @@ fn allocate_inner(
                 .views
                 .iter()
                 .find(|v| &v.id == id)
-                .is_none_or(|v| v.sheet == 1)),
-        "Stage I carriers must stay on sheet 1"
+                .is_none_or(|v| v.sheet == 1 || v.auxiliary.is_some())),
+        "principal annotation carriers must stay on sheet 1"
     );
     p.table_restore = None;
     p.status = crate::completeness::status(&p.problems);
@@ -728,7 +735,12 @@ fn pinned_allocation(analysis: &Analysis, spec: &Spec) -> Result<BTreeMap<String
         .views
         .iter()
         .filter(|v| v.sheet > 1)
-        .map(|v| (v.id.trim_start_matches("v:").to_string(), v.sheet))
+        .map(|v| {
+            (
+                crate::auxiliary::spec_name(spec, &v.id).to_string(),
+                v.sheet,
+            )
+        })
         .collect();
     if let Some(table) = canonical.hole_table.as_ref().filter(|t| t.sheet > 1) {
         moved.insert("hole_table".into(), table.sheet);
@@ -1086,8 +1098,27 @@ fn pack_with_overflow(
     allow_overflow: bool,
 ) -> bool {
     plan.sheets.clear();
+    // Requested auxiliaries are already dimensioned in the parent-scale
+    // layout. Move the complete block with its settled witnesses and labels.
+    let authored: BTreeMap<_, _> = plan
+        .views
+        .iter()
+        .filter(|v| v.auxiliary.is_some())
+        .filter_map(|v| {
+            let name = crate::auxiliary::spec_name(spec, &v.id);
+            moved
+                .contains_key(name)
+                .then(|| (name.to_string(), v.clone()))
+        })
+        .collect();
     plan.views
-        .retain(|v| v.sheet == 1 && !moved.contains_key(v.id.trim_start_matches("v:")));
+        .retain(|v| v.sheet == 1 && !moved.contains_key(crate::auxiliary::spec_name(spec, &v.id)));
+    let build_view = |name: &str, scale, sheet, parent_scale| {
+        authored
+            .get(name)
+            .cloned()
+            .or_else(|| auxiliary(analysis, name, scale, sheet, parent_scale))
+    };
     plan.tables.retain(|t| t.sheet == 1);
     let max = maximum(spec);
     let mut sheets: BTreeMap<u32, PlannedSheet> = BTreeMap::new();
@@ -1224,6 +1255,9 @@ fn pack_with_overflow(
                                 .filter_map(|b| b.placed.as_ref().map(|p| p.cells))
                         }),
                 );
+                if shrink && names.iter().any(|name| authored.contains_key(*name)) {
+                    continue;
+                }
                 let scales: Vec<_> = if shrink {
                     spec.scales()
                         .iter()
@@ -1236,8 +1270,7 @@ fn pack_with_overflow(
                 for scale in scales {
                     let mut trial = existing.clone();
                     trial.extend(names.iter().filter_map(|name| {
-                        auxiliary(
-                            analysis,
+                        build_view(
                             name,
                             if *name == "iso" {
                                 spec.iso_scale_factor
@@ -1291,7 +1324,9 @@ fn pack_with_overflow(
                     };
                     if fits {
                         for v in trial.iter_mut().skip(existing.len()) {
-                            v.default = !spec.views.contains_key(v.id.trim_start_matches("v:"));
+                            v.default = !spec
+                                .views
+                                .contains_key(crate::auxiliary::spec_name(spec, &v.id));
                         }
                         found = Some((n, sheet.clone(), trial));
                         break;
@@ -1315,8 +1350,7 @@ fn pack_with_overflow(
                 .unwrap_or_else(|| extra_sheet(&plan.sheet, n));
             let mut views = blocks.get(&n).cloned().unwrap_or_default();
             for name in &names {
-                if let Some(mut view) = auxiliary(
-                    analysis,
+                if let Some(mut view) = build_view(
                     name,
                     if *name == "iso" {
                         spec.iso_scale_factor
@@ -1358,9 +1392,22 @@ fn pack_with_overflow(
         plan.sheets.push(sheet);
         for mut view in blocks.remove(&old).unwrap_or_default() {
             view.sheet = n;
+            let name = crate::auxiliary::spec_name(spec, &view.id);
+            if let Some(previous) = authored.get(name) {
+                let delta = std::array::from_fn(|k| view.at[k] - previous.at[k]);
+                for d in plan.dimensions.iter_mut().filter(|d| d.view == view.id) {
+                    if let Some(p) = &mut d.placed {
+                        crate::placement_intent::move_point(&mut p.label_at, delta);
+                        crate::placement_intent::move_box(&mut p.label_box, delta);
+                        for point in p.lines.iter_mut().chain(&mut p.arrows).flatten() {
+                            crate::placement_intent::move_point(point, delta);
+                        }
+                    }
+                }
+            }
             if spec
                 .views
-                .get(view.id.trim_start_matches("v:"))
+                .get(name)
                 .and_then(|v| v.sheet)
                 .is_some_and(|s| s != n)
             {
@@ -1373,7 +1420,7 @@ fn pack_with_overflow(
                         crate::wording::view(&view.id)
                     ),
                     vec![Op::set(
-                        format!("views/{}/sheet", view.id.trim_start_matches("v:")),
+                        format!("views/{}/sheet", crate::items::key(name)),
                         json!(n),
                     )],
                 ));
@@ -1433,6 +1480,7 @@ fn pack_with_overflow(
                 .clone();
         }
         cross_references(analysis, plan);
+        crate::auxiliary::letters(&mut plan.views);
     }
     true
 }

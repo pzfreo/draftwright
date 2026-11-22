@@ -11671,7 +11671,9 @@ fn render_sheet_with(
         .views
         .iter()
         .filter(|v| {
-            v.sheet != sheet.number && v.cut.as_ref().is_some_and(|c| carries(&c.marked_in))
+            v.sheet != sheet.number
+                && (v.cut.as_ref().is_some_and(|c| carries(&c.marked_in))
+                    || v.auxiliary.as_ref().is_some_and(|aux| carries(&aux.parent)))
         })
         .collect();
     render_annotations_with_cuts(
@@ -11755,7 +11757,12 @@ fn auxiliary_marker(
     }
     ink.extend(items);
     let name = format!("{}/arrow_label", child.id);
-    captions.push((aux.label.clone(), at));
+    let text = if parent.sheet == child.sheet {
+        aux.label.clone()
+    } else {
+        format!("{} / SHEET {}", aux.label, child.sheet)
+    };
+    captions.push((text, at));
     names.push(name.clone());
     sheet.dxf.furniture_views.insert(name, parent.id.clone());
 }
@@ -11831,7 +11838,11 @@ pub(crate) fn render_annotations_on_sheet(
     let remote = plan
         .views
         .iter()
-        .filter(|v| v.sheet != number && v.cut.as_ref().is_some_and(|c| local(&c.marked_in)))
+        .filter(|v| {
+            v.sheet != number
+                && (v.cut.as_ref().is_some_and(|c| local(&c.marked_in))
+                    || v.auxiliary.as_ref().is_some_and(|aux| local(&aux.parent)))
+        })
         .collect::<Vec<_>>();
     render_annotations_with_cuts(
         part,
@@ -11854,14 +11865,14 @@ fn render_annotations_with_cuts(
     geometry: GeometryLayer,
     projections: &mut Projections,
     items: &BTreeMap<String, RenderedItem>,
-    remote_sections: &[&PlannedView],
+    remote_views: &[&PlannedView],
 ) -> Result<Drawing, Unresolved> {
     projections.bind(analysis, &plan.spec);
     // A tangent/gap plane has retained geometry, but no new cut face. Refuse
     // that section's ink and report it, rather than captioning the retained half
     // as a manufactured section (ISSUE-1530-a). The rest of the sheet still draws.
     let mut rejected_sections = BTreeMap::new();
-    for v in plan.views.iter().chain(remote_sections.iter().copied()) {
+    for v in plan.views.iter().chain(remote_views.iter().copied()) {
         let Some(cut) = &v.cut else {
             continue;
         };
@@ -12156,7 +12167,12 @@ fn render_annotations_with_cuts(
             sheet.dxf.furniture_views.insert(name, v.id.clone());
         }
     }
-    for child in plan.views.iter().filter(|c| c.auxiliary.is_some()) {
+    for child in plan
+        .views
+        .iter()
+        .chain(remote_views.iter().copied())
+        .filter(|c| c.auxiliary.is_some())
+    {
         let aux = child.auxiliary.as_ref().expect("filtered auxiliary");
         if let Some(parent) = plan.views.iter().find(|v| v.id == aux.parent) {
             auxiliary_marker(
@@ -12222,7 +12238,7 @@ fn render_annotations_with_cuts(
         });
         furniture.extend(ink);
     }
-    for v in plan.views.iter().chain(remote_sections.iter().copied()) {
+    for v in plan.views.iter().chain(remote_views.iter().copied()) {
         if rejected_sections.contains_key(&v.id) {
             continue;
         }
