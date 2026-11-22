@@ -46,6 +46,18 @@ fn axis(a: &Analysis, id: &str) -> Option<([f64; 3], [f64; 3])> {
         .then_some((ends[0], d))
 }
 
+fn auxiliary_axis(a: &Analysis, id: &str) -> Option<[f64; 3]> {
+    if let Some((_, direction)) = axis(a, id) {
+        return Some(direction);
+    }
+    a.features.iter().find(|f| f.id == id && f.kind == "boss")?;
+    let [start, end] = crate::auxiliary::feature_axis(a, id)?;
+    let direction = unit(sub(end, start))?;
+    crate::bridge::holes::principal(direction)
+        .is_none()
+        .then_some(direction)
+}
+
 pub(crate) fn is_inclined(a: &Analysis, id: &str) -> bool {
     axis(a, id).is_some()
 }
@@ -225,7 +237,7 @@ fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option
         .claims
         .iter()
         .find(|c| c.feature == id && c.parameter.starts_with("location.length.f"))?;
-    let (_, axis) = axis(a, id)?;
+    let axis = auxiliary_axis(a, id)?;
     let (frame, _) = witness(mark)?;
     if dot(frame.direction, axis).abs() < 1. - 1e-6 {
         return None;
@@ -388,9 +400,19 @@ pub(crate) fn located(
     roots: &[Vec<f64>; 3],
     id: &str,
 ) -> bool {
-    let Some((_, d)) = axis(a, id) else {
-        return false;
-    };
+    let d = axis(a, id).map(|(_, d)| d).or_else(|| {
+        marks
+            .iter()
+            .any(|m| {
+                m.view.as_deref().is_some_and(|v| v.starts_with("v:aux:"))
+                    && m.claims
+                        .iter()
+                        .any(|c| c.feature == id && c.parameter.starts_with("location.length.f"))
+            })
+            .then(|| auxiliary_axis(a, id))
+            .flatten()
+    });
+    let Some(d) = d else { return false };
     let constraints = constraints(a, marks, id);
     let stations = Stations { a, edges, roots };
     let excluded = stations.excluding(&constraints);

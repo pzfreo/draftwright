@@ -3224,7 +3224,7 @@ fn plan_inventory_ordered(
     problems.extend(authored::append(analysis, spec, &mut wants)?);
     profile_angles::apply(analysis, spec, &mut wants)?;
 
-    let auxiliary = auxiliary::apply(analysis, spec, views, &mut wants, &mut problems);
+    let auxiliary = auxiliary::apply(analysis, spec, views, &mut wants);
     let retired: Vec<_> = if scheme_covered.is_empty() {
         Vec::new()
     } else {
@@ -5491,7 +5491,7 @@ pub(crate) fn callout_members(
     {
         return Vec::new();
     }
-    auxiliary::apply(analysis, spec, &plan.views, &mut wants, &mut Vec::new());
+    auxiliary::apply(analysis, spec, &plan.views, &mut wants);
     detail_routes(analysis, &mut wants, &plan.views);
     let Some(v) = plan.views.iter().find(|v| v.id == view) else {
         return Vec::new();
@@ -5544,7 +5544,7 @@ pub(crate) fn placement_options_with_spec(
     {
         return BTreeMap::new();
     }
-    let auxiliary = auxiliary::apply(analysis, spec, views, &mut wants, &mut Vec::new());
+    let auxiliary = auxiliary::apply(analysis, spec, views, &mut wants);
     detail_routes(analysis, &mut wants, views);
     let original = wants.clone();
     let frames: BTreeMap<&str, Frame> = views
@@ -5571,7 +5571,7 @@ pub(crate) fn placement_options_with_spec(
                 .filter_map(|&name| {
                     let frame = frames.get(name)?;
                     let mut probe = original.clone();
-                    if auxiliary.get(&w.id).is_none() {
+                    if !auxiliary.contains_key(&w.id) {
                         probe.views = vec![*original.views.iter().find(|&&v| v == name)?];
                     }
                     let (chosen, _) = route(

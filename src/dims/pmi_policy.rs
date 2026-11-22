@@ -973,40 +973,41 @@ pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
 
 fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
     use crate::lint::inclined;
-    if p.views.iter().any(|v| v.auxiliary.is_some()) {
-        for q in p.problems.iter_mut().filter(|q| {
-            q.code == "feature_not_dimensioned"
-                && q.message
-                    .contains("height and location are not dimensioned: its axis is inclined")
-        }) {
-            if let Some(id) = q.subjects.first()
-                && p.dimensions.iter().any(|d| {
-                    d.id == format!("d:{id}/boss_height.length")
-                        && d.view.starts_with("v:aux:")
-                        && d.placed.is_some()
-                })
-            {
-                q.message = format!(
-                    "{} has its height in the auxiliary view. Its foot still needs a location.",
-                    crate::wording::capital(&crate::wording::feature_id(a, id))
-                );
-            }
-        }
-    }
+    let auxiliary_bosses: BTreeSet<_> = p
+        .dimensions
+        .iter()
+        .filter(|d| d.view.starts_with("v:aux:") && d.placed.is_some())
+        .filter_map(|d| d.id.strip_prefix("d:")?.strip_suffix("/boss_height.length"))
+        .collect();
     let warning = |q: &Problem| {
         q.code == "feature_not_dimensioned"
             && q.message
                 .contains("location is not dimensioned: its axis is inclined")
             && matches!(q.subjects.as_slice(), [id] if inclined::is_inclined(a, id))
     };
-    if !p.problems.iter().any(warning) {
+    if auxiliary_bosses.is_empty() && !p.problems.iter().any(warning) {
         return;
     }
     let marks = dimension_marks(a, p, |_| true, true);
     let roots = location::drawing_roots(a, &marks);
     let edges = location::drawn_edges(a, &marks);
     let mut located = BTreeSet::new();
-    p.problems.retain(|q| {
+    p.problems.retain_mut(|q| {
+        if q.code == "feature_not_dimensioned"
+            && q.message
+                .contains("height and location are not dimensioned: its axis is inclined")
+            && let Some(id) = q.subjects.first()
+            && auxiliary_bosses.contains(id.as_str())
+        {
+            if inclined::located(a, &marks, &edges, &roots, id) {
+                return false;
+            }
+            q.message = format!(
+                "{} has its height in the auxiliary view. Its foot still needs a location.",
+                crate::wording::capital(&crate::wording::feature_id(a, id))
+            );
+            return true;
+        }
         if !warning(q) {
             return true;
         }

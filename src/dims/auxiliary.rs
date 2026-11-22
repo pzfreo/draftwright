@@ -3,7 +3,7 @@ use super::{Measurement, Shape, Want, add, angular::Angle, fmt_in, scale3, want_
 use crate::auxiliary::{self, cross, dot, sub, unit};
 use crate::bridge::{Feature, holes};
 use crate::model::dimension_geometry::Reference;
-use crate::model::{Analysis, PlannedView, Problem, Spec};
+use crate::model::{Analysis, PlannedView, Spec};
 use std::collections::{BTreeMap, BTreeSet};
 
 type Point = [f64; 3];
@@ -210,7 +210,6 @@ pub(super) fn apply<'a>(
     spec: &Spec,
     views: &'a [PlannedView],
     wants: &mut Vec<Want>,
-    _problems: &mut Vec<Problem>,
 ) -> Routes<'a> {
     let mut routes = Routes::new();
     if views.iter().all(|v| v.auxiliary.is_none()) {
