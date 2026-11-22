@@ -276,22 +276,38 @@ fn trace_rooted(
         .map(|(_, e)| (e.axis, e.a, e.b))
         .collect();
     let station = |k: usize, value| super::profile_angles::rooted_at(&roots[k], &spans, k, value);
-    super::profile_angles::requirements(a).iter().any(|corner| {
+    let support_face = membership.faces.iter().find_map(|&face| {
+        let r = crate::auxiliary::face_at(a, face)?;
+        matches!(&r, Reference::Plane { normal, .. } if crate::bridge::holes::principal(*normal).is_none()).then_some(r)
+    });
+    let on_face = |p| match &support_face {
+        Some(Reference::Plane { normal, origin, .. }) => dot(*normal, sub(p, *origin)).abs() < 1e-6,
+        _ => false,
+    };
+    let adjoining_stock_located = membership.faces.iter().any(|&face| {
+        let Some(Reference::Plane { normal, origin, .. }) = crate::auxiliary::face_at(a, face)
+        else {
+            return false;
+        };
+        crate::bridge::holes::principal(normal).is_some_and(|axis| station(axis, origin[axis]))
+    });
+    let mut directions = Vec::new();
+    for corner in super::profile_angles::requirements(a) {
         let mut id = corner.feature.split(':');
         if id.next() != Some("outer_profile") {
-            return false;
+            continue;
         }
         let Some(face) = id
             .next()
             .and_then(|word| word.strip_prefix('f'))
             .and_then(|n| n.parse().ok())
         else {
-            return false;
+            continue;
         };
-        membership.faces.contains(&face)
-            && on_line(corner.vertex)
-            && corner.oblique_end().is_some_and(on_line)
-            && station(corner.axis, corner.vertex[corner.axis])
+        let Some(end) = corner.oblique_end() else {
+            continue;
+        };
+        let fixed = station(corner.axis, corner.vertex[corner.axis])
             && (super::profile_angles::undefined_stations(corner, &station).is_empty()
                 || (super::profile_angles::located_with_angle(corner, &station)
                     && marks.iter().any(|mark| {
@@ -304,8 +320,30 @@ fn trace_rooted(
                                     && cl.parameter == "profile_angle.angle"
                             })
                             && corner.states(&mark.text)
-                    })))
-    })
+                    })));
+        if !fixed {
+            continue;
+        }
+        if membership.faces.contains(&face) && on_line(corner.vertex) && on_line(end) {
+            return true;
+        }
+        // Two nonparallel grounded traces establish this inclined plane. Its
+        // intersection with a grounded stock plane then establishes the edge.
+        if adjoining_stock_located
+            && on_face(corner.vertex)
+            && on_face(end)
+            && let Some(direction) = unit(sub(end, corner.vertex))
+        {
+            if directions
+                .iter()
+                .any(|&d| dot(direction, d).abs() < 1. - 1e-6)
+            {
+                return true;
+            }
+            directions.push(direction);
+        }
+    }
+    false
 }
 
 struct Stations<'a> {

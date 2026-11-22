@@ -85,7 +85,10 @@ pub(crate) fn keeps_parent(spec: &Spec, name: &str) -> bool {
     spec.views.values().any(|v| {
         !v.omit
             && v.auxiliary.as_ref().is_some_and(|aux| {
-                aux.from.as_deref().map(|s| s.trim_start_matches("v:")) == Some(name)
+                aux.from
+                    .as_deref()
+                    .map(|s| s.trim_start_matches("v:"))
+                    .is_none_or(|from| from == name)
             })
     })
 }

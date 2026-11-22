@@ -372,6 +372,19 @@ pub(super) fn apply<'a>(
         let Some((v, at, diameter, tangent)) = targets.next() else {
             continue;
         };
+        if spec
+            .dimensions
+            .get(&w.id)
+            .and_then(|d| {
+                d.place
+                    .as_ref()
+                    .and_then(|p| p.view.as_deref())
+                    .or(d.view.as_deref())
+            })
+            .is_some_and(|name| w.views.contains(&name) && v.id.strip_prefix("v:") != Some(name))
+        {
+            continue;
+        }
         let peers: Vec<_> = targets
             .take_while(|(other, ..)| other.id == v.id)
             .map(|(_, at, d, count)| ((at, d / 2.), count))
