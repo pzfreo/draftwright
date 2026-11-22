@@ -93,6 +93,7 @@ mod view_gutters;
 pub mod iso_caption;
 pub mod shaded;
 
+pub mod auxiliary;
 pub mod detail;
 /// Authored corrections resolved into the ordinary feature inventory.
 pub mod recognition_corrections;

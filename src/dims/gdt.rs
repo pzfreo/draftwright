@@ -3350,6 +3350,7 @@ pub(crate) fn validate_placements(
         .iter()
         .map(|(name, direction, up)| PlannedView {
             detail: None,
+            auxiliary: None,
             sheet: 1,
             scale_note: None,
             xref: None,

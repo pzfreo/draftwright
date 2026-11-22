@@ -1047,6 +1047,8 @@ pub struct ViewSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::detail::DetailSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub auxiliary: Option<crate::auxiliary::AuxiliarySpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sheet: Option<u32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub omit: bool,
@@ -1281,6 +1283,8 @@ pub struct PlannedView {
     pub line_pose: Option<LinePose>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::detail::Detail>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auxiliary: Option<crate::auxiliary::Auxiliary>,
     #[serde(
         default = "crate::sheets::one",
         skip_serializing_if = "crate::sheets::is_one"
@@ -6793,6 +6797,7 @@ fn plan_with_presentation(
     let analysis = merged.as_ref();
     crate::sheets::validate(spec)?;
     crate::detail::check(analysis, spec)?;
+    crate::auxiliary::check(spec)?;
     crate::spec_notes::check_claims(analysis, spec)?;
     crate::dims::check_views(spec)?;
     crate::placement_intent::check(spec)?;
@@ -7361,6 +7366,7 @@ fn plan_with_presentation(
                 && *name != "iso_below"
                 && !spec.views.sections.iter().any(|r| r.view_name() == Some(name.as_str()))
                 && !crate::detail::NAMES.contains(&name.as_str())
+                && !crate::auxiliary::is_name(name)
                 && !VIEWS.iter().any(|(v, ..)| v == *name)
         })
         .map(|name| {
@@ -7438,15 +7444,17 @@ fn plan_with_presentation(
     let reduction = reduction
         .or_else(|| crate::dims::idle_view(analysis, spec, &demand))
         .filter(|(_, dropped, _)| {
-            !spec.dimensions.values().any(|d| {
-                !d.omit
-                    && (d.between.is_some() || spec.dimension_source == DimensionSource::Authored)
-                    && d.place
-                        .as_ref()
-                        .and_then(|p| p.view.as_deref())
-                        .or(d.view.as_deref())
-                        == Some(*dropped)
-            })
+            !crate::auxiliary::keeps_parent(spec, dropped)
+                && !spec.dimensions.values().any(|d| {
+                    !d.omit
+                        && (d.between.is_some()
+                            || spec.dimension_source == DimensionSource::Authored)
+                        && d.place
+                            .as_ref()
+                            .and_then(|p| p.view.as_deref())
+                            .or(d.view.as_deref())
+                            == Some(*dropped)
+                })
         });
     let shown = |name: &str| match spec.views.get(name) {
         Some(v) => !v.omit,
@@ -7457,6 +7465,7 @@ fn plan_with_presentation(
         plan: shown("plan"),
         side: shown("side"),
     };
+    let auxiliary = crate::auxiliary::requests(analysis, spec, shown, &mut problems)?;
     // The bands hold the lanes the dimensions will take in the views shown (review M3).
     let shown_views: Vec<(&str, [f64; 3], [f64; 3])> = VIEWS
         .iter()
@@ -7768,8 +7777,8 @@ fn plan_with_presentation(
         scale,
         page,
         lo[2],
-        spec.views.values().any(|v| v.detail.is_some()),
-        &|s| crate::detail::scaled(analysis, spec, s),
+        spec.views.values().any(|v| v.detail.is_some()) || !auxiliary.is_empty(),
+        &|s| crate::auxiliary::reserve(crate::detail::scaled(analysis, spec, s), &auxiliary, s),
     );
     if !request.required_tables.is_empty() && pick.fallback.is_some() {
         let mut bare = request.clone();
@@ -7780,8 +7789,8 @@ fn plan_with_presentation(
             scale,
             page,
             lo[2],
-            spec.views.values().any(|v| v.detail.is_some()),
-            &|s| crate::detail::scaled(analysis, spec, s),
+            spec.views.values().any(|v| v.detail.is_some()) || !auxiliary.is_empty(),
+            &|s| crate::auxiliary::reserve(crate::detail::scaled(analysis, spec, s), &auxiliary, s),
         );
         if p.fallback.is_none() {
             (request, pick, strips) = (bare, p, s);
@@ -7817,7 +7826,13 @@ fn plan_with_presentation(
             Some(pick.page),
             lo[2],
             false,
-            &|scale| crate::detail::scaled(analysis, spec, scale),
+            &|scale| {
+                crate::auxiliary::reserve(
+                    crate::detail::scaled(analysis, spec, scale),
+                    &auxiliary,
+                    scale,
+                )
+            },
         );
         if p.fallback.is_none() && p.page == pick.page && (p.scale - pick.scale).abs() < 1e-12 {
             with_radii.automatic_pair = request.automatic_pair;
@@ -7904,13 +7919,17 @@ fn plan_with_presentation(
         (None, Some(_), Some(_)) => "as the spec asks".into(),
     };
 
-    let authored_details = spec.views.values().any(|v| v.detail.is_some());
+    let authored_details = spec.views.values().any(|v| v.detail.is_some()) || !auxiliary.is_empty();
     let mut scaled_details = if pick.fallback.is_some() && !authored_details {
         // The demand search refused optional details at this pair. Do not compose them
         // again against the smaller bare reservation and displace established furniture.
         layout::Scaled::default()
     } else {
-        crate::detail::scaled(analysis, spec, pick.scale)
+        crate::auxiliary::reserve(
+            crate::detail::scaled(analysis, spec, pick.scale),
+            &auxiliary,
+            pick.scale,
+        )
     };
     let mut g = layout::geometry(
         &request,
@@ -8090,6 +8109,7 @@ fn plan_with_presentation(
             };
             PlannedView {
                 detail: None,
+                auxiliary: None,
                 sheet: 1, scale_note: None, xref: None,
                 id: format!("v:{name}"),
                 direction: *direction,
@@ -8130,6 +8150,7 @@ fn plan_with_presentation(
         let label = section_label.clone();
         views.push(PlannedView {
             detail: None,
+            auxiliary: None,
             sheet: 1, scale_note: None, xref: None,
             id: format!("v:{section_name}"),
             direction: [0.0, -1.0, 0.0],
@@ -8205,11 +8226,13 @@ fn plan_with_presentation(
                 line_style: Default::default(),
                 from_spec: Vec::new(),
                 detail: Some(detail),
+                auxiliary: None,
             });
         } else {
             problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", scale_name(detail.scale)),refs:vec![format!("v:{name}")],..Default::default()});
         }
     }
+    crate::auxiliary::place(&mut views, auxiliary, &g.derived, pick.scale, &mut problems);
     if require_automatic
         && !views
             .iter()

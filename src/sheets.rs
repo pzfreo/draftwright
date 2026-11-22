@@ -909,6 +909,7 @@ fn auxiliary(
     let label = if section.is_some() { 19. } else { 7. };
     let mut planned = PlannedView {
         detail: None,
+        auxiliary: None,
         id: format!("v:{name}"),
         sheet,
         scale_note: (name != "iso" && scale != parent_scale)

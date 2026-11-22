@@ -1779,13 +1779,15 @@ fn idle_candidate(analysis: &Analysis, spec: &Spec) -> Option<&'static str> {
 /// annotation or view to the plan, and to the side view, which keeps it.
 pub(crate) fn idle_spec(spec: &Spec) -> [bool; 3] {
     let referred = |v: &str| {
-        spec.dimensions.values().any(|d| {
-            d.view.as_deref() == Some(v)
-                || d.place.as_ref().and_then(|p| p.view.as_deref()) == Some(v)
-        }) || spec
-            .annotations
-            .values()
-            .any(|a| a.place.as_ref().and_then(|p| p.view.as_deref()) == Some(v))
+        crate::auxiliary::keeps_parent(spec, v)
+            || spec.dimensions.values().any(|d| {
+                d.view.as_deref() == Some(v)
+                    || d.place.as_ref().and_then(|p| p.view.as_deref()) == Some(v)
+            })
+            || spec
+                .annotations
+                .values()
+                .any(|a| a.place.as_ref().and_then(|p| p.view.as_deref()) == Some(v))
             || spec.views.values().any(|s| {
                 s.detail
                     .as_ref()
