@@ -983,18 +983,14 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
         }
         true
     });
-    // The placement preview checks one pair against the existing ink. When
-    // several holes still need locating, use per-hole lint guidance rather
-    // than offering several independent repairs as one plan's next move.
-    let mut unresolved = p.problems.iter_mut().filter(|q| warning(q));
-    if let Some(q) = unresolved.next()
-        && unresolved.next().is_none()
-        && let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false)
-        && let Some((name, _)) = q.message.split_once("'s location is not dimensioned:")
-    {
-        q.message = format!(
-            "{name}'s location is not dimensioned: its axis is inclined to every principal axis. Its size is called out where it is seen most nearly end-on. {fix}"
-        );
+    for q in p.problems.iter_mut().filter(|q| warning(q)) {
+        if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false)
+            && let Some((name, _)) = q.message.split_once("'s location is not dimensioned:")
+        {
+            q.message = format!(
+                "{name}'s location is not dimensioned: its axis is inclined to every principal axis. Its size is called out where it is seen most nearly end-on. {fix}"
+            );
+        }
     }
     for d in &mut p.dimensions {
         if d.measurements

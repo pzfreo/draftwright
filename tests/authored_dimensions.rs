@@ -1,4 +1,6 @@
 //! Authored quantities use exact B-rep evidence and the ordinary editing and ink pipeline.
+#[path = "common/corpus.rs"]
+mod corpus;
 #[path = "common/mcp_schema.rs"]
 mod mcp_schema;
 
@@ -2033,12 +2035,18 @@ fn inclined_location_requires_the_printed_route_to_its_anchor() {
         .iter()
         .find(|i| i.code == "feature_not_located" && i.subjects == ["f:hole:f9"])
         .expect("the flange foot has no printed route to a root");
+    let fix = missing.fix.as_deref().unwrap();
+    let (replacement, keep) = fix.split_once(" Or ").expect(fix);
+    assert!(replacement.starts_with("Either "), "{fix}");
     assert!(
-        missing
-            .fix
-            .as_deref()
-            .unwrap()
-            .contains("flange's foot edge")
+        replacement.contains("left stock edge") && replacement.contains("back stock face"),
+        "{fix}"
+    );
+    assert!(
+        keep.contains("keep the current authored dimensions")
+            && keep.contains("flange's foot edge")
+            && keep.contains("drawing datum"),
+        "{fix}"
     );
     assert!(
         p.problems
@@ -2078,6 +2086,80 @@ fn inclined_planner_warning_offers_the_drawings_authored_route() {
     assert!(warning.message.contains("along: true"));
     assert!(warning.message.contains("front view"));
     assert!(warning.message.contains("side view"));
+}
+
+fn cgb217() -> Option<(std::sync::Arc<draftwright::haecceity::Part>, Analysis)> {
+    let path = corpus::dir()?.join("cadgenbench_inputs/cgb217.step.gz");
+    Some(crate::cache::native(&path))
+}
+
+const COMPOUND_HOLES: [&str; 3] = ["f:hole:f26", "f:hole:f28", "f:hole:f41"];
+
+#[test]
+fn inclined_planner_warning_names_each_holes_anchors() {
+    let Some((part, a)) = cgb217() else { return };
+    let p = crate::cache::default_plan(&a, true);
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let lint = draftwright::lint::lint(&a, &drawing);
+    for id in COMPOUND_HOLES {
+        let issue = lint
+            .iter()
+            .find(|i| i.code == "feature_not_located" && i.subjects == [id])
+            .unwrap_or_else(|| panic!("missing lint for {id}"));
+        let warning = p
+            .problems
+            .iter()
+            .find(|p| p.code == "feature_not_dimensioned" && p.subjects == [id])
+            .unwrap_or_else(|| panic!("missing warning for {id}"));
+        let wire = serde_json::to_value(issue).unwrap();
+        let plain = wire["fix_description"].as_str().unwrap();
+        assert!(
+            warning.message.ends_with(plain),
+            "{id}: {} vs {plain}",
+            warning.message
+        );
+        assert_eq!(
+            plain.matches("from the hole's axis to ").count(),
+            2,
+            "{id}: {plain}"
+        );
+        assert!(!plain.contains(":v1:"), "{id}: {plain}");
+    }
+}
+
+#[test]
+fn inclined_suggestions_exclude_tangent_and_silhouette_edges() {
+    use draftwright::haecceity::brep::Arc;
+
+    let Some((part, a)) = cgb217() else { return };
+    let p = crate::cache::default_plan(&a, true);
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let lint = draftwright::lint::lint(&a, &drawing);
+    for id in COMPOUND_HOLES {
+        let fix = lint
+            .iter()
+            .find(|i| i.code == "feature_not_located" && i.subjects == [id])
+            .and_then(|i| i.fix.as_deref())
+            .unwrap();
+        for dimension in suggested_inclined_dimensions(fix).into_values() {
+            let key = dimension["between"][1].as_str().unwrap();
+            match a.dimension_reference(key).unwrap() {
+                Reference::Edge { membership, .. } => {
+                    let [first, second] = membership.faces.as_slice() else {
+                        panic!("{id}: {key} has no two-face corner");
+                    };
+                    assert!(
+                        matches!(part.arc(*first, *second), Some(Arc::Convex | Arc::Concave)),
+                        "{id}: suggestion uses tangent or silhouette edge {key}: {fix}"
+                    );
+                }
+                Reference::Plane { .. } => {}
+                _ => panic!("{id}: {key} is not a plane or a sharp edge"),
+            }
+        }
+    }
 }
 
 #[test]

@@ -322,10 +322,12 @@ struct ViewInk {
 }
 
 impl ViewInk {
-    /// Estimate crossings from the rendered view frame and its dimension
-    /// strokes. Try paper offsets beside the projected envelope on both sides
-    /// of the dimension rather than assuming a single occupied line is fixed.
+    /// Compare to existing dimension strokes using the rendered view frame.
+    /// The candidate's line offsets from the projected envelope are estimates.
     fn crossings(&self, a: &Analysis, constraint: &Constraint<'_>) -> Option<usize> {
+        if self.strokes.is_empty() {
+            return Some(0);
+        }
         let frame = self.frame.as_ref()?;
         if frame.half_axis.is_some()
             || frame.broken.is_some()
@@ -481,6 +483,69 @@ fn anchor_name(a: &Analysis, id: &str, c: &Constraint<'_>) -> String {
     format!("the {kind}{owner} at {stations} mm from the stock minimum")
 }
 
+/// Suggest edges that are part of the drawn B-rep and have a proven change of
+/// tangent plane. A single incident face cannot distinguish a seam from a free
+/// edge, and projection silhouettes have no physical reference.
+fn drawable_anchors(a: &Analysis) -> Vec<&str> {
+    let Some(ink) = &a.edge_ink else {
+        return Vec::new();
+    };
+    let faces: BTreeMap<_, _> = ink
+        .references
+        .values()
+        .flatten()
+        .filter(|r| {
+            matches!(
+                r,
+                Reference::Plane { .. } | Reference::Cylinder { .. } | Reference::Sphere { .. }
+            )
+        })
+        .filter_map(|r| Some((*r.membership().faces.first()?, r)))
+        .collect();
+    let normal = |r: &Reference, at: [f64; 3]| match r {
+        Reference::Plane { normal, .. } => Some(*normal),
+        Reference::Cylinder { origin, axis, .. } => {
+            let radial = sub(at, *origin);
+            let height = dot(radial, *axis);
+            unit(std::array::from_fn(|k| radial[k] - height * axis[k]))
+        }
+        Reference::Sphere { centre, .. } => unit(sub(at, *centre)),
+        _ => None,
+    };
+    ink.references
+        .iter()
+        .filter_map(|(key, values)| match values.as_slice() {
+            [Reference::Plane { .. }] => Some(key.as_str()),
+            [Reference::Edge { ends, membership }] => {
+                let [first, second] = membership.faces.as_slice() else {
+                    return None;
+                };
+                let [first, second] = [*faces.get(first)?, *faces.get(second)?];
+                let boundary = first.membership().edges.as_ref()?.iter().find(|e| {
+                    e.reference.as_deref() == Some(key)
+                        && ink
+                            .edges
+                            .get(e.index)
+                            .is_some_and(|samples| !samples.is_empty())
+                })?;
+                if !second
+                    .membership()
+                    .edges
+                    .as_ref()?
+                    .iter()
+                    .any(|e| e.index == boundary.index)
+                {
+                    return None;
+                }
+                let at = std::array::from_fn(|k| (ends[0][k] + ends[1][k]) / 2.0);
+                let cosine = dot(normal(first, at)?, normal(second, at)?).abs();
+                (1.0 - cosine > haecceity::geom::SMOOTH_ARC_GAP).then_some(key.as_str())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Select the same guidance for lint and the planner warning. Use current ink
 /// to preview dimension-line crossings without recursively planning another sheet.
 pub(crate) fn fix(
@@ -498,19 +563,18 @@ pub(crate) fn fix(
     let unlocated = authored
         .iter()
         .filter(|(_, c)| !stations.rooted(c, &excluded))
-        .map(|(_, c)| handle(anchor_name(a, id, c), c.key, handles))
-        .collect::<BTreeSet<_>>();
+        .map(|(_, c)| (c.key, handle(anchor_name(a, id, c), c.key, handles)))
+        .collect::<BTreeMap<_, _>>();
     let ink = view_ink(marks);
+    let empty = ViewInk::default();
     let units = marks
         .first()
         .map_or(crate::output::Units::default(), |m| m.units);
     let axis_key = format!("axis:{id}");
+    let anchors = drawable_anchors(a);
     let mut candidates = BTreeMap::<&str, Suggestion>::new();
     for along in ["true", "y", "x", "z"] {
-        for key in a.dimension_references().keys() {
-            if !key.starts_with("face:") && !key.starts_with("edge:") {
-                continue;
-            }
+        for &key in &anchors {
             let Some(c) = constraint(a, id, &[&axis_key, key], along) else {
                 continue;
             };
@@ -522,7 +586,8 @@ pub(crate) fn fix(
                 }
                 let crossing = ink
                     .get(view)
-                    .and_then(|ink| ink.crossings(a, &c))
+                    .unwrap_or(&empty)
+                    .crossings(a, &c)
                     .unwrap_or(1);
                 let back_face = matches!(&c.anchor, Reference::Plane { membership, .. }
                     if membership.stock_sides.iter().any(|side| side == "back"));
@@ -568,30 +633,59 @@ pub(crate) fn fix(
             }
         }
     }
-    let mut fix = String::new();
-    for anchor in unlocated {
-        fix.push_str(&format!(
-            "Locate {anchor} with a printed dimension from a drawing datum. "
-        ));
-    }
+    let mut prerequisites: BTreeSet<_> = unlocated.values().cloned().collect();
     if let Some((_, first, second)) = best {
-        for route in [first, second] {
-            if route.missing && !authored.iter().any(|(_, c)| c.key == route.c.key) {
-                let anchor = handle(anchor_name(a, id, &route.c), route.c.key, handles);
-                fix.push_str(&format!(
-                    "Locate {anchor} with a printed dimension from a drawing datum. "
-                ));
-            }
-        }
-        fix.push_str(&format!(
-            "Locate the inclined hole with two authored dimensions. State {} and {}. These constrain both directions across its axis.",
+        let suggested: BTreeSet<_> = [first, second]
+            .into_iter()
+            .filter(|r| r.missing)
+            .map(|r| handle(anchor_name(a, id, &r.c), r.c.key, handles))
+            .collect();
+        let distances = format!(
+            "{} and {}",
             first.text(a, id, units, handles),
-            second.text(a, id, units, handles),
-        ));
+            second.text(a, id, units, handles)
+        );
+        if !unlocated.is_empty()
+            && unlocated
+                .keys()
+                .any(|key| *key != first.c.key && *key != second.c.key)
+            && authored.iter().enumerate().any(|(i, (_, c))| {
+                authored[i + 1..]
+                    .iter()
+                    .any(|(_, other)| independent(c.normal, other.normal, d))
+            })
+        {
+            let replacement = if suggested.is_empty() {
+                format!("replace the current authored dimensions with {distances}")
+            } else {
+                let anchors = suggested.into_iter().collect::<Vec<_>>().join(" and ");
+                format!(
+                    "locate {anchors} with printed dimensions to a drawing datum and replace the current authored dimensions with {distances}"
+                )
+            };
+            let anchors = prerequisites.into_iter().collect::<Vec<_>>().join(" and ");
+            return Some(format!(
+                "Either {replacement}. Or keep the current authored dimensions and locate {anchors} with printed dimensions to a drawing datum."
+            ));
+        }
+        prerequisites.extend(suggested);
+        let required = anchor_prerequisites(prerequisites);
+        Some(format!(
+            "{required}Locate the inclined hole with two authored dimensions. State {distances}. These constrain both directions across its axis."
+        ))
     } else {
-        fix.push_str("Locate the inclined hole with two independent authored distances from its axis to located edges or datum faces, in views that show the distances at true length.");
+        let required = anchor_prerequisites(prerequisites);
+        Some(format!(
+            "{required}Locate the inclined hole with two independent authored distances from its axis to located edges or datum faces, in views that show the distances at true length."
+        ))
     }
-    Some(fix)
+}
+
+fn anchor_prerequisites(anchors: BTreeSet<String>) -> String {
+    anchors
+        .into_iter()
+        .map(|anchor| format!("Locate {anchor} with a printed dimension to a drawing datum. "))
+        .collect()
 }
 
 /// Keep the ordinary holes' finding and its fix intact when the legacy check
@@ -667,4 +761,46 @@ fn describe(
         issue.measurements = vec![format!("{id}/location.piercing_point")];
     }
     issue.fix = fix(a, marks, edges, roots, id, true);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inclined_views_without_dimension_ink_score_zero() {
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema":"draftwright.analysis/8",
+            "binding":{"source_sha256":"","part":"","face_count":0,"loader":""},
+            "envelope":[[-10.,-10.,-10.],[10.,10.,10.]],
+            "iso_bounds":[0.,0.,0.,0.]
+        }))
+        .unwrap();
+        let c = Constraint {
+            key: "face",
+            anchor: Reference::Plane {
+                membership: Default::default(),
+                origin: [0.; 3],
+                normal: [0., 1., 0.],
+                bounds: [[-10., 0., -10.], [10., 0., 10.]],
+            },
+            normal: [0., 1., 0.],
+            anchor_index: 1,
+            witnesses: [[0., -5., 0.], [0., 0., 0.]],
+            value: 5.,
+        };
+        assert_eq!(ViewInk::default().crossings(&a, &c), Some(0));
+        let ink = ViewInk {
+            frame: Some(crate::output::DrawnFrame {
+                direction: [1., 0., 0.],
+                up: [0., 0., 1.],
+                at: [100., 100.],
+                scale: 2.,
+                broken: None,
+                half_axis: None,
+            }),
+            strokes: vec![[[95., 0.], [95., 200.]]],
+        };
+        assert_eq!(ink.crossings(&a, &c), Some(1));
+    }
 }
