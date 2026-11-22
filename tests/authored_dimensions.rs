@@ -1,6 +1,4 @@
 //! Authored quantities use exact B-rep evidence and the ordinary editing and ink pipeline.
-#[path = "common/corpus.rs"]
-mod corpus;
 #[path = "common/mcp_schema.rs"]
 mod mcp_schema;
 
