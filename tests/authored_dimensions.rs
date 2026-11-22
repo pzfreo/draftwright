@@ -1894,7 +1894,8 @@ fn suggested_inclined_dimensions(fix: &str) -> serde_json::Map<String, serde_jso
             .unwrap_or(description)
     }
     let mut dimensions = serde_json::Map::new();
-    for (i, route) in fix.split(" from ").skip(1).enumerate() {
+    for (i, (start, _)) in fix.match_indices(" from the hole's axis").enumerate() {
+        let route = &fix[start + " from ".len()..];
         let (axis, route) = route.split_once(" to ").unwrap();
         let (anchor, route) = route.split_once(" with along: ").unwrap();
         let (along, route) = route.split_once(" in the ").unwrap();
