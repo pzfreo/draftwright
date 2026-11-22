@@ -313,10 +313,24 @@ pub(super) fn apply<'a>(
                 ),
             );
             if dot(v.direction, vertical).abs() <= EPS {
+                // In a view along the normal of the inclination plane, the
+                // cylindrical generator is parallel to the axis at true length.
+                // Use that drawn support and a vertical through its upper end.
+                let radius = f
+                    .parameters
+                    .get("diameter")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.)
+                    / 2.;
+                let Some(across) = unit(cross(axis, v.direction)) else {
+                    continue;
+                };
+                let radial = scale3(across, radius);
+                let vertex = add(at, radial);
                 let angle = Angle {
-                    vertex: base,
-                    first: add(base, scale3(vertical, height)),
-                    second: at,
+                    vertex,
+                    first: add(vertex, scale3(vertical, -height)),
+                    second: add(base, radial),
                 };
                 if let Some(value) = angle.degrees() {
                     add_want(

@@ -708,6 +708,12 @@ pub(crate) fn reference_views(spec: &Spec) -> crate::sections::Views {
     views.keep_sections_from(&spec.views);
     views.keep_breaks_from(&spec.views);
     views.keep_pictorials_from(&spec.views);
+    for (name, entry) in spec.views.iter().filter(|(_, v)| v.auxiliary.is_some()) {
+        let mut entry = entry.clone();
+        entry.place = None;
+        entry.sheet = None;
+        views.insert(name.clone(), entry);
+    }
     views
 }
 

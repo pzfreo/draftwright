@@ -67,6 +67,20 @@ pub(crate) fn is_name(name: &str) -> bool {
         .is_some_and(|anchor| !anchor.is_empty())
 }
 
+pub(crate) fn spec_name<'a>(spec: &'a Spec, id: &'a str) -> &'a str {
+    let name = id.trim_start_matches("v:");
+    if !spec.views.contains_key(name)
+        && let Some(short) = name.strip_suffix("/edge")
+        && spec
+            .views
+            .get(short)
+            .is_some_and(|v| v.auxiliary.as_ref().is_some_and(|a| a.edge_on.is_some()))
+    {
+        return short;
+    }
+    name
+}
+
 pub(crate) fn keeps_parent(spec: &Spec, name: &str) -> bool {
     spec.views.values().any(|v| {
         !v.omit
@@ -432,7 +446,9 @@ pub(crate) fn requests(
                     .find(|r| r.name == p || r.id.strip_prefix("v:") == Some(p))
             });
             if let Some(p) = parent.filter(|p| is_name(p)) {
-                if unavailable.contains(p) || spec.views.get(p).is_some_and(|v| v.omit) {
+                if unavailable.contains(spec_name(spec, p))
+                    || spec.views.get(spec_name(spec, p)).is_some_and(|v| v.omit)
+                {
                     unavailable.insert(name.as_str());
                     continue;
                 }

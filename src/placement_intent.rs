@@ -395,7 +395,7 @@ pub(crate) fn views(
     let mut resolved = BTreeSet::new();
     for _ in 0..views.len() {
         for i in 0..views.len() {
-            let name = views[i].id.trim_start_matches("v:").to_string();
+            let name = crate::auxiliary::spec_name(s, &views[i].id).to_string();
             let Some(p) = s.views.get(&name).and_then(|v| v.place.as_ref()) else {
                 resolved.insert(name);
                 continue;
@@ -410,10 +410,10 @@ pub(crate) fn views(
             {
                 continue;
             }
-            let Some(anchor) = views
-                .iter()
-                .find(|v| v.id == format!("v:{}", p.relative_to))
-            else {
+            let Some(anchor) = views.iter().find(|v| {
+                v.id.strip_prefix("v:") == Some(p.relative_to.as_str())
+                    || crate::auxiliary::spec_name(s, &v.id) == p.relative_to
+            }) else {
                 continue;
             };
             let b = anchor.area;

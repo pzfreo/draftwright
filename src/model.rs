@@ -12361,7 +12361,9 @@ fn render_annotations_with_cuts(
         }
     }
     for v in &plan.views {
-        if let Some(note) = &v.scale_note {
+        if let Some(note) = &v.scale_note
+            && v.auxiliary.is_none()
+        {
             if rejected_sections.contains_key(&v.id) {
                 continue;
             }
