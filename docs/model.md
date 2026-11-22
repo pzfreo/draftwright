@@ -2531,8 +2531,10 @@ fingerprints with complete keys from the Analysis):
   assert through `note_satisfies`.
 
   The inclined axis has no unique z station, and its supporting line intersects the base
-  plane. Therefore axis-to-base `along: "z"` and `along: "true"` remain refused, as does
-  `note_satisfies: ["location.length.z"]`. Use the two transverse distances above.
+  plane. Therefore axis-to-base `along: "z"` and `along: "true"` remain refused.
+  The legacy note role `location.length.z` is admitted, but this bracket's note is not
+  drawn because its faces provide no proven leader site; it grants no location credit.
+  Use the two transverse distances above.
 - **One quantity, one owner (K6).** A new dimension duplicating a drawn automatic owner is
   refused, naming that owner ID in the message and choices. Edit its tolerance/view/place
   instead. Coincident principal spans, identical true spans/angular sectors, and the radius

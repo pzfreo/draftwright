@@ -1899,7 +1899,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
     let suggested = model::render(&part, &a, &suggested, &font).unwrap();
     assert!(!bracket_missing(&a, &draftwright::lint::marks(&suggested)));
 
-    // These three refusals remain geometrically correct; none is a route to a z station.
+    // These geometric refusals remain correct; neither defines a z station.
     let base = planes(&a, 2).first().unwrap().0.clone();
     for (along, why) in [
         ("z", "no unique z station"),
@@ -1915,8 +1915,18 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
                 .contains(why)
         );
     }
+    // Main already admits the legacy note role, but refuses to draw its unanchored note.
     let s = parse(
         json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.length.z"]}}}),
+    );
+    let noted = model::plan_recovered(&a, &s).unwrap();
+    assert!(noted.problems.iter().any(
+        |p| p.code == "pmi_not_lowered" && p.message.contains("no proven site for its leader")
+    ));
+    let noted = model::render(&part, &a, &noted, &font).unwrap();
+    assert!(bracket_missing(&a, &draftwright::lint::marks(&noted)));
+    let s = parse(
+        json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.piercing_point"]}}}),
     );
     assert!(
         model::plan(&a, &s)

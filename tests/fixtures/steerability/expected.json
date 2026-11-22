@@ -1,12 +1,4 @@
 {
-  "293": {
-    "case": "steer_293_inclined_hole",
-    "group": "A",
-    "reason": "The requested note role is accepted; inclined-hole location remains missing.",
-    "checks": [
-      "feature_not_located"
-    ]
-  },
   "300": {
     "case": "steer_300_oblique_shoulders",
     "group": "A",
