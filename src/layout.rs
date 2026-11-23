@@ -1612,36 +1612,80 @@ fn beside_projection(
     centre: [f64; 2],
     direction: [f64; 2],
 ) -> Option<[f64; 2]> {
-    let major = usize::from(direction[1].abs() > direction[0].abs());
-    for axis in [major, 1 - major] {
-        if direction[axis].abs() < 1e-6 {
-            continue;
-        }
-        let cross = 1 - axis;
-        let positive = direction[axis] > 0.;
-        let prefer = match (axis, positive) {
-            (0, false) => Corner::BottomRight,
-            (1, false) => Corner::TopLeft,
-            _ => Corner::BottomLeft,
-        };
-        let mut region = drawable;
-        if positive {
-            region[axis] = parent[axis + 2] + 3.;
-        } else {
-            region[axis + 2] = parent[axis] - 3.;
-        }
-        // Keep the centers aligned where possible. Nearby offsets still
-        // project into the parent footprint if dimension bands need the space.
-        for spread in [0.001, (parent[cross + 2] - parent[cross]) / 2.] {
-            let mut strip = region;
-            strip[cross] = strip[cross].max(centre[cross] - size[cross] / 2. - spread);
-            strip[cross + 2] = strip[cross + 2].min(centre[cross] + size[cross] / 2. + spread);
-            if let Some(at) = fit_box(size, strip, obstacles, prefer, 1.) {
-                return Some(at);
+    let half = size.map(|length| length / 2.);
+    let region = [
+        drawable[0] + half[0],
+        drawable[1] + half[1],
+        drawable[2] - half[0],
+        drawable[3] - half[1],
+    ];
+    if region[2] < region[0] || region[3] < region[1] {
+        return None;
+    }
+    // Work in centre coordinates so the nearest point on the projection ray
+    // can be tested against the same reserved footprints as any offset.
+    let forbidden: Vec<_> = obstacles
+        .iter()
+        .map(|b| (b, 1.))
+        .chain(std::iter::once((&parent, 3.)))
+        .map(|(b, gap)| {
+            [
+                b[0] - half[0] - gap,
+                b[1] - half[1] - gap,
+                b[2] + half[0] + gap,
+                b[3] + half[1] + gap,
+            ]
+        })
+        .collect();
+    let stations = |k| {
+        let mut stations = vec![region[k], region[k + 2]];
+        stations.extend(
+            forbidden
+                .iter()
+                .flat_map(|b| [b[k], b[k + 2]])
+                .filter(|v| *v >= region[k] && *v <= region[k + 2]),
+        );
+        stations
+    };
+    let xs = stations(0);
+    let ys = stations(1);
+    let mut candidates = Vec::new();
+    for axis in 0..2 {
+        let (stations, other) = if axis == 0 { (&xs, &ys) } else { (&ys, &xs) };
+        for &station in stations {
+            let crossing = (direction[axis].abs() > 1e-9).then(|| {
+                centre[1 - axis] + direction[1 - axis] * (station - centre[axis]) / direction[axis]
+            });
+            for value in other.iter().copied().chain(crossing) {
+                let at = if axis == 0 {
+                    [station, value]
+                } else {
+                    [value, station]
+                };
+                if (0..2).any(|k| at[k] < region[k] - 1e-9 || at[k] > region[k + 2] + 1e-9)
+                    || forbidden
+                        .iter()
+                        .any(|b| (0..2).all(|k| at[k] > b[k] + 1e-9 && at[k] < b[k + 2] - 1e-9))
+                {
+                    continue;
+                }
+                let [x, y] = [at[0] - centre[0], at[1] - centre[1]];
+                if x * direction[0] + y * direction[1] > 0. {
+                    candidates.push(((x * direction[1] - y * direction[0]).abs(), x.hypot(y), at));
+                }
             }
         }
     }
-    None
+    candidates
+        .into_iter()
+        .min_by(|a, b| {
+            if (a.0 - b.0).abs() < 1e-9 {
+                a.1.total_cmp(&b.1)
+            } else {
+                a.0.total_cmp(&b.0)
+            }
+        })
+        .map(|(_, _, at)| [at[0] - half[0], at[1] - half[1]])
 }
 
 /// How the scale and sheet were reached when no standard choice fits.
