@@ -1,14 +1,18 @@
-//! Requested orthographic views whose viewing direction is true in their parent.
+//! Auxiliary orthographic views whose viewing direction is true in their parent.
 use haecceity::hlr::View;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::auxiliary_geometry::{
-    Point, coplanar_patches, cross, dot, face, feature_axis, sub, support, unit,
-};
 use crate::layout::{Rect, Scaled};
+use crate::lint::auxiliary_geometry::{
+    BoreEnd, Point, bore_end, coplanar_patches, cross, dot, face, feature_axis, sub, support, unit,
+};
 use crate::model::dimension_geometry::Reference;
-use crate::model::{Analysis, Invalid, PlannedView, Problem, Spec, VIEWS};
+use crate::model::{Analysis, Invalid, Plan, PlannedView, Problem, Spec, VIEWS};
+
+mod automatic;
+mod visibility;
+pub(crate) use visibility::{BossProfile, boss_witnesses, evidence};
 
 const TOLERANCE: f64 = 1e-6;
 
@@ -30,6 +34,9 @@ pub struct AuxiliarySpec {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Auxiliary {
     pub anchor: String,
+    /// Additional features sharing this automatic projection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<String>,
     pub parent: String,
     pub edge_on: bool,
     pub full: bool,
@@ -51,10 +58,12 @@ pub(crate) fn spec_name<'a>(spec: &'a Spec, id: &'a str) -> &'a str {
     let name = id.trim_start_matches("v:");
     if !spec.views.contains_key(name)
         && let Some(short) = name.strip_suffix("/edge")
-        && spec
-            .views
-            .get(short)
-            .is_some_and(|v| v.auxiliary.as_ref().is_some_and(|a| a.edge_on.is_some()))
+        && spec.views.get(short).is_some_and(|v| {
+            v.auxiliary.as_ref().map_or_else(
+                || short.starts_with("aux:f:boss:") || short.starts_with("aux:face:"),
+                |a| a.edge_on.is_some(),
+            )
+        })
     {
         return short;
     }
@@ -76,9 +85,6 @@ pub(crate) fn keeps_parent(spec: &Spec, name: &str) -> bool {
 pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
     for (name, entry) in &spec.views {
         let Some(aux) = &entry.auxiliary else {
-            if is_name(name) && !entry.omit {
-                return Err(invalid(name, "needs an auxiliary request"));
-            }
             continue;
         };
         let (anchor, edge) = match (&aux.square_to, &aux.edge_on) {
@@ -212,16 +218,20 @@ fn fit_points(a: &Analysis, references: &[Reference], view: &View) -> Option<Rec
 
 fn crop(a: &Analysis, references: &[Reference], view: &View) -> Option<Rect> {
     let limits = fit_points(a, references, view)?;
-    let pad = (0.12 * (limits[2] - limits[0]).max(limits[3] - limits[1])).max(2.0);
+    Some(local_crop(a, view, limits, 0.12, 2.))
+}
+
+fn local_crop(a: &Analysis, view: &View, limits: Rect, fraction: f64, minimum: f64) -> Rect {
+    let pad = (fraction * (limits[2] - limits[0]).max(limits[3] - limits[1])).max(minimum);
     let (size, centre) = crate::model::extent(a, view);
-    Some(std::array::from_fn(|k| {
+    std::array::from_fn(|k| {
         let axis = k % 2;
         if k < 2 {
             (limits[k] - pad).max(centre[axis] - size[axis] / 2.)
         } else {
             (limits[k] + pad).min(centre[axis] + size[axis] / 2.)
         }
-    }))
+    })
 }
 
 pub(crate) fn extent(rect: Rect) -> ([f64; 2], [f64; 2]) {
@@ -251,12 +261,23 @@ fn anchor_direction(a: &Analysis, anchor: &str) -> Option<Point> {
     })
 }
 
+pub(crate) fn opposed_profile(a: &Analysis, aux: &Auxiliary) -> bool {
+    let Some(axis) = anchor_direction(a, &aux.anchor) else {
+        return false;
+    };
+    aux.members
+        .iter()
+        .any(|id| anchor_direction(a, id).is_some_and(|other| dot(axis, other) < -1. + TOLERANCE))
+}
+
 pub(crate) struct Request {
     name: String,
     id: String,
     camera: View,
     meta: Auxiliary,
     factor: f64,
+    automatic: bool,
+    projection: Option<[f64; 2]>,
 }
 
 pub(crate) fn requests(
@@ -374,55 +395,16 @@ pub(crate) fn requests(
                     "needs a parent whose plane contains its viewing direction",
                 ));
             };
-            let axes = [[0., 0., 1.], [0., 1., 0.], [1., 0., 0.]];
-            let upright = axes
-                .into_iter()
-                .find(|axis| dot(*axis, direction).abs() <= TOLERANCE);
-            let base = View::new(direction, upright.unwrap_or(axes[0]))
-                .ok_or_else(|| invalid(name, "has a degenerate camera"))?;
-            let references = anchor_references(a, anchor, base.toward, edge);
-            let (camera, rotation) = if upright.is_none()
-                && let Some(horizontal) = longest_edge(a, &references)
-                && let Some(up) = unit(cross(base.toward, horizontal))
-            {
-                let up = if dot(up, base.y) < 0. {
-                    up.map(|x| -x)
-                } else {
-                    up
-                };
-                let angle = dot(up, base.x).atan2(dot(up, base.y)).to_degrees();
-                (View::new(direction, up).unwrap_or(base), Some(angle))
-            } else {
-                (base, None)
-            };
-            let crop = (!aux.full).then(|| crop(a, &references, &camera)).flatten();
-            if !aux.full && crop.is_none() {
-                return Err(invalid(
-                    name,
-                    "needs boundary geometry for a partial view; analyse the STEP again or request full",
-                ));
-            }
-            let bounds = crop.unwrap_or_else(|| {
-                let (size, centre) = crate::model::extent(a, &camera);
-                std::array::from_fn(|k| {
-                    centre[k % 2] + if k < 2 { -0.5 } else { 0.5 } * size[k % 2]
-                })
-            });
-            out.push(Request {
-                name: name.clone(),
+            out.push(make_request(
+                a,
+                name.clone(),
                 id,
-                camera,
-                meta: Auxiliary {
-                    anchor: anchor.clone(),
-                    parent,
-                    edge_on: edge,
-                    full: aux.full,
-                    bounds,
-                    label: String::new(),
-                    rotation,
-                },
-                factor: aux.scale_factor.unwrap_or(1.),
-            });
+                anchor.clone(),
+                parent,
+                direction,
+                edge,
+                Some(aux),
+            )?);
         }
         if next.len() == count {
             return Err(invalid(
@@ -432,7 +414,85 @@ pub(crate) fn requests(
         }
         pending = next;
     }
+    let recognized = automatic::append(a, spec, &shown, &principal, &mut out, problems);
+    if crate::planning::automatic_auxiliaries() {
+        for (name, v) in spec.views.iter().filter(|(name, _)| is_name(name)) {
+            if v.auxiliary.is_none()
+                && !recognized.contains(name)
+                && !(v.omit && automatic::known_feature_view(a, name))
+            {
+                return Err(invalid(
+                    name,
+                    "has no matching automatic view or auxiliary request",
+                ));
+            }
+        }
+    }
     Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn make_request(
+    a: &Analysis,
+    name: String,
+    id: String,
+    anchor: String,
+    parent: String,
+    direction: Point,
+    edge: bool,
+    recipe: Option<&AuxiliarySpec>,
+) -> Result<Request, Invalid> {
+    let axes = [[0., 0., 1.], [0., 1., 0.], [1., 0., 0.]];
+    let upright = axes
+        .into_iter()
+        .find(|axis| dot(*axis, direction).abs() <= TOLERANCE);
+    let base = View::new(direction, upright.unwrap_or(axes[0]))
+        .ok_or_else(|| invalid(&name, "has a degenerate camera"))?;
+    let references = anchor_references(a, &anchor, base.toward, edge);
+    let (camera, rotation) = if upright.is_none()
+        && let Some(horizontal) = longest_edge(a, &references)
+        && let Some(up) = unit(cross(base.toward, horizontal))
+    {
+        let up = if dot(up, base.y) < 0. {
+            up.map(|x| -x)
+        } else {
+            up
+        };
+        let angle = dot(up, base.x).atan2(dot(up, base.y)).to_degrees();
+        (View::new(direction, up).unwrap_or(base), Some(angle))
+    } else {
+        (base, None)
+    };
+    let full = recipe.is_some_and(|aux| aux.full);
+    let crop = (!full).then(|| crop(a, &references, &camera)).flatten();
+    if !full && crop.is_none() && recipe.is_some() {
+        return Err(invalid(
+            &name,
+            "needs boundary geometry for a partial view; analyse the STEP again or request full",
+        ));
+    }
+    let bounds = crop.unwrap_or_else(|| {
+        let (size, centre) = crate::model::extent(a, &camera);
+        std::array::from_fn(|k| centre[k % 2] + if k < 2 { -0.5 } else { 0.5 } * size[k % 2])
+    });
+    Ok(Request {
+        automatic: recipe.is_none(),
+        projection: None,
+        name,
+        id,
+        camera,
+        meta: Auxiliary {
+            anchor,
+            members: Vec::new(),
+            parent,
+            edge_on: edge,
+            full: crop.is_none(),
+            bounds,
+            label: String::new(),
+            rotation,
+        },
+        factor: recipe.and_then(|aux| aux.scale_factor).unwrap_or(1.),
+    })
 }
 
 const PAD: [f64; 2] = [22., 22.];
@@ -440,12 +500,40 @@ const PAD: [f64; 2] = [22., 22.];
 pub(crate) fn reserve(mut scaled: Scaled, requests: &[Request], scale: f64) -> Scaled {
     scaled.derived.extend(requests.iter().map(|r| {
         let [w, h] = extent(r.meta.bounds).0.map(|d| d * scale * r.factor);
-        (r.name.clone(), (w + 2. * PAD[0]).max(65.), h + 2. * PAD[1])
+        if r.projection.is_some() {
+            // This parent carries a caption and the secondary arrow, but no dimensions.
+            (r.name.clone(), (w + 16.).max(24.), h + 24.)
+        } else {
+            let vertical = if crate::dims::compact()
+                && r.automatic
+                && !r.meta.edge_on
+                && !r.meta.full
+                && !r.meta.parent.starts_with("v:aux:")
+                && r.meta.members.is_empty()
+            {
+                // A single primary true-shape crop needs one compact dimension
+                // lane and room for the caption. Keep full width for its callout.
+                15.
+            } else {
+                PAD[1]
+            };
+            (
+                r.name.clone(),
+                (w + 2. * PAD[0]).max(65.),
+                h + 2. * vertical,
+            )
+        }
     }));
+    scaled.derived_projections.extend(
+        requests
+            .iter()
+            .filter_map(|r| Some((r.name.clone(), r.meta.parent.clone(), r.projection?))),
+    );
     scaled
 }
 
 pub(crate) fn place(
+    spec: &Spec,
     views: &mut Vec<PlannedView>,
     requests: Vec<Request>,
     boxes: &[(String, Rect)],
@@ -454,11 +542,11 @@ pub(crate) fn place(
 ) {
     for r in requests {
         if !views.iter().any(|v| v.id == r.meta.parent) {
-            problems.push(unavailable_parent(
-                &r.name,
-                &r.meta.parent,
-                "could not be placed",
-            ));
+            problems.push(if r.automatic {
+                unplaceable_request(spec, &r)
+            } else {
+                unavailable_parent(&r.name, &r.meta.parent, "could not be placed")
+            });
             continue;
         }
         let area = boxes
@@ -475,8 +563,12 @@ pub(crate) fn place(
                 at: std::array::from_fn(|k| (area[k] + area[k + 2]) / 2.),
                 area,
                 scale: scale * r.factor,
-                default: false,
-                basis: "requested auxiliary projection, placed by reference arrow".into(),
+                default: r.automatic && !spec.views.contains_key(&r.name),
+                basis: if r.automatic {
+                    "automatic auxiliary projection for an inclined feature, placed by reference arrow"
+                } else {
+                    "requested auxiliary projection, placed by reference arrow"
+                }.into(),
                 state: crate::items::State::Shown,
                 sheet: 1,
                 scale_note: (r.factor != 1.).then(|| crate::model::scale_name(scale * r.factor)),
@@ -487,21 +579,167 @@ pub(crate) fn place(
                     hidden: Some(false),
                     ..Default::default()
                 },
-                from_spec: vec![format!("views/{}/auxiliary", r.name)],
+                from_spec: if r.automatic {
+                    Vec::new()
+                } else {
+                    vec![format!("views/{}/auxiliary", r.name)]
+                },
                 cut: None,
                 half_section: None,
                 broken: None,
             });
         } else {
-            problems.push(Problem {
-                id: format!("p:auxiliary_unplaceable:{}", r.id),
-                code: "auxiliary_unplaceable".into(),
-                severity: "warning".into(),
-                message: "The layout has insufficient room for the auxiliary view.".into(),
-                refs: vec![r.id],
-                ..Default::default()
-            });
+            problems.push(unplaceable_request(spec, &r));
         }
+    }
+}
+
+pub(crate) fn is_automatic_view(view: &PlannedView) -> bool {
+    view.auxiliary.is_some() && view.basis.starts_with("automatic auxiliary projection")
+}
+
+pub(crate) fn automatic_in(plan: &Plan) -> bool {
+    plan.views.iter().any(is_automatic_view) || plan.problems.iter().any(automatic_unplaceable)
+}
+
+pub(crate) fn automatic_unplaceable(problem: &Problem) -> bool {
+    problem.code == "auxiliary_unplaceable"
+        && problem.id.starts_with("p:auxiliary_unplaceable:auto:")
+}
+
+fn unplaceable_request(spec: &Spec, r: &Request) -> Problem {
+    let mut problem = unplaceable(spec, &r.id, r.automatic);
+    if r.automatic && r.meta.anchor.starts_with("f:") {
+        problem.subjects.push(r.meta.anchor.clone());
+        problem.subjects.extend(r.meta.members.iter().cloned());
+    }
+    problem
+}
+
+/// Resize and reroute only when a selected projection cannot carry its dimensions.
+pub(crate) fn retain_dimensioned(
+    a: &Analysis,
+    spec: &Spec,
+    make_plan: impl Fn(&Spec) -> Result<Plan, Invalid>,
+) -> Result<Plan, Invalid> {
+    let mut intent = std::borrow::Cow::Borrowed(spec);
+    let mut refused = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    loop {
+        let mut plan = make_plan(&intent)?;
+        let failed = undimensioned(a, &plan);
+        if failed.is_empty() {
+            for (name, entry) in refused {
+                if let Some(entry) = entry {
+                    plan.spec.views.insert(name, entry);
+                } else {
+                    plan.spec.views.remove(&name);
+                }
+            }
+            plan.problems.extend(diagnostics);
+            return Ok(plan);
+        }
+        for (view, features) in failed {
+            let name = spec_name(spec, view);
+            let current = intent.to_mut().views.entry(name.into()).or_default();
+            if current.omit {
+                return Err(invalid(name, "was drawn despite omission"));
+            }
+            refused.insert(name.to_owned(), spec.views.get(name).cloned());
+            current.omit = true;
+            diagnostics.extend(features.into_iter().map(|id| {
+                unproved(
+                    spec,
+                    view,
+                    id,
+                    "the placed projection cannot state all its required dimensions",
+                )
+            }));
+        }
+    }
+}
+
+/// A provisional projection only survives if the placed drawing states what
+/// the corresponding recipe reported missing.
+fn undimensioned<'a>(a: &Analysis, plan: &'a Plan) -> Vec<(&'a str, Vec<&'a str>)> {
+    plan.views
+        .iter()
+        .filter(|v| is_automatic_view(v))
+        .filter_map(|v| {
+            let aux = v.auxiliary.as_ref()?;
+            let anchors =
+                std::iter::once(aux.anchor.as_str()).chain(aux.members.iter().map(String::as_str));
+            let mut members = Vec::new();
+            let mut incomplete = false;
+            for id in anchors {
+                let Some(feature) = a.features.iter().find(|f| f.id == id) else {
+                    continue;
+                };
+                let (role, open_location) = match feature.kind.as_str() {
+                    "hole" if !aux.edge_on => (
+                        "bore.diameter",
+                        plan.problems
+                            .iter()
+                            .any(|p| p.inclined_axis_gap && p.subjects == [id]),
+                    ),
+                    "boss" if aux.edge_on => ("boss_height.length", false),
+                    _ => continue,
+                };
+                members.push(id);
+                incomplete |= open_location
+                    || !plan.dimensions.iter().any(|d| {
+                        d.view == v.id
+                            && d.placed.is_some()
+                            && d.measurements
+                                .iter()
+                                .any(|m| m.feature == id && m.parameter == role)
+                    });
+            }
+            incomplete.then_some((v.id.as_str(), members))
+        })
+        .collect()
+}
+
+pub(crate) fn unproved(spec: &Spec, view: &str, feature: &str, reason: &str) -> Problem {
+    let mut problem = unplaceable(spec, view, true);
+    problem.id = format!("p:auxiliary_unplaceable:geometry:{view}:{feature}");
+    problem.subjects.push(feature.into());
+    problem.message =
+        format!("Cannot draw the automatic auxiliary view for {feature} because {reason}.");
+    problem.fix = vec![crate::items::Op::set(
+        format!("views/{}/omit", crate::items::key(spec_name(spec, view))),
+        serde_json::json!(true),
+    )];
+    problem
+}
+
+pub(crate) fn unplaceable(spec: &Spec, id: &str, automatic: bool) -> Problem {
+    use crate::items::{Op, key};
+    let name = spec_name(spec, id);
+    let fix = if spec.sheet.size.is_some() {
+        vec![Op::remove("sheet/size")]
+    } else if spec.sheet.scale.is_some() {
+        vec![Op::remove("sheet/scale")]
+    } else {
+        vec![Op::set(
+            format!("views/{}/omit", key(name)),
+            serde_json::json!(true),
+        )]
+    };
+    Problem {
+        id: format!(
+            "p:auxiliary_unplaceable:{}{id}",
+            if automatic { "auto:" } else { "" }
+        ),
+        code: "auxiliary_unplaceable".into(),
+        severity: "warning".into(),
+        message: format!(
+            "The layout has insufficient room for the {}auxiliary view. Allow more paper or omit the view.",
+            if automatic { "automatic " } else { "" },
+        ),
+        refs: vec![id.into()],
+        fix,
+        ..Default::default()
     }
 }
 

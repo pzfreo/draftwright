@@ -415,7 +415,7 @@ pub(super) fn on_origin(w: &Want) -> bool {
         && w.measurements.iter().any(|m| location_role(&m.parameter))
 }
 
-fn spans(a: &Analysis, w: &Want) -> Vec<Edge> {
+pub(super) fn spans(a: &Analysis, w: &Want) -> Vec<Edge> {
     let mark = crate::lint::Mark {
         precision: None,
         units: w.units,
@@ -971,6 +971,10 @@ pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
     crate::planning::with(a, || audit_inner(a, s, p));
 }
 
+pub(super) fn inclined_gap(problem: &Problem) -> bool {
+    problem.code == "feature_not_dimensioned" && problem.inclined_axis_gap
+}
+
 fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
     use crate::lint::inclined;
     let auxiliary_bosses: BTreeSet<_> = p
@@ -980,10 +984,7 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
         .filter_map(|d| d.id.strip_prefix("d:")?.strip_suffix("/boss_height.length"))
         .collect();
     let warning = |q: &Problem| {
-        q.code == "feature_not_dimensioned"
-            && q.message
-                .contains("location is not dimensioned: its axis is inclined")
-            && matches!(q.subjects.as_slice(), [id] if inclined::is_inclined(a, id))
+        inclined_gap(q) && matches!(q.subjects.as_slice(), [id] if inclined::is_inclined(a, id))
     };
     if auxiliary_bosses.is_empty() && !p.problems.iter().any(warning) {
         return;
@@ -993,9 +994,7 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
     let edges = location::drawn_edges(a, &marks);
     let mut located = BTreeSet::new();
     p.problems.retain_mut(|q| {
-        if q.code == "feature_not_dimensioned"
-            && q.message
-                .contains("height and location are not dimensioned: its axis is inclined")
+        if inclined_gap(q)
             && let Some(id) = q.subjects.first()
             && auxiliary_bosses.contains(id.as_str())
         {
@@ -1031,9 +1030,8 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
             );
             continue;
         }
-        if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false)
-            && let Some((name, _)) = q.message.split_once("'s location is not dimensioned:")
-        {
+        if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false) {
+            let name = crate::wording::capital(&crate::wording::feature_id(a, &q.subjects[0]));
             q.message = format!(
                 "{name}'s location is not dimensioned: its axis is inclined to every principal axis. Its size is called out where it is seen most nearly end-on. {fix}"
             );

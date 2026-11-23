@@ -2,11 +2,29 @@
 use crate::bridge::{Feature, holes};
 use crate::model::Analysis;
 use crate::model::dimension_geometry::Reference;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 const TOLERANCE: f64 = 1e-6;
 
 pub(crate) type Point = [f64; 3];
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BoreEnd {
+    pub toward: Point,
+    pub edges: BTreeSet<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profile_ends: Vec<usize>,
+}
+
+pub(crate) fn bore_end<'a>(a: &'a Analysis, id: &str, toward: Point) -> Option<&'a BoreEnd> {
+    a.edge_ink
+        .as_ref()?
+        .bore_ends
+        .get(id)?
+        .iter()
+        .find(|e| dot(e.toward, toward) > 1. - TOLERANCE)
+}
 
 pub(crate) fn sub(a: Point, b: Point) -> Point {
     std::array::from_fn(|k| a[k] - b[k])
@@ -189,13 +207,25 @@ pub(crate) fn support(
     Some((seed.clone(), point))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct EdgeStation {
     pub face: usize,
     pub edge: usize,
     pub points: [Point; 2],
     pub direction: Point,
     pub length: f64,
+    pub has_stock_edge: bool,
+    pub key: String,
+}
+
+pub(crate) fn has_face_pair(a: &Analysis, f: &Feature, toward: Point) -> bool {
+    let stations = edge_stations(a, f, toward);
+    stations.first().is_some_and(|first| {
+        stations
+            .iter()
+            .skip(1)
+            .any(|s| dot(cross(first.direction, s.direction), toward).abs() > TOLERANCE)
+    })
 }
 
 pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -> Vec<EdgeStation> {
@@ -211,7 +241,7 @@ pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -
         };
         for edge in m.edges.iter().flatten() {
             let Some(key) = &edge.reference else { continue };
-            let Ok(Reference::Edge { ends, .. }) = a.dimension_reference(key) else {
+            let Ok(Reference::Edge { ends, membership }) = a.dimension_reference(key) else {
                 continue;
             };
             let span = sub(ends[1], ends[0]);
@@ -237,11 +267,148 @@ pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -
                 points: [anchor, at],
                 direction: normal,
                 length: dot(delta, normal),
+                has_stock_edge: !membership.stock_sides.is_empty(),
+                key: key.clone(),
             });
         }
     }
     stations.sort_by_key(|s| (s.face, s.edge));
     stations
+}
+
+/// Distance to a visible straight edge in the true-shape projection. The stock
+/// edge may be at another depth, such as the seat below a chamfered boss rim.
+pub(crate) fn projected_stations(a: &Analysis, f: &Feature, toward: Point) -> Vec<EdgeStation> {
+    let Ok(hole) = holes::Hole::read(f, &holes::frame(a)) else {
+        return Vec::new();
+    };
+    let mut stations = Vec::new();
+    let mut seen = BTreeSet::new();
+    for plane in a.dimension_references().values().flatten() {
+        let Reference::Plane { membership, .. } = plane else {
+            continue;
+        };
+        let [face] = membership.faces.as_slice() else {
+            continue;
+        };
+        for edge in membership.edges.iter().flatten() {
+            let Some(key) = &edge.reference else { continue };
+            if !seen.insert(edge.index) {
+                continue;
+            }
+            let Ok(Reference::Edge {
+                ends: [from, to],
+                membership,
+            }) = a.dimension_reference(key)
+            else {
+                continue;
+            };
+            let project = |v| sub(v, scale(toward, dot(v, toward)));
+            let span = sub(to, from);
+            let projected = project(span);
+            let len = dot(projected, projected);
+            if len <= 0.01 {
+                continue;
+            }
+            let t = dot(project(sub(hole.at, from)), projected) / len;
+            if !(0. ..=1.).contains(&t) {
+                continue;
+            }
+            let anchor = add(from, scale(span, t));
+            let separation = project(sub(hole.at, anchor));
+            let Some(direction) = unit(separation) else {
+                continue;
+            };
+            stations.push(EdgeStation {
+                face: *face,
+                edge: edge.index,
+                points: [anchor, hole.at],
+                direction,
+                length: dot(separation, direction),
+                has_stock_edge: !membership.stock_sides.is_empty(),
+                key: key.clone(),
+            });
+        }
+    }
+    stations
+}
+
+pub(crate) struct ProfileStation {
+    pub reference: String,
+    pub points: [Point; 2],
+}
+
+impl ProfileStation {
+    pub(crate) fn role(&self) -> String {
+        format!("location.length.profile.{}", self.reference)
+    }
+
+    pub(crate) fn length(&self, toward: Point) -> f64 {
+        let d = sub(self.points[1], self.points[0]);
+        let d = sub(d, scale(toward, dot(d, toward)));
+        dot(d, d).sqrt()
+    }
+}
+
+/// A turned stock axis fixes the lateral coordinate in an orthographic profile.
+/// The visible end of that profile supplies the independent axial station.
+pub(crate) fn profile_stations(
+    a: &Analysis,
+    f: &Feature,
+    toward: Point,
+    visible_ends: &[usize],
+) -> Option<[ProfileStation; 2]> {
+    let frame = holes::frame(a);
+    let h = holes::Hole::read(f, &frame).ok()?;
+    let mut bands = a
+        .features
+        .iter()
+        .filter(|f| f.kind == "turned_step")
+        .filter_map(|f| Some((&f.id, super::turned::band(&frame, f).ok()?)));
+    let (first, band) = bands.next()?;
+    let mut owner = first;
+    let mut diameter = band.diameter;
+    if toward[band.axis].abs() > TOLERANCE {
+        return None;
+    }
+    let mut covers = (band.lo..=band.hi).contains(&h.at[band.axis]);
+    for (id, other) in bands {
+        if other.axis != band.axis
+            || (0..3).any(|k| k != band.axis && (other.on[k] - band.on[k]).abs() > 0.001)
+        {
+            return None;
+        }
+        covers |= (other.lo..=other.hi).contains(&h.at[band.axis]);
+        if other.diameter > diameter {
+            owner = id;
+            diameter = other.diameter;
+        }
+    }
+    if !covers {
+        return None;
+    }
+    let mut axis_point = band.on;
+    axis_point[band.axis] = h.at[band.axis];
+    let side = ProfileStation {
+        reference: owner.clone(),
+        points: [axis_point, h.at],
+    };
+    let index = visible_ends
+        .iter()
+        .copied()
+        .filter(|&i| i < 2)
+        .min_by(|&i, &j| {
+            (a.envelope[i][band.axis] - h.at[band.axis])
+                .abs()
+                .total_cmp(&(a.envelope[j][band.axis] - h.at[band.axis]).abs())
+        })?;
+    let mut end_point = h.at;
+    end_point[band.axis] = a.envelope[index][band.axis];
+    let end = ProfileStation {
+        reference: format!("end:{index}"),
+        points: [end_point, h.at],
+    };
+    (side.length(toward) > 0.001 && end.length(toward) > 0.001).then_some([side, end])
 }
 
 impl EdgeStation {

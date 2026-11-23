@@ -364,6 +364,22 @@ obstacle edges. Only an entirely blocked search retains Python's natural-positio
 structural lint reports even shallow caption contacts with labels, lines and view edges.
 A sheet-scale or omitted iso carries no NTS caption. This furniture does not change the sheet-choice ladder or fill.
 
+#### Auxiliary views
+
+Draftwright adds a view when an inclined cylindrical hole or boss needs a
+dimension and the planned views do not show the feature end-on. Features can
+share the same auxiliary camera. A near-end-on view already shows the diameter
+when foreshortening is within 0.001 mm. Inclined grids whose location edges
+have no stock reference keep their existing locating findings. Set `"purpose": {"kind": "outline"}` to skip
+automatic auxiliaries. With no purpose, Draftwright uses the geometry review
+defaults. An inclined face on its own keeps its dimensions in the principal views.
+
+Use a view's `aux:<anchor>` key to apply `place`, `sheet`, `hidden` or `omit`
+to an automatic view. An automatic edge view also accepts the `/edge` suffix.
+Paper selection can enlarge the sheet to make room. Additional sheets require
+permission in `sheets`. If the view cannot be placed, `auxiliary_unplaceable` says
+how to change the layout, and the feature's missing-dimension finding remains.
+
 #### Requested auxiliary views
 
 Use a geometry anchor to request a view. The auxiliary can look square to a

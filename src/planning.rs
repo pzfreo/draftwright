@@ -30,6 +30,24 @@ thread_local! {
     static PIN_REFERENCE: RefCell<Option<(Arc<crate::model::Plan>, [u8; 32])>> = const { RefCell::new(None) };
     static DEFER_NOMINALS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LANE_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static AUTOMATIC_AUXILIARIES: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+pub(crate) fn automatic_auxiliaries() -> bool {
+    AUTOMATIC_AUXILIARIES.get()
+}
+
+/// Ordinary drawing and authored-location probes use the same Spec and omit
+/// only the automatically requested auxiliary views.
+pub(crate) fn without_automatic_auxiliaries<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            AUTOMATIC_AUXILIARIES.set(self.0);
+        }
+    }
+    let _restore = Restore(AUTOMATIC_AUXILIARIES.replace(false));
+    run()
 }
 
 /// The second attempt at a sheet and scale as a trial ([`crate::sheet_policy::lane_attempt`]):
@@ -472,6 +490,7 @@ pub(crate) fn unreferenced_digest(key: &[u8; 32]) -> [u8; 32] {
 fn result_digest(key: &[u8; 32], reference_matters: bool) -> [u8; 32] {
     let gutter = crate::layout::gutter();
     if !crate::dims::compact()
+        && automatic_auxiliaries()
         && gutter == crate::layout::FRAME_GUTTER
         && !is_lane_ladder()
         && crate::engine_pins::digest().is_none()
@@ -499,6 +518,9 @@ fn result_digest(key: &[u8; 32], reference_matters: bool) -> [u8; 32] {
     if is_lane_ladder() {
         hasher.update(b"lane-ladder");
     }
+    if !automatic_auxiliaries() {
+        hasher.update(b"without-automatic-auxiliaries");
+    }
     hasher.finalize().into()
 }
 
@@ -518,6 +540,7 @@ pub(crate) fn policy_key(
     bool,
     bool,
     bool,
+    bool,
 ) {
     (
         lookup::<bool>(analysis, "canonical-circular-recipes", &[]).unwrap_or(false),
@@ -530,6 +553,7 @@ pub(crate) fn policy_key(
         EXPLICIT_TRIAL.get(),
         is_lane_ladder(),
         crate::incremental::active(),
+        automatic_auxiliaries(),
     )
 }
 

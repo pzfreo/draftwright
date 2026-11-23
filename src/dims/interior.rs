@@ -2914,7 +2914,9 @@ mod tests {
                 .map(|e| e.into_iter().map(|p| [p[0], p[1], 0.]).collect()),
         );
         EdgeInk {
+            boss_profiles: Default::default(),
             resolved: Vec::new(),
+            bore_ends: Default::default(),
             references: Default::default(),
             edges,
             planes: vec![PlanarFace {
@@ -3031,7 +3033,9 @@ mod tests {
     #[test]
     fn a_turned_part_proves_exterior_paper_without_a_planar_interior() {
         let mut ink = EdgeInk {
+            boss_profiles: Default::default(),
             resolved: Vec::new(),
+            bore_ends: Default::default(),
             references: Default::default(),
             edges: vec![],
             planes: vec![],

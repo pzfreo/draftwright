@@ -1782,6 +1782,16 @@ fn inclined_authored_dimensions_locate_the_piercing_point() {
         }
         let mut partial = s.clone();
         partial.dimensions.remove(id);
+        let automatic = model::plan_recovered(&a, &partial).unwrap();
+        assert!(
+            automatic.views.iter().any(|v| v.id == "v:aux:f:hole:f9"),
+            "an incomplete authored location can use an auxiliary view"
+        );
+        partial
+            .views
+            .entry("aux:f:hole:f9".into())
+            .or_default()
+            .omit = true;
         let partial = model::plan_recovered(&a, &partial).unwrap();
         assert!(
             partial
@@ -1855,6 +1865,7 @@ fn inclined_authored_dimensions_locate_the_piercing_point() {
         refs.reverse();
     }
     let aliased = model::plan_recovered(&a, &aliases).unwrap();
+    assert!(aliased.views.iter().all(|v| v.auxiliary.is_none()));
     let aliased = model::render(&part, &a, &aliased, &font).unwrap();
     assert!(!bracket_missing(&a, &draftwright::lint::marks(&aliased)));
 
@@ -1909,10 +1920,15 @@ fn suggested_inclined_dimensions(fix: &str) -> serde_json::Map<String, serde_jso
     dimensions
 }
 
+fn with_auxiliary_omitted(mut spec: Spec) -> Spec {
+    spec.views.entry("aux:f:hole:f9".into()).or_default().omit = true;
+    spec
+}
+
 #[test]
 fn inclined_location_finding_names_reachable_authored_dimensions() {
     let (part, a, _) = inclined_bracket();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = model::plan_recovered(&a, &with_auxiliary_omitted(Spec::default())).unwrap();
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let marks = draftwright::lint::marks(&drawing);
@@ -1940,7 +1956,11 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
 
     // The references and routes named in the finding are executable today.
     let dimensions = suggested_inclined_dimensions(fix);
-    let suggested = model::plan_recovered(&a, &parse(json!({"dimensions": dimensions}))).unwrap();
+    let suggested = model::plan_recovered(
+        &a,
+        &with_auxiliary_omitted(parse(json!({"dimensions": dimensions}))),
+    )
+    .unwrap();
     assert!(
         !suggested
             .problems
@@ -1959,6 +1979,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
     let (_, _, mut base) = inclined_bracket();
     base.dimensions
         .retain(|id, _| id == "d:authored:base_length");
+    let mut base = with_auxiliary_omitted(base);
     let base_plan = model::plan_recovered(&a, &base).unwrap();
     let base_drawing = model::render(&part, &a, &base_plan, &font).unwrap();
     let issues = draftwright::lint::lint(&a, &base_drawing);
@@ -2005,7 +2026,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
     let s = parse(
         json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.length.z"]}}}),
     );
-    let noted = model::plan_recovered(&a, &s).unwrap();
+    let noted = model::plan_recovered(&a, &with_auxiliary_omitted(s)).unwrap();
     assert!(noted.problems.iter().any(
         |p| p.code == "pmi_not_lowered" && p.message.contains("no proven site for its leader")
     ));
@@ -2026,7 +2047,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
 fn inclined_location_requires_the_printed_route_to_its_anchor() {
     let (part, a, mut s) = inclined_bracket();
     s.dimensions.remove("d:authored:base_length");
-    let p = model::plan_recovered(&a, &s).unwrap();
+    let p = model::plan_recovered(&a, &with_auxiliary_omitted(s)).unwrap();
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let issues = draftwright::lint::lint(&a, &drawing);
@@ -2058,7 +2079,7 @@ fn inclined_location_requires_the_printed_route_to_its_anchor() {
 #[test]
 fn inclined_planner_warning_offers_the_drawings_authored_route() {
     let (part, a, _) = inclined_bracket();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = model::plan_recovered(&a, &with_auxiliary_omitted(Spec::default())).unwrap();
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let issues = draftwright::lint::lint(&a, &drawing);
@@ -2094,6 +2115,101 @@ fn cgb217() -> Option<(std::sync::Arc<draftwright::haecceity::Part>, Analysis)> 
 
 const COMPOUND_HOLES: [&str; 3] = ["f:hole:f26", "f:hole:f28", "f:hole:f41"];
 
+fn assert_automatic_auxiliary_witnesses(
+    part: &str,
+    plan: &model::Plan,
+    drawing: &draftwright::output::Drawing,
+) {
+    use draftwright::output::{Curve, Kind};
+
+    let distance = |point: [f64; 2], [from, to]: [[f64; 2]; 2]| {
+        let [x, y] = [to[0] - from[0], to[1] - from[1]];
+        let [u, v] = [point[0] - from[0], point[1] - from[1]];
+        let length_squared = x * x + y * y;
+        let t = if length_squared > 0. {
+            ((u * x + v * y) / length_squared).clamp(0., 1.)
+        } else {
+            0.
+        };
+        (u - t * x).hypot(v - t * y)
+    };
+    for view in plan
+        .views
+        .iter()
+        .filter(|v| v.auxiliary.is_some() && v.basis.starts_with("automatic auxiliary projection"))
+    {
+        let ink = drawing
+            .sheet
+            .views
+            .iter()
+            .find(|v| v.name == view.id)
+            .unwrap();
+        let edges: Vec<_> = ink
+            .edges
+            .iter()
+            .flat_map(|curve| {
+                let n = if matches!(curve, Curve::Line(..)) {
+                    1
+                } else {
+                    128
+                };
+                (0..n).map(move |i| {
+                    [
+                        curve.at(i as f64 / n as f64),
+                        curve.at((i + 1) as f64 / n as f64),
+                    ]
+                })
+            })
+            .collect();
+        let prefix = format!("ink:{}:", view.id);
+        let centrelines = drawing
+            .sheet
+            .items
+            .iter()
+            .filter(|item| item.kind == Kind::Centreline && item.name.starts_with(&prefix))
+            .flat_map(|item| item.lines.iter().copied())
+            .collect::<Vec<_>>();
+        for dimension in plan.dimensions.iter().filter(|d| {
+            d.view == view.id
+                && d.placed.is_some()
+                && matches!(d.kind.as_str(), "linear" | "angular")
+        }) {
+            let drawn = drawing
+                .sheet
+                .items
+                .iter()
+                .find(|item| item.name == dimension.id)
+                .unwrap();
+            let [first, second, ..] = drawn.lines.as_slice() else {
+                panic!("{part}: missing extension lines for {}", dimension.id);
+            };
+            // The extension strokes leave the standard 1 mm gap at their
+            // measured feet. Check the points on the far side of that gap.
+            for &[start, end] in [first, second] {
+                let delta = [end[0] - start[0], end[1] - start[1]];
+                let length = delta[0].hypot(delta[1]);
+                let foot = std::array::from_fn(|k| start[k] - delta[k] / length);
+                // The shared CGB217 profile must show both bosses' ends;
+                // a coaxial hole's centreline alone cannot prove their heights.
+                let centres = if view.id == "v:aux:f:boss:f51/edge" {
+                    &[]
+                } else {
+                    centrelines.as_slice()
+                };
+                assert!(
+                    edges
+                        .iter()
+                        .chain(centres)
+                        .any(|&line| distance(foot, line) <= 0.05),
+                    "{part}, {}: {} witness at {foot:?} has no drawn support",
+                    view.id,
+                    dimension.id
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn inclined_planner_warning_names_each_holes_anchors() {
     use draftwright::haecceity::brep::Arc;
@@ -2101,6 +2217,105 @@ fn inclined_planner_warning_names_each_holes_anchors() {
     let Some((part, a)) = cgb217() else { return };
     let p = crate::cache::default_plan(&a, true);
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let lint = draftwright::lint::lint(&a, &drawing);
+    let view_id = "v:aux:f:hole:f26";
+    let view = p
+        .views
+        .iter()
+        .find(|v| v.id == view_id)
+        .expect("shared bore view");
+    let aux = view.auxiliary.as_ref().unwrap();
+    assert_eq!(aux.label, "C");
+    assert_eq!(aux.members, ["f:hole:f28"]);
+    let camera = draftwright::haecceity::hlr::View::new(view.direction, view.up).unwrap();
+    let ink = drawing
+        .sheet
+        .views
+        .iter()
+        .find(|v| v.name == view_id)
+        .unwrap();
+    for id in &COMPOUND_HOLES[..2] {
+        let feature = a.features.iter().find(|f| &f.id == id).unwrap();
+        let Reference::Edge { ends, .. } = a.dimension_reference(&format!("axis:{id}")).unwrap()
+        else {
+            panic!("missing axis for {id}");
+        };
+        let projected = camera.map(ends[0]);
+        let at: [f64; 2] = std::array::from_fn(|k| {
+            view.at[k] + view.scale * (projected[k] - (aux.bounds[k] + aux.bounds[k + 2]) / 2.)
+        });
+        assert!(
+            ink.edges
+                .iter()
+                .any(|edge| matches!(edge, draftwright::output::Curve::Conic {
+            centre, radii, t0, t1, ..
+        } if (centre[0] - at[0]).hypot(centre[1] - at[1]) < 0.01
+            && radii.iter().all(|r| (r - 4.25 * view.scale).abs() < 0.01)
+            && ((t1 - t0).abs() - std::f64::consts::TAU).abs() < 1e-5)),
+            "{id}: true bore rim missing"
+        );
+        assert!(p.dimensions.iter().any(|d| {
+            d.view == view_id
+                && d.placed.is_some()
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature == feature.id && m.parameter == "bore.diameter")
+        }));
+        assert!(
+            !p.problems
+                .iter()
+                .any(|i| i.code == "feature_not_dimensioned" && i.subjects == [*id])
+        );
+        assert!(
+            !lint
+                .iter()
+                .any(|i| i.code == "feature_not_located" && i.subjects == [*id])
+        );
+    }
+    for (id, role) in [
+        ("f:boss:f51", "boss_height.length"),
+        ("f:boss:f52", "boss_height.length"),
+        ("f:hole:f41", "bore.diameter"),
+    ] {
+        let drawn = p.dimensions.iter().any(|d| {
+            d.view.starts_with("v:aux:")
+                && d.placed.is_some()
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature == id && m.parameter == role)
+        });
+        let reported = p
+            .problems
+            .iter()
+            .any(|i| i.code == "auxiliary_unplaceable" && i.subjects.iter().any(|s| s == id));
+        assert!(
+            drawn || reported,
+            "{id}: no auxiliary dimension or unplaceable finding"
+        );
+    }
+    assert_automatic_auxiliary_witnesses("cgb217", &p, &drawing);
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    for path in [
+        fixtures.join("parts/corner-cuts.step.gz"),
+        fixtures.join("pmi/step/assembly_plate_pin.step.gz"),
+        fixtures.join("pmi/step/hw_assembly_plate_pin_intent.step.gz"),
+        fixtures.join("steerability/angle-bracket.step.gz"),
+        fixtures.join("pmi/specify-main-angle-bracket.step.gz"),
+        corpus::dir().unwrap().join("mfcadpp/10096.step"),
+    ] {
+        let (part, analysis) = crate::cache::native(&path);
+        let plan = crate::cache::default_plan(&analysis, true);
+        let drawing = model::render(&part, &analysis, &plan, &font).unwrap();
+        assert!(plan.views.iter().any(|v| v.auxiliary.is_some()), "{path:?}");
+        assert_automatic_auxiliary_witnesses(path.to_str().unwrap(), &plan, &drawing);
+    }
+
+    let mut omitted = Spec::default();
+    for id in COMPOUND_HOLES {
+        omitted.views.entry(format!("aux:{id}")).or_default().omit = true;
+    }
+    let p = model::plan_recovered(&a, &omitted).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let lint = draftwright::lint::lint(&a, &drawing);
     for id in COMPOUND_HOLES {

@@ -1249,11 +1249,25 @@ fn select_scales_full(
 ) -> Result<Plan, Invalid> {
     // The displaced drawing is the actual paper-policy choice, not an
     // escalated estimate or a fill winner on different paper.
+    let seed = model::plan_automatic(analysis, spec)?;
     let baseline = if maximise && automatic(spec) {
-        select_scales_full(analysis, spec, false, forced_trials)?
+        if crate::auxiliary::automatic_in(&seed) {
+            return select_auxiliary_paper(analysis, spec, &seed);
+        }
+        select_scales_from(analysis, spec, false, forced_trials, seed)?
     } else {
-        model::plan_automatic(analysis, spec)?
+        seed
     };
+    select_scales_from(analysis, spec, maximise, forced_trials, baseline)
+}
+
+fn select_scales_from(
+    analysis: &Analysis,
+    spec: &Spec,
+    maximise: bool,
+    forced_trials: &mut ForcedTrials,
+    baseline: Plan,
+) -> Result<Plan, Invalid> {
     if !automatic(spec) {
         return Ok(baseline);
     }
@@ -1344,7 +1358,12 @@ fn select_scales_full(
     };
     // Unset spacing may fall back to compact lanes; an explicit choice holds for every trial.
     let fallback = spec.sheet.dimension_spacing.is_none();
-    let hard = spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9);
+    let automatic_auxiliary = crate::auxiliary::automatic_in(&baseline);
+    let hard = spec
+        .sheets
+        .as_ref()
+        .and_then(|s| s.max)
+        .unwrap_or(if automatic_auxiliary { 1 } else { 9 });
     let reference_angles =
         (!crate::nominal::comparison()).then(|| model::angular_losses(&reference));
     let reference_fits = std::cell::OnceCell::new();
@@ -1360,7 +1379,10 @@ fn select_scales_full(
     // automatic search: a part whose views fit A3 full size is not offered a large sheet.
     let small = std::cell::OnceCell::new();
     let first_estimate = std::cell::OnceCell::new();
-    for (size, max) in requests(spec) {
+    for (size, max) in requests(spec)
+        .into_iter()
+        .filter(|(_, count)| *count <= hard as usize)
+    {
         let large = spec
             .pages()
             .iter()
@@ -2131,12 +2153,40 @@ fn select_scales_full(
             search_trace,
         );
     }
-    let mut best = best.ok_or_else(|| Invalid {
-        path: None,
-        also: Vec::new(),
-        message: "No unclipped automatic drawing fits on supported paper within sheets.max; increase sheets/max or state an explicit layout.".into(),
-        choices: vec!["sheets/max".into(),"sheet/size".into()],
-    })?;
+    let mut best = if best.is_none() && automatic_auxiliary {
+        let mut ordinary = spec.clone();
+        ordinary.sheets.get_or_insert_with(Default::default).max = Some(hard);
+        let mut plan = crate::planning::without_automatic_auxiliaries(|| {
+            select_scales_full(analysis, &ordinary, false, &mut ForcedTrials::default())
+        })?;
+        let ids: BTreeSet<_> = baseline
+            .views
+            .iter()
+            .filter(|v| {
+                v.auxiliary.is_some() && v.basis.starts_with("automatic auxiliary projection")
+            })
+            .map(|v| &v.id)
+            .chain(
+                baseline
+                    .problems
+                    .iter()
+                    .filter(|p| crate::auxiliary::automatic_unplaceable(p))
+                    .flat_map(|p| &p.refs),
+            )
+            .collect();
+        plan.problems.extend(
+            ids.into_iter()
+                .map(|id| crate::auxiliary::unplaceable(spec, id, true)),
+        );
+        plan
+    } else {
+        best.ok_or_else(|| Invalid {
+            path: None,
+            also: Vec::new(),
+            message: "No unclipped automatic drawing fits on supported paper within sheets.max; increase sheets/max or state an explicit layout.".into(),
+            choices: vec!["sheets/max".into(),"sheet/size".into()],
+        })?
+    };
     best.problems.push(model::Problem {
         id:"p:layout_recovery_exhausted:sheet-preferences".into(),
         code:"layout_recovery_exhausted".into(),severity:"warning".into(),
@@ -2160,6 +2210,209 @@ fn select_scales_full(
     );
     let reason = "least-bad unclipped candidate; supported-paper search exhausted";
     Ok(finish_choice(best, &intent, candidates, reason))
+}
+
+/// Add the projections at the ordinary drawing's scale before trying reductions.
+fn select_auxiliary_paper(analysis: &Analysis, spec: &Spec, seed: &Plan) -> Result<Plan, Invalid> {
+    let mut ordinary = crate::planning::without_automatic_auxiliaries(|| {
+        crate::planning::isolated(analysis, || select(analysis, spec))
+    })?;
+    let intent = &seed.spec;
+    let effective = crate::spec_gdt::effective(analysis, intent)?;
+    let fit = effective.as_ref();
+    let scale = ordinary.sheet.scale_factor;
+    let floor = readable_floor(fit, &ordinary, spec);
+    let pages = spec.pages();
+    let initial_page = pages
+        .iter()
+        .position(|page| page.0 == ordinary.sheet.size)
+        .unwrap_or(0);
+    let limit = spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(1);
+    let requested = seed
+        .views
+        .iter()
+        .filter(|v| crate::auxiliary::is_automatic_view(v))
+        .map(|v| v.id.as_str())
+        .chain(
+            seed.problems
+                .iter()
+                .filter(|p| crate::auxiliary::automatic_unplaceable(p))
+                .flat_map(|p| p.refs.iter().map(String::as_str)),
+        )
+        .collect::<BTreeSet<_>>();
+    let scales = std::iter::once(scale).chain(
+        spec.scales()
+            .iter()
+            .copied()
+            .filter(|s| *s + 1e-9 >= floor && *s < scale - 1e-9),
+    );
+    let mut candidates = Vec::new();
+    for factor in scales {
+        let start = if factor == scale { initial_page } else { 0 };
+        for &(size, ..) in &pages[start..] {
+            for max in 1..=limit {
+                let mut forced = intent.clone();
+                forced.binding = spec.binding.clone();
+                forced.sheet.size = Some(size.into());
+                let scale_name = model::scale_name(factor);
+                forced.sheet.scale = Some(scale_name.clone());
+                forced.sheets.get_or_insert_with(Default::default).max = Some(max);
+                let mut result =
+                    try_auxiliary_pair(analysis, fit, &forced, &ordinary, &requested, seed);
+                if let Err(normal) = &result
+                    && spec.sheet.dimension_spacing.is_none()
+                {
+                    forced.sheet.dimension_spacing = Some(model::DimensionSpacing::Compact);
+                    result =
+                        try_auxiliary_pair(analysis, fit, &forced, &ordinary, &requested, seed)
+                            .map_err(|compact| {
+                                format!("normal spacing: {normal}; compact spacing: {compact}")
+                            });
+                }
+                let outcome = match &result {
+                    Ok(plan) => format!(
+                        "usable at {scale_name} with automatic auxiliary views{}",
+                        if plan.sheet.dimension_spacing == model::DimensionSpacing::Compact {
+                            " and compact spacing"
+                        } else {
+                            ""
+                        }
+                    ),
+                    Err(reason) => format!("{scale_name}: {reason}"),
+                };
+                candidates.push(Candidate {
+                    size: size.into(),
+                    max: max as usize,
+                    scales: vec![scale_name],
+                    outcome,
+                    kind: None,
+                    preferred_max_size: String::new(),
+                    preferred_max_sheets: 0,
+                });
+                if let Ok(mut plan) = result {
+                    let reason = format!(
+                        "automatic auxiliary views fit at {}; ordinary drawing was {} at {}",
+                        plan.sheet.scale, ordinary.sheet.size, ordinary.sheet.scale
+                    );
+                    plan.sheet.basis += &format!("; {reason}");
+                    selected_trial_basis(&mut plan);
+                    return Ok(finish_choice(plan, intent, candidates, &reason));
+                }
+            }
+        }
+    }
+    ordinary.problems.extend(
+        seed.problems
+            .iter()
+            .filter(|p| {
+                p.code == "auxiliary_unplaceable" && !crate::auxiliary::automatic_unplaceable(p)
+            })
+            .cloned(),
+    );
+    for id in requested {
+        let mut problem = crate::auxiliary::unplaceable(spec, id, true);
+        if let Some(aux) = seed
+            .views
+            .iter()
+            .find(|v| v.id == id)
+            .and_then(|v| v.auxiliary.as_ref())
+        {
+            if aux.anchor.starts_with("f:") {
+                problem.subjects.push(aux.anchor.clone());
+            }
+            problem.subjects.extend(aux.members.iter().cloned());
+        } else if let Some(existing) = seed.problems.iter().find(|p| p.id == problem.id) {
+            problem.subjects.clone_from(&existing.subjects);
+        }
+        ordinary.problems.push(problem);
+    }
+    let reason = "supported paper and readable scales exhausted for automatic auxiliary views";
+    Ok(finish_choice(ordinary, intent, candidates, reason))
+}
+
+fn try_auxiliary_pair(
+    analysis: &Analysis,
+    fit: &Analysis,
+    forced: &Spec,
+    ordinary: &Plan,
+    requested: &BTreeSet<&str>,
+    seed: &Plan,
+) -> Result<Plan, String> {
+    let judge =
+        |plan: &Plan| place_auxiliary_pair(analysis, fit, forced, ordinary, requested, plan);
+    let max = forced.sheets.as_ref().and_then(|s| s.max).unwrap_or(1) as usize;
+    if forced.sheet.size.as_ref() == Some(&seed.sheet.size)
+        && forced.sheet.scale.as_ref() == Some(&seed.sheet.scale)
+        && forced.sheet.dimension_spacing.unwrap_or_default() == seed.sheet.dimension_spacing
+        && seed.sheets.len() < max
+        && let Ok(plan) = judge(seed)
+    {
+        return Ok(plan);
+    }
+    let pair = crate::planning::fixed_pair(|| model::plan_automatic(analysis, forced))
+        .map_err(|e| e.message)
+        .and_then(|plan| judge(&plan));
+    if pair.is_err()
+        && max == 1
+        && let Ok(Some(explicit)) = model::explicit_fit_candidate(analysis, forced)
+        && let Ok(plan) = judge(&explicit)
+    {
+        return Ok(plan);
+    }
+    pair
+}
+
+fn place_auxiliary_pair(
+    analysis: &Analysis,
+    fit: &Analysis,
+    forced: &Spec,
+    ordinary: &Plan,
+    requested: &BTreeSet<&str>,
+    plan: &Plan,
+) -> Result<Plan, String> {
+    if !requested
+        .iter()
+        .all(|id| plan.views.iter().any(|v| v.id == *id))
+        || plan
+            .problems
+            .iter()
+            .any(crate::auxiliary::automatic_unplaceable)
+    {
+        return Err("automatic auxiliary view could not be placed".into());
+    }
+    // Use the forced controls while settling ink, so a late paper remedy
+    // cannot change the pair being judged. Publish the migrated intent later.
+    let mut plan = finished_preview(analysis, forced, &plan.spec, plan, Some(ordinary))
+        .map_err(|e| e.message)?;
+    if forced.sheet.size.as_ref() != Some(&plan.sheet.size)
+        || forced.sheet.scale.as_ref() != Some(&plan.sheet.scale)
+    {
+        return Err("finishing changed the trial paper or scale".into());
+    }
+    if !sheet_fit::inside_frames(fit, &plan) {
+        if let Some(reflowed) = crate::sheets::reflow_outside_auxiliaries(fit, &plan) {
+            plan = reflowed;
+        }
+        if !sheet_fit::inside_frames(fit, &plan) {
+            return Err("ink leaves the drawable frame".into());
+        }
+    }
+    if !model::carries_required_with_location_chains(fit, ordinary, &plan)
+        || model::undrawn_gdt(&plan) > model::undrawn_gdt(ordinary)
+        || actual_space_drops(&plan) > actual_space_drops(ordinary)
+    {
+        return Err("required annotation could not be retained".into());
+    }
+    let crowded = |plan: &Plan| {
+        plan.problems
+            .iter()
+            .filter(|p| p.code == "label_crowded")
+            .count()
+    };
+    if crowded(&plan) > crowded(ordinary) {
+        return Err("automatic auxiliary layout increases label crowding".into());
+    }
+    Ok(plan)
 }
 
 /// The delimiter is part of the match: 1:1 must never match a 1:10 trial.

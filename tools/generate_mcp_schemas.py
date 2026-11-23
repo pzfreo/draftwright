@@ -349,7 +349,8 @@ for mode in ('validation', 'published'):
 # Add the auxiliary property after compaction to preserve the existing preflight
 # shapes and corrective messages. The private document's root lists tools only.
 for schema in validation.values():
-    views = schema['properties']['spec']['properties']['views']
+    props = schema['properties']['spec']['properties']
+    views = props['views']
     views['additionalProperties']['properties']['auxiliary'] = nullable(
         ref('inspect_part/$defs/auxiliary_request'))
 validation['inspect_part']['$defs'] = {'auxiliary_request': auxiliary_request()}

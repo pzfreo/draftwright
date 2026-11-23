@@ -701,6 +701,8 @@ pub struct Scaled {
     pub angular: Vec<(String, Rect)>,
     /// An identity, a width and a height.
     pub derived: Vec<(String, f64, f64)>,
+    /// A derived view, its principal parent and its direction in that parent's plane.
+    pub derived_projections: Vec<(String, String, [f64; 2])>,
 }
 
 /// Which principal views the sheet carries.
@@ -1456,14 +1458,41 @@ fn geometry_with(
     let mut derived = Vec::new();
     let mut derived_fit = true;
     for (id, w, h) in &scaled.derived {
-        let r = largest_empty_rect(drawable, &derived_obstacles, [*w, *h]);
-        if r[2] - r[0] < *w || r[3] - r[1] < *h || derived_obstacles.iter().any(|o| overlaps(&r, o))
+        let size = [*w, *h];
+        let bounds = if let Some((_, parent, direction)) = scaled
+            .derived_projections
+            .iter()
+            .find(|(name, ..)| name == id)
         {
+            let (block, x, y) = match parent.as_str() {
+                "v:front" => (fv, fv_x, fv_y),
+                "v:plan" => (pv, pv_x, pv_y),
+                "v:side" => (derived_side, sv_x, sv_y),
+                _ => unreachable!("a projection helper uses a principal parent"),
+            };
+            beside_projection(
+                size,
+                drawable,
+                &derived_obstacles,
+                block.footprint(x, y),
+                [x, y],
+                *direction,
+            )
+            .map(|[x, y]| [x, y, x + w, y + h])
+        } else {
+            let r = largest_empty_rect(drawable, &derived_obstacles, size);
+            (r[2] - r[0] >= *w
+                && r[3] - r[1] >= *h
+                && !derived_obstacles.iter().any(|o| overlaps(&r, o)))
+            .then(|| {
+                let (cx, cy) = ((r[0] + r[2]) / 2., (r[1] + r[3]) / 2.);
+                [cx - w / 2., cy - h / 2., cx + w / 2., cy + h / 2.]
+            })
+        };
+        let Some(b) = bounds else {
             derived_fit = false;
             break;
-        }
-        let (cx, cy) = ((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0);
-        let b = [cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0];
+        };
         derived.push((id.clone(), b));
         derived_obstacles.push(b);
         obstacles.push(b);
@@ -1573,6 +1602,90 @@ fn geometry_with(
         fits,
         auto_fits,
     }
+}
+
+fn beside_projection(
+    size: [f64; 2],
+    drawable: Rect,
+    obstacles: &[Rect],
+    parent: Rect,
+    centre: [f64; 2],
+    direction: [f64; 2],
+) -> Option<[f64; 2]> {
+    let half = size.map(|length| length / 2.);
+    let region = [
+        drawable[0] + half[0],
+        drawable[1] + half[1],
+        drawable[2] - half[0],
+        drawable[3] - half[1],
+    ];
+    if region[2] < region[0] || region[3] < region[1] {
+        return None;
+    }
+    // Work in centre coordinates so the nearest point on the projection ray
+    // can be tested against the same reserved footprints as any offset.
+    let forbidden: Vec<_> = obstacles
+        .iter()
+        .map(|b| (b, 1.))
+        .chain(std::iter::once((&parent, 3.)))
+        .map(|(b, gap)| {
+            [
+                b[0] - half[0] - gap,
+                b[1] - half[1] - gap,
+                b[2] + half[0] + gap,
+                b[3] + half[1] + gap,
+            ]
+        })
+        .collect();
+    let stations = |k| {
+        let mut stations = vec![region[k], region[k + 2]];
+        stations.extend(
+            forbidden
+                .iter()
+                .flat_map(|b| [b[k], b[k + 2]])
+                .filter(|v| *v >= region[k] && *v <= region[k + 2]),
+        );
+        stations
+    };
+    let xs = stations(0);
+    let ys = stations(1);
+    let mut candidates = Vec::new();
+    for axis in 0..2 {
+        let (stations, other) = if axis == 0 { (&xs, &ys) } else { (&ys, &xs) };
+        for &station in stations {
+            let crossing = (direction[axis].abs() > 1e-9).then(|| {
+                centre[1 - axis] + direction[1 - axis] * (station - centre[axis]) / direction[axis]
+            });
+            for value in other.iter().copied().chain(crossing) {
+                let at = if axis == 0 {
+                    [station, value]
+                } else {
+                    [value, station]
+                };
+                if (0..2).any(|k| at[k] < region[k] - 1e-9 || at[k] > region[k + 2] + 1e-9)
+                    || forbidden
+                        .iter()
+                        .any(|b| (0..2).all(|k| at[k] > b[k] + 1e-9 && at[k] < b[k + 2] - 1e-9))
+                {
+                    continue;
+                }
+                let [x, y] = [at[0] - centre[0], at[1] - centre[1]];
+                if x * direction[0] + y * direction[1] > 0. {
+                    candidates.push(((x * direction[1] - y * direction[0]).abs(), x.hypot(y), at));
+                }
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .min_by(|a, b| {
+            if (a.0 - b.0).abs() < 1e-9 {
+                a.1.total_cmp(&b.1)
+            } else {
+                a.0.total_cmp(&b.0)
+            }
+        })
+        .map(|(_, _, at)| [at[0] - half[0], at[1] - half[1]])
 }
 
 /// How the scale and sheet were reached when no standard choice fits.

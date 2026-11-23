@@ -1913,6 +1913,7 @@ pub(super) fn omitted(
                 continue;
             }
             out.push(Problem {
+                inclined_axis_gap: false,
                 crossing_kinds: Vec::new(),
                 ink_is_leader: None,
                 id: format!("p:pmi_not_drawn:{source}"),

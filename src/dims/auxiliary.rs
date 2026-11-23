@@ -1,10 +1,10 @@
 //! Measurements whose true projection is carried by a requested auxiliary view.
 use super::{Measurement, Shape, Want, add, angular::Angle, fmt_in, scale3, want_id};
-use crate::auxiliary_geometry::{
-    EdgeStation, Point, coplanar_patches, cross, dot, edge_stations, face, seat_normal, sub,
-    support, unit,
-};
 use crate::bridge::{Feature, holes};
+use crate::lint::auxiliary_geometry::{
+    EdgeStation, Point, coplanar_patches, cross, dot, edge_stations, face, profile_stations,
+    projected_stations, seat_normal, sub, support, unit,
+};
 use crate::model::dimension_geometry::Reference;
 use crate::model::{Analysis, PlannedView, Spec};
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,6 +13,161 @@ const EPS: f64 = 1e-6;
 
 fn independent(a: &EdgeStation, b: &EdgeStation, axis: Point) -> bool {
     dot(cross(a.direction, b.direction), axis).abs() > EPS
+}
+
+fn pair(stations: &[EdgeStation], axis: Point) -> Option<(&EdgeStation, &EdgeStation)> {
+    stations
+        .iter()
+        .enumerate()
+        .flat_map(|(i, first)| stations[i + 1..].iter().map(move |second| (first, second)))
+        .filter(|(first, second)| independent(first, second, axis))
+        .max_by(|(a, b), (c, d)| {
+            let quality = |x: &EdgeStation, y: &EdgeStation| {
+                let stock = usize::from(x.has_stock_edge) + usize::from(y.has_stock_edge);
+                let span = dot(cross(x.direction, y.direction), axis).abs();
+                (stock, span / (1. + 0.01 * (x.length + y.length)))
+            };
+            let (stock, span) = quality(a, b);
+            let (other, other_span) = quality(c, d);
+            stock.cmp(&other).then(span.total_cmp(&other_span))
+        })
+}
+
+pub(super) fn projected_pair(
+    a: &Analysis,
+    f: &Feature,
+    toward: Point,
+    wants: &[Want],
+) -> Option<[EdgeStation; 2]> {
+    let end = crate::lint::auxiliary_geometry::bore_end(a, &f.id, toward)?;
+    let edges: Vec<_> = wants
+        .iter()
+        .flat_map(|w| super::pmi_policy::spans(a, w))
+        .collect();
+    let roots = crate::lint::location::roots(a);
+    let stations: Vec<_> = projected_stations(a, f, toward)
+        .into_iter()
+        .filter(|s| {
+            end.edges.contains(&s.edge)
+                && a.dimension_reference(&s.key).is_ok_and(|reference| {
+                    crate::lint::location::anchor_rooted(
+                        a,
+                        &edges,
+                        &roots,
+                        (&s.key, &reference),
+                        s.direction,
+                        s.points[0],
+                        &BTreeSet::new(),
+                    )
+                })
+        })
+        .collect();
+    let (first, second) = pair(&stations, toward)?;
+    Some([first.clone(), second.clone()])
+}
+
+/// Tie a straight opening edge to the ordinary stock outline when the edge
+/// lies on an established stock plane and has one unstated principal station.
+fn ground_edge(a: &Analysis, spec: &Spec, station: &EdgeStation, wants: &mut Vec<Want>) {
+    if !station.has_stock_edge {
+        return;
+    }
+    let Ok(reference @ Reference::Edge { ends, .. }) = a.dimension_reference(&station.key) else {
+        return;
+    };
+    let roots = crate::lint::location::roots(a);
+    let edges = wants
+        .iter()
+        .flat_map(|w| super::pmi_policy::spans(a, w))
+        .collect::<Vec<_>>();
+    let missing = (0..3)
+        .filter(|&k| {
+            station.direction[k].abs() > EPS
+                && !crate::lint::location::anchor_rooted(
+                    a,
+                    &edges,
+                    &roots,
+                    (&station.key, &reference),
+                    std::array::from_fn(|j| f64::from(j == k)),
+                    station.points[0],
+                    &BTreeSet::new(),
+                )
+        })
+        .collect::<Vec<_>>();
+    let [axis] = missing.as_slice() else { return };
+    let axis = *axis;
+    if (ends[0][axis] - ends[1][axis]).abs() > EPS {
+        return;
+    }
+    let Some((root, ..)) = a
+        .dimension_references()
+        .iter()
+        .filter_map(|(key, refs)| {
+            let [Reference::Vertex { point, .. }] = refs.as_slice() else {
+                return None;
+            };
+            if !a
+                .envelope
+                .iter()
+                .any(|p| (p[axis] - point[axis]).abs() < EPS)
+            {
+                return None;
+            }
+            let distance = ends
+                .iter()
+                .map(|p| {
+                    (0..3)
+                        .filter(|&k| k != axis)
+                        .map(|k| (p[k] - point[k]).powi(2))
+                        .sum::<f64>()
+                })
+                .fold(f64::INFINITY, f64::min);
+            let span = (ends[0][axis] - point[axis]).abs();
+            Some((key, span, distance))
+        })
+        .min_by(|(_, x, a), (_, y, b)| x.total_cmp(y).then(a.total_cmp(b)))
+    else {
+        return;
+    };
+    let along = super::AXES[axis];
+    let Ok(measured) =
+        a.measure_references(&[root.clone(), station.key.clone()], "linear", Some(along))
+    else {
+        return;
+    };
+    let Some([from, to]) = measured.witnesses else {
+        return;
+    };
+    let value = measured.value;
+    let id = format!(
+        "d:auxiliary_support:f{}.e{}/location.length.{along}",
+        station.face, station.edge
+    );
+    if wants.iter().any(|w| w.id == id) {
+        return;
+    }
+    wants.push(Want {
+        units: spec.units,
+        measurements: vec![Measurement {
+            feature: format!("geometry:{root}|{}", station.key),
+            parameter: format!("linear.{along}"),
+            value,
+        }],
+        id,
+        views: super::envelope::profile_views(axis),
+        value,
+        terms: vec![fmt_in(value, spec.units)],
+        basis: "position of the auxiliary opening's supporting edge from the stock outline".into(),
+        shape: Shape::Linear {
+            a: from,
+            b: to,
+            axis,
+            a_edge: false,
+            b_edge: false,
+            order: 0,
+        },
+        turning: None,
+    });
 }
 
 /// Count the distinct straight supports of a closed, convex entrance. Every
@@ -134,14 +289,16 @@ fn requested(v: &PlannedView, a: &Analysis, f: &Feature, axis: Point) -> bool {
     !aux.edge_on
         && dot(v.direction, axis).abs() >= 1. - EPS
         && (aux.anchor == f.id
-            || support(a, f, v.direction).is_some_and(|(seed, _)| {
-                face(a, &aux.anchor).is_some_and(|anchor| {
-                    let patches = coplanar_patches(a, &seed, &f.faces);
-                    patches
-                        .iter()
-                        .any(|r| r.membership().faces == anchor.membership().faces)
-                })
-            }))
+            || aux.members.contains(&f.id)
+            || (!crate::auxiliary::is_automatic_view(v)
+                && support(a, f, v.direction).is_some_and(|(seed, _)| {
+                    face(a, &aux.anchor).is_some_and(|anchor| {
+                        let patches = coplanar_patches(a, &seed, &f.faces);
+                        patches
+                            .iter()
+                            .any(|r| r.membership().faces == anchor.membership().faces)
+                    })
+                })))
 }
 
 pub(super) fn apply<'a>(
@@ -177,18 +334,30 @@ pub(super) fn apply<'a>(
         let square = views.iter().find(|v| requested(v, a, f, axis));
         if let Some(v) = square {
             let stations = edge_stations(a, f, v.direction);
-            let pair = stations
-                .iter()
-                .enumerate()
-                .flat_map(|(i, first)| stations[i + 1..].iter().map(move |second| (first, second)))
-                .filter(|(first, second)| independent(first, second, axis))
-                .max_by(|(a, b), (c, d)| {
-                    dot(cross(a.direction, b.direction), axis)
-                        .abs()
-                        .total_cmp(&dot(cross(c.direction, d.direction), axis).abs())
-                });
-            if let Some((first, second)) = pair {
-                for station in [first, second] {
+            let projected = (crate::auxiliary::is_automatic_view(v)
+                && pair(&stations, axis).is_none())
+            .then(|| projected_pair(a, f, v.direction, wants))
+            .flatten();
+            if let Some((pair, basis)) = projected
+                .as_ref()
+                .map(|[first, second]| {
+                    (
+                        [first, second],
+                        "perpendicular distance from a visible stock edge in the end-on projection",
+                    )
+                })
+                .or_else(|| {
+                    let (first, second) = pair(&stations, axis)?;
+                    Some((
+                        [first, second],
+                        "perpendicular distance from the face edge to the axis, shown true",
+                    ))
+                })
+            {
+                for station in pair {
+                    if crate::auxiliary::is_automatic_view(v) {
+                        ground_edge(a, spec, station, wants);
+                    }
                     let [a, b] = station.points;
                     let w = measurement(
                         spec,
@@ -196,7 +365,24 @@ pub(super) fn apply<'a>(
                         &station.role(),
                         station.length,
                         Shape::Aligned { a, b },
-                        "perpendicular distance from the face edge to the axis, shown true",
+                        basis,
+                    );
+                    add_want(&mut routes, wants, v, w);
+                }
+            } else if crate::auxiliary::is_automatic_view(v)
+                && v.line_style.centre_lines != Some(false)
+                && let Some(end) = crate::lint::auxiliary_geometry::bore_end(a, &f.id, v.direction)
+                && let Some(stations) = profile_stations(a, f, v.direction, &end.profile_ends)
+            {
+                for station in stations {
+                    let [a, b] = station.points;
+                    let w = measurement(
+                        spec,
+                        f,
+                        &station.role(),
+                        station.length(v.direction),
+                        Shape::Aligned { a, b },
+                        "distance from the turned stock axis or end face in the end-on projection",
                     );
                     add_want(&mut routes, wants, v, w);
                 }
@@ -231,11 +417,25 @@ pub(super) fn apply<'a>(
         };
         let base = add(at, scale3(axis, -height));
         let end_view = views.iter().find(|v| {
-            v.auxiliary
-                .as_ref()
-                .is_some_and(|aux| aux.anchor == f.id && dot(v.direction, axis).abs() <= EPS)
+            v.auxiliary.as_ref().is_some_and(|aux| {
+                (aux.anchor == f.id || aux.members.contains(&f.id))
+                    && dot(v.direction, axis).abs() <= EPS
+            })
         });
         if let Some(v) = end_view {
+            let [from, to] = if crate::auxiliary::is_automatic_view(v)
+                && v.auxiliary
+                    .as_ref()
+                    .is_some_and(|aux| crate::auxiliary::opposed_profile(a, aux))
+            {
+                let Some(witnesses) = crate::auxiliary::boss_witnesses(a, &f.id, v.direction)
+                else {
+                    continue;
+                };
+                witnesses
+            } else {
+                [base, at]
+            };
             add_want(
                 &mut routes,
                 wants,
@@ -245,7 +445,7 @@ pub(super) fn apply<'a>(
                     f,
                     "boss_height.length",
                     height,
-                    Shape::Aligned { a: base, b: at },
+                    Shape::Aligned { a: from, b: to },
                     "height along the boss axis, shown true",
                 ),
             );
@@ -341,14 +541,14 @@ pub(super) fn apply<'a>(
         {
             w.terms.extend([
                 crate::callouts::BREAK.into(),
-                format!("⌀ TANGENT TO {n} EDGES"),
+                format!("TANGENT TO {n} EDGES"),
             ]);
         }
         *sites = std::iter::once((at, diameter / 2.))
             .chain(peers.into_iter().map(|(site, _)| site))
             .collect();
         arcs.clear();
-        w.basis = "size called out on the true circle in the requested auxiliary view".into();
+        w.basis = "size called out on the true circle in the auxiliary view".into();
         routes.insert(w.id.clone(), v.id.trim_start_matches("v:"));
     }
     routes

@@ -54,9 +54,13 @@ fn accepted_cad_frame_layout(file: &str) {
         // that pair no longer contributes a false label_crowded notice.
         // 2026-11-14: repair preserving shared rows clears 21 crossings and 19 feature contacts.
         "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [33, 0, 6, 1, 1, 0], [1, 5, 26]),
-        "assembly_plate_pin.step" => ("A3", "1:1", [2, 2, 0, 1, 2, 0], [0, 0, 2]),
-        "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [4, 1, 0, 0, 3, 0], [2, 0, 2]),
-        "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
+        // Both inclined projections and the plate's basic dimensions fit at
+        // the ordinary scale. A3 keeps the handwritten drawing's crowding at
+        // main's three contacts and clears its bore leader crossing.
+        "assembly_plate_pin.step" => ("A3", "1:1", [1, 1, 0, 0, 2, 0], [0, 0, 1]),
+        "hw_assembly_plate_pin_intent.step" => ("A3", "1:2", [3, 1, 0, 0, 3, 0], [2, 0, 1]),
+        // The shorter stock witness leaves one of main's two leader crossings.
+        "specify-main-angle-bracket.step" => ("A4", "1:1", [1, 0, 0, 0, 1, 0], [0, 1, 0]),
         _ => unreachable!(),
     };
     let metric = file.ends_with(":mm");
@@ -113,4 +117,32 @@ fn accepted_cad_frame_layout(file: &str) {
         q.code.as_str(),
         "annotation_off_sheet" | "pinned_view_off_sheet"
     )));
+    if file == "specify-main-angle-bracket.step" {
+        let auxiliaries: Vec<_> = p
+            .views
+            .iter()
+            .filter_map(|v| v.auxiliary.as_ref())
+            .collect();
+        assert_eq!(auxiliaries.len(), 1);
+        assert_eq!(auxiliaries[0].anchor, "f:hole:f9");
+        assert_eq!(auxiliaries[0].parent, "v:front");
+        assert!(!auxiliaries[0].edge_on);
+    }
+    if file == "assembly_plate_pin.step" {
+        for (faces, label) in [
+            ("f1,11", "30"),
+            ("f0,11", "95"),
+            ("f1,6", "15"),
+            ("f0,6", "20"),
+            ("f1,10", "45"),
+            ("f0,10", "50"),
+            ("f0,12", "80"),
+        ] {
+            let id = format!("d:pmi:dimension.linear.basic:p0:{faces}/linear.basic");
+            let dimension = p.dimensions.iter().find(|d| d.id == id).expect(&id);
+            assert_eq!(dimension.label, label);
+            assert_eq!(dimension.view, "v:plan");
+            assert!(dimension.placed.is_some());
+        }
+    }
 }

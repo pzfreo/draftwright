@@ -194,7 +194,7 @@ jobs:
           path: acceptance-inputs.tar.gz
           retention-days: 1
 
-  # The native analysis and default plan of each of the 68 survey parts, made once by this
+  # The native analysis and default plan of each of the 70 survey parts, made once by this
   # commit's executable (binary's), for the test shards to read instead of making them again
   # (src/plan_cache.rs). Its own job, so neither lint nor the acceptance jobs gate on it; two
   # shards, because three AP242 parts take 3-5 minutes each and these jobs gate the tests.
@@ -326,7 +326,7 @@ jobs:
           done
 
   # The quality-pins measurements (30 parts unpinned, the 270 runs of the nine random-pin
-  # cells, the AP242 CTC/FTC sources, and the rest of the 69-part repeated-span survey) run
+  # cells, the AP242 CTC/FTC sources, and the rest of the 70-part repeated-span survey) run
   # once each, balanced across these shards (tools/ci_acceptance.py shard_tasks).
   # PRs measure only the unpinned/AP242/survey tasks in two shards. Full runs keep all four
   # shards and the nine random-pin cells. quality-gate compares one same-binary baseline and

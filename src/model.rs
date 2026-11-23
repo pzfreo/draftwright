@@ -1370,6 +1370,10 @@ pub struct Cut {
 pub struct Problem {
     pub id: String,
     pub code: String,
+    /// Internal provenance for the dimensional gap from the inclined-axis recipe.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub inclined_axis_gap: bool,
     /// `error`, `warning` or `info`.
     pub severity: String,
     pub message: String,
@@ -2387,6 +2391,11 @@ pub fn recognise(part: &Part, analysis: &mut Analysis, json: &str) -> Result<(),
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
     dimension_geometry::memberships(analysis);
+    let (bore_ends, boss_profiles) = crate::auxiliary::evidence(part, analysis);
+    if let Some(ink) = &mut analysis.edge_ink {
+        ink.bore_ends = bore_ends;
+        ink.boss_profiles = boss_profiles;
+    }
     analysis.unrecognised.clear();
     Ok(())
 }
@@ -2510,6 +2519,11 @@ pub fn recognise_document(
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
     dimension_geometry::memberships(analysis);
+    let (bore_ends, boss_profiles) = crate::auxiliary::evidence(part, analysis);
+    if let Some(ink) = &mut analysis.edge_ink {
+        ink.bore_ends = bore_ends;
+        ink.boss_profiles = boss_profiles;
+    }
     analysis.modelled_thread_ink = crate::modelled_threads::evidence(part, analysis);
     // Physical threads use conventional carriers. Their raw helix HLR would be
     // thrown away by the planner and renderer; keep raw conservative evidence
@@ -2595,6 +2609,12 @@ const HARD_LAYOUT: [&str; 9] = [
 const RADIUS_DEFAULT_WITHDRAWN: &str =
     "cannot assert a blanket radius while an exception is undrawn.";
 
+fn hard_layout(p: &Problem) -> bool {
+    p.severity != "info"
+        && !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN)
+        && (HARD_LAYOUT.contains(&p.code.as_str()) || crate::auxiliary::automatic_unplaceable(p))
+}
+
 /// A plan's findings for the recovery. The port drops for want of room only the hole items it
 /// placed off the sheet ([`crate::hole_table`]: an item that collides is placed and reported; one
 /// no shown view carries is kept unplaced, which no sheet or scale changes), so its completeness
@@ -2627,12 +2647,7 @@ pub(crate) fn findings(plan: &Plan) -> layout::Findings {
     let scale = plan.sheet.scale_factor;
     layout::Findings {
         hard: usize::from(crate::sheets::floor(&plan.spec).is_some_and(|f| scale < f))
-            + plan
-                .problems
-                .iter()
-                .filter(|p| HARD_LAYOUT.contains(&p.code.as_str()) && p.severity != "info")
-                .filter(|p| !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN))
-                .count(),
+            + plan.problems.iter().filter(|p| hard_layout(p)).count(),
         dropped: axes
             .values()
             .map(|o| layout::crowded_locations(o, scale))
@@ -2674,11 +2689,7 @@ pub(crate) fn angular_losses(plan: &Plan) -> usize {
 /// Name the reported hard findings counted by the recovery, including the Spec's scale floor.
 pub(crate) fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
     let mut codes = BTreeMap::new();
-    for p in plan.problems.iter().filter(|p| {
-        HARD_LAYOUT.contains(&p.code.as_str())
-            && p.severity != "info"
-            && !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN)
-    }) {
+    for p in plan.problems.iter().filter(|p| hard_layout(p)) {
         *codes.entry(p.code.as_str()).or_default() += 1;
     }
     if crate::sheets::floor(&plan.spec).is_some_and(|floor| plan.sheet.scale_factor < floor) {
@@ -2985,6 +2996,37 @@ fn carried(plan: &Plan) -> BTreeSet<(String, String)> {
 
 pub(crate) fn carries_required(required: &Plan, candidate: &Plan) -> bool {
     carried(required).is_subset(&carried(candidate))
+}
+
+/// A schedule can credit locations to a dimension chain that is still drawn
+/// when a candidate uses inline hole callouts instead of the schedule.
+pub(crate) fn carries_required_with_location_chains(
+    analysis: &Analysis,
+    required: &Plan,
+    candidate: &Plan,
+) -> bool {
+    let required = carried(required);
+    let actual = carried(candidate);
+    let missing = required.difference(&actual);
+    if missing.clone().next().is_none() {
+        return true;
+    }
+    let axis = |role: &str| match role {
+        "location.length.x" => Some(0),
+        "location.length.y" => Some(1),
+        "location.length.z" => Some(2),
+        _ => None,
+    };
+    let Some(locations) = missing
+        .map(|(id, role)| Some((id.clone(), axis(role)?)))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let proved = crate::dims::pmi_policy::retained_locations(analysis, candidate, &BTreeSet::new());
+    locations
+        .iter()
+        .all(|location| proved.contains_key(location))
 }
 
 /// Check actual bounds independently on each sheet; coincident coordinates on different
@@ -5141,6 +5183,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
         }
     }
     base.views.keep_sections_from(&spec.views);
+    base.views.keep_auxiliaries_from(&spec.views);
     base.views.keep_breaks_from(&spec.views);
     base.views.keep_pictorials_from(&spec.views);
     if spec.dimensions.values().any(|d| d.between.is_some()) {
@@ -5420,10 +5463,17 @@ fn plan_recovered_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid
         ));
     }
     let prepared = crate::modelled_threads::planning(analysis, spec);
-    let mut plan = crate::dims::pmi_policy::planning(|| plan_recovered_inner(&prepared, spec))?;
-    if spec.sheet.keep_layout == Some(true) || !crate::sheet_policy::finishes_selection(spec) {
-        finish_selected(&prepared, &mut plan);
-    }
+    let mut plan = crate::dims::pmi_policy::planning(|| {
+        crate::auxiliary::retain_dimensioned(&prepared, spec, |intent| {
+            let mut plan = plan_recovered_inner(&prepared, intent)?;
+            if intent.sheet.keep_layout == Some(true)
+                || !crate::sheet_policy::finishes_selection(intent)
+            {
+                finish_selected(&prepared, &mut plan);
+            }
+            Ok(plan)
+        })
+    })?;
     crate::modelled_threads::source_hash(
         analysis,
         matches!(&prepared, std::borrow::Cow::Owned(_)),
@@ -6756,7 +6806,11 @@ fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan, recovere
 
 fn plan_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let prepared = crate::modelled_threads::planning(analysis, spec);
-    let mut plan = crate::dims::pmi_policy::planning(|| plan_inner(&prepared, spec))?;
+    let mut plan = crate::dims::pmi_policy::planning(|| {
+        crate::auxiliary::retain_dimensioned(&prepared, spec, |intent| {
+            plan_inner(&prepared, intent)
+        })
+    })?;
     crate::half_section::apply(&prepared, &mut plan);
     crate::modelled_threads::source_hash(
         analysis,
@@ -6992,6 +7046,7 @@ fn plan_with_presentation(
             let mut unnamed = base.clone();
             unnamed.views.clear();
             unnamed.views.keep_sections_from(&spec.views);
+            unnamed.views.keep_auxiliaries_from(&spec.views);
             unnamed.views.keep_breaks_from(&spec.views);
             unnamed.views.keep_pictorials_from(&spec.views);
             if let Ok(default) = plan_automatic(analysis, &unnamed)
@@ -7002,6 +7057,7 @@ fn plan_with_presentation(
             {
                 base.views.clear();
                 base.views.keep_sections_from(&spec.views);
+                base.views.keep_auxiliaries_from(&spec.views);
                 base.views.keep_breaks_from(&spec.views);
                 base.views.keep_pictorials_from(&spec.views);
             }
@@ -7247,6 +7303,7 @@ fn plan_with_presentation(
         });
         if !inactive.is_empty() {
             problems.push(Problem {
+                inclined_axis_gap: false,
                 crossing_kinds: Vec::new(),
                 ink_is_leader: None,
                 id: "p:spec_entries_inactive:part".into(),
@@ -7784,6 +7841,7 @@ fn plan_with_presentation(
     // A section left out is said, with why and what would bring it back (draftwright records
     // every section decision: ISSUE-1190-b); one the author omits needs no saying.
     let section_not_shown = |why: String, fix: Vec<crate::items::Op>| Problem {
+        inclined_axis_gap: false,
         crossing_kinds: Vec::new(),
         ink_is_leader: None,
         id: format!("p:section_not_shown:v:{section_name}"),
@@ -8403,7 +8461,14 @@ fn plan_with_presentation(
             problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", scale_name(detail.scale)),refs:vec![format!("v:{name}")],..Default::default()});
         }
     }
-    crate::auxiliary::place(&mut views, auxiliary, &g.derived, pick.scale, &mut problems);
+    crate::auxiliary::place(
+        spec,
+        &mut views,
+        auxiliary,
+        &g.derived,
+        pick.scale,
+        &mut problems,
+    );
     crate::auxiliary::letters(&mut views);
     if require_automatic
         && !views

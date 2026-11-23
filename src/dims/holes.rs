@@ -370,6 +370,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                     problems.push(Problem {
                         id: format!("p:feature_not_dimensioned:{}", f.id),
                         code: "feature_not_dimensioned".into(),
+                        inclined_axis_gap: true,
                         severity: "warning".into(),
                         message: format!(
                             "{}'s location is not dimensioned: its axis is inclined to every principal axis, so it needs a view square to it; its size is called out where it is seen most nearly end-on.",

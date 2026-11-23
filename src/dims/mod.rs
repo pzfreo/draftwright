@@ -907,6 +907,82 @@ fn wants(
     result
 }
 
+/// Features for which the dimension recipe reports an inclined-axis gap.
+pub(crate) fn auxiliary_needs(analysis: &Analysis, spec: &Spec) -> BTreeSet<String> {
+    let frame = crate::bridge::holes::frame(analysis);
+    if !analysis.features.iter().any(|f| {
+        matches!(f.kind.as_str(), "hole" | "boss")
+            && crate::bridge::holes::point(f.parameters.get("axis"))
+                .map(|d| crate::bridge::holes::dir_to_part(&frame, d))
+                .is_some_and(|d| crate::bridge::holes::principal(d).is_none())
+    }) {
+        return BTreeSet::new();
+    }
+    let mut needs: BTreeSet<_> = pmi_policy::wants(analysis, spec)
+        .1
+        .into_iter()
+        .filter(pmi_policy::inclined_gap)
+        .flat_map(|p| p.subjects)
+        .collect();
+    let mut authored = BTreeMap::<String, usize>::new();
+    for dimension in spec.dimensions.values().filter(|d| !d.omit) {
+        let Some(ends) = &dimension.between else {
+            continue;
+        };
+        let subjects = ends
+            .iter()
+            .filter_map(|reference| {
+                let end = reference.strip_prefix("axis:")?;
+                needs.get(end).map(String::as_str).or_else(|| {
+                    let face = analysis.dimension_reference_axis_face(reference)?;
+                    analysis.features.iter().find_map(|f| {
+                        (f.faces.contains(&face) && needs.contains(&f.id)).then_some(f.id.as_str())
+                    })
+                })
+            })
+            .collect::<BTreeSet<_>>();
+        for id in subjects {
+            *authored.entry(id.to_owned()).or_default() += 1;
+        }
+    }
+    // One authored distance cannot independently fix both transverse freedoms.
+    // Cache the actual placement audit across paper trials when two are present.
+    if authored.values().any(|&count| count >= 2) {
+        let key = serde_json::to_vec(&(spec, crate::planning::policy_key(analysis)))
+            .expect("authored location inputs serialize");
+        let missing = crate::planning::memo(analysis, "authored-inclined-locations", key, || {
+            crate::planning::without_automatic_auxiliaries(|| crate::model::plan(analysis, spec))
+                .ok()
+                .map(|plan| {
+                    plan.problems
+                        .into_iter()
+                        .filter(pmi_policy::inclined_gap)
+                        .flat_map(|p| p.subjects)
+                        .collect::<BTreeSet<_>>()
+                })
+        });
+        if let Some(missing) = missing {
+            needs.retain(|id| {
+                authored.get(id.as_str()).copied().unwrap_or(0) < 2 || missing.contains(id)
+            });
+        }
+    }
+
+    needs
+}
+
+pub(crate) fn auxiliary_stock_pair(
+    a: &Analysis,
+    spec: &Spec,
+    feature: &crate::bridge::Feature,
+    toward: [f64; 3],
+) -> Option<[crate::lint::auxiliary_geometry::EdgeStation; 2]> {
+    let (mut wants, ..) = pmi_policy::wants(a, spec);
+    schemes::apply(a, spec, &mut wants).ok()?;
+    authored::append(a, spec, &mut wants).ok()?;
+    auxiliary::projected_pair(a, feature, toward, &wants)
+}
+
 /// Exact visibility is useful only for established fractional callouts that may
 /// need a different corridor. Integer statements and newly added recesses use
 /// the conservative projected edge evidence without running hidden-line removal.

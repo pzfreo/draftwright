@@ -33,7 +33,7 @@ def in_shard(names, k, n):
 
 
 def inputs(corpus, directory):
-    """The 69 survey inputs: the corpus manifest, which must hold every corpus file the tests
+    """The 70 survey inputs: the corpus manifest, which must hold every corpus file the tests
     read, and each PMI fixture decompressed into *directory*."""
     corpus, root = Path(corpus), Path(__file__).resolve().parents[1]
     assert corpus.is_dir(), corpus

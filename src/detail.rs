@@ -742,6 +742,7 @@ pub(crate) fn scaled(a: &Analysis, spec: &Spec, sheet: f64) -> Scaled {
                 (id.clone(), (w + left + right).max(65.0), h + bottom + top)
             })
             .collect(),
+        derived_projections: Vec::new(),
     }
 }
 pub(crate) fn section_label(spec: &Spec) -> String {

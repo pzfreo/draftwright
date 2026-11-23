@@ -203,6 +203,7 @@ pub(crate) fn reconcile(
             let mut remaining = spec.notes.clone();
             remaining.remove(i);
             problems.push(Problem {
+                inclined_axis_gap: false,
                 crossing_kinds: Vec::new(),
                 ink_is_leader: None,
                 id: format!("p:note_duplicated_in_spec:{}:{}", r.source, n.id),
