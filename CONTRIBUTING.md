@@ -55,14 +55,15 @@ entries. Local latency assertions stay enabled.
   (including budgets) and browser WASM parity: **22 jobs**, roughly **25 minutes**.
   The full nine-cell random-pin sweep (270 additional drawings), budgets and WASM are
   deferred on ordinary PRs to save runners. CI asserts that the PR
-  tier plus recorded slow tests partitions the full built inventory without omissions.
+  tier plus recorded slow tests partitions the main nextest selection.
 - **Full on demand:** add the **`full-ci`** label to a PR (also applies to subsequent
   pushes), or run the **CI** workflow with **Run workflow** on the desired ref. Both run
   the same full tier as main. Removing the label restores the fast tier.
 - **Release:** the exact tagged commit must have successful **full push-to-main CI**
   before any CLI/WASM assets or crates.io/PyPI packages are published. The release guard
   checks the latest result of every full-tier job, including carried-over rerun successes; PR/dispatch success or a historic
-  lint-only run does not qualify. Publishing itself uses the existing workflows.
+  lint-only run does not qualify. Each publishing workflow also requires the five
+  `release-only` nextest checks to pass on that tag.
 
 Counts above cover `ci.yml`; the existing path-filtered wheel,
 crate-package and CLI workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
