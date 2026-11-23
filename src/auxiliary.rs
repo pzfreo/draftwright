@@ -3,6 +3,9 @@ use haecceity::hlr::View;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+use crate::auxiliary_geometry::{
+    Point, coplanar_patches, cross, dot, face, feature_axis, sub, support, unit,
+};
 use crate::layout::{Rect, Scaled};
 use crate::model::dimension_geometry::Reference;
 use crate::model::{Analysis, Invalid, PlannedView, Problem, Spec, VIEWS};
@@ -37,29 +40,6 @@ pub struct Auxiliary {
     /// Signed rotation of the image from the projected vertical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<f64>,
-}
-
-type Point = [f64; 3];
-
-pub(crate) fn sub(a: Point, b: Point) -> Point {
-    std::array::from_fn(|k| a[k] - b[k])
-}
-
-pub(crate) fn dot(a: Point, b: Point) -> f64 {
-    (0..3).map(|k| a[k] * b[k]).sum()
-}
-
-pub(crate) fn cross(a: Point, b: Point) -> Point {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-pub(crate) fn unit(v: Point) -> Option<Point> {
-    let length = dot(v, v).sqrt();
-    (length.is_finite() && length > 1e-10).then(|| v.map(|x| x / length))
 }
 
 pub(crate) fn is_name(name: &str) -> bool {
@@ -134,164 +114,6 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
 
 fn invalid(name: &str, why: &str) -> Invalid {
     crate::model::invalid(format!("Auxiliary view {name} {why}."), &[]).at("views", name)
-}
-
-pub(crate) fn feature_axis(a: &Analysis, anchor: &str) -> Option<[Point; 2]> {
-    let Reference::Edge { ends, .. } = a.dimension_reference(&format!("axis:{anchor}")).ok()?
-    else {
-        return None;
-    };
-    Some(ends)
-}
-
-pub(crate) fn face(a: &Analysis, anchor: &str) -> Option<Reference> {
-    if let Ok(reference @ Reference::Plane { .. }) = a.dimension_reference(anchor) {
-        return Some(reference);
-    }
-    let index = anchor.strip_prefix("face:")?.parse().ok()?;
-    face_at(a, index)
-}
-
-pub(crate) fn face_at(a: &Analysis, index: usize) -> Option<Reference> {
-    a.dimension_references()
-        .values()
-        .flatten()
-        .find(|r| matches!(r, Reference::Plane { membership, .. } if membership.faces == [index]))
-        .cloned()
-}
-
-/// Planar patches that share the boundary of a feature and lie on the same
-/// plane. An inscribed bore can split its entrance into several such patches.
-pub(crate) fn coplanar_patches(
-    a: &Analysis,
-    seed: &Reference,
-    feature_faces: &[usize],
-) -> Vec<Reference> {
-    let Reference::Plane { origin, normal, .. } = seed else {
-        return Vec::new();
-    };
-    let mut boundary = seed.membership().vertices.clone().unwrap_or_default();
-    let mut patches = vec![seed.clone()];
-    let mut candidates: Vec<_> = a
-        .dimension_references()
-        .values()
-        .flatten()
-        .filter(|r| {
-            matches!(r, Reference::Plane { origin: p, normal: n, .. }
-            if dot(*normal, *n).abs() > 1. - TOLERANCE
-                && dot(sub(*p, *origin), *normal).abs() < TOLERANCE)
-                && r.membership().faces != seed.membership().faces
-        })
-        .collect();
-    loop {
-        let count = candidates.len();
-        candidates.retain(|r| {
-            let m = r.membership();
-            let touches = m
-                .vertices
-                .iter()
-                .flatten()
-                .any(|key| boundary.contains(key))
-                || m.edges.iter().flatten().any(|edge| {
-                    feature_faces.iter().any(|&index| {
-                        a.dimension_references().values().flatten().any(|f| {
-                            f.membership().faces == [index]
-                                && f.membership()
-                                    .edges
-                                    .iter()
-                                    .flatten()
-                                    .any(|e| e.index == edge.index)
-                        })
-                    })
-                });
-            if touches {
-                boundary.extend(m.vertices.iter().flatten().cloned());
-                patches.push((*r).clone());
-            }
-            !touches
-        });
-        if candidates.len() == count {
-            break;
-        }
-    }
-    patches
-}
-
-/// A support at the opening of a hole or the base of a boss. Require shared
-/// B-rep boundary and the same normal section as the axis.
-pub(crate) fn support(
-    a: &Analysis,
-    feature: &crate::bridge::Feature,
-    camera: Point,
-) -> Option<(Reference, Point)> {
-    let q = crate::bridge::holes::frame(a);
-    let (point, side) = if feature.kind == "hole" {
-        let hole = crate::bridge::holes::Hole::read(feature, &q).ok()?;
-        let far = dot(hole.direction, camera) > 0.;
-        (
-            crate::dims::add(
-                hole.at,
-                crate::dims::scale3(hole.direction, if far { hole.depth? } else { -hole.entry }),
-            ),
-            camera,
-        )
-    } else {
-        let top = crate::bridge::holes::to_part(
-            &q,
-            crate::bridge::holes::point(feature.parameters.get("location"))?,
-        );
-        let direction = crate::bridge::holes::dir_to_part(
-            &q,
-            crate::bridge::holes::point(feature.parameters.get("axis"))?,
-        );
-        (
-            crate::dims::add(
-                top,
-                crate::dims::scale3(direction, -feature.parameters.get("height")?.as_f64()?),
-            ),
-            direction,
-        )
-    };
-    let edges: std::collections::BTreeSet<_> = a
-        .dimension_references()
-        .values()
-        .flatten()
-        .filter(|r| {
-            r.membership()
-                .faces
-                .as_slice()
-                .first()
-                .is_some_and(|i| feature.faces.contains(i))
-        })
-        .flat_map(|r| r.membership().edges.iter().flatten().map(|e| e.index))
-        .collect();
-    let seed = a
-        .dimension_references()
-        .values()
-        .flatten()
-        .filter(|r| {
-            r.membership()
-                .faces
-                .iter()
-                .all(|i| !feature.faces.contains(i))
-        })
-        .filter_map(|r| match r {
-            Reference::Plane { origin, normal, .. }
-                if dot(*normal, side).abs() > 1. - TOLERANCE
-                    && r.membership()
-                        .edges
-                        .iter()
-                        .flatten()
-                        .any(|e| edges.contains(&e.index)) =>
-            {
-                Some((dot(sub(point, *origin), *normal).abs(), r))
-            }
-            _ => None,
-        })
-        .filter(|(distance, _)| *distance <= 0.002)
-        .min_by(|(a, _), (b, _)| a.total_cmp(b))?
-        .1;
-    Some((seed.clone(), point))
 }
 
 fn anchor_references(a: &Analysis, anchor: &str, camera: Point, edge_on: bool) -> Vec<Reference> {

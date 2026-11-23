@@ -51,7 +51,7 @@ fn auxiliary_axis(a: &Analysis, id: &str) -> Option<[f64; 3]> {
         return Some(direction);
     }
     a.features.iter().find(|f| f.id == id && f.kind == "boss")?;
-    let [start, end] = crate::auxiliary::feature_axis(a, id)?;
+    let [start, end] = crate::auxiliary_geometry::feature_axis(a, id)?;
     let direction = unit(sub(end, start))?;
     crate::bridge::holes::principal(direction)
         .is_none()
@@ -243,7 +243,7 @@ fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option
         return None;
     }
     let f = a.features.iter().find(|f| f.id == id)?;
-    let station = crate::dims::auxiliary::edge_stations(a, f, frame.direction)
+    let station = crate::auxiliary_geometry::edge_stations(a, f, frame.direction)
         .into_iter()
         .find(|s| s.role() == claim.parameter)?;
     let (key, _) = a.dimension_references().get_key_value(&station.key)?;
@@ -289,7 +289,7 @@ fn trace_rooted(
         .collect();
     let station = |k: usize, value| super::profile_angles::rooted_at(&roots[k], &spans, k, value);
     let support_face = membership.faces.iter().find_map(|&face| {
-        let r = crate::auxiliary::face_at(a, face)?;
+        let r = crate::auxiliary_geometry::face_at(a, face)?;
         matches!(&r, Reference::Plane { normal, .. } if crate::bridge::holes::principal(*normal).is_none()).then_some(r)
     });
     let on_face = |p| match &support_face {
@@ -297,7 +297,8 @@ fn trace_rooted(
         _ => false,
     };
     let adjoining_stock_located = membership.faces.iter().any(|&face| {
-        let Some(Reference::Plane { normal, origin, .. }) = crate::auxiliary::face_at(a, face)
+        let Some(Reference::Plane { normal, origin, .. }) =
+            crate::auxiliary_geometry::face_at(a, face)
         else {
             return false;
         };

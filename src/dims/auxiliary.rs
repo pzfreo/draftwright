@@ -1,78 +1,16 @@
 //! Measurements whose true projection is carried by a requested auxiliary view.
 use super::{Measurement, Shape, Want, add, angular::Angle, fmt_in, scale3, want_id};
-use crate::auxiliary::{self, cross, dot, sub, unit};
+use crate::auxiliary_geometry::{
+    EdgeStation, Point, coplanar_patches, cross, dot, edge_stations, face, sub, support, unit,
+};
 use crate::bridge::{Feature, holes};
 use crate::model::dimension_geometry::Reference;
 use crate::model::{Analysis, PlannedView, Spec};
 use std::collections::{BTreeMap, BTreeSet};
 
-type Point = [f64; 3];
 const EPS: f64 = 1e-6;
 
-#[derive(Debug)]
-pub(crate) struct EdgeStation {
-    pub face: usize,
-    pub edge: usize,
-    pub key: String,
-    pub points: [Point; 2],
-    pub direction: Point,
-    pub length: f64,
-}
-
-pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -> Vec<EdgeStation> {
-    let Some((seed, at)) = auxiliary::support(a, feature, direction) else {
-        return Vec::new();
-    };
-    let patches = auxiliary::coplanar_patches(a, &seed, &feature.faces);
-    let mut stations = Vec::<EdgeStation>::new();
-    for patch in &patches {
-        let m = patch.membership();
-        let Some(&face) = m.faces.first() else {
-            continue;
-        };
-        for edge in m.edges.iter().flatten() {
-            let Some(key) = &edge.reference else { continue };
-            let Ok(Reference::Edge { ends, .. }) = a.dimension_reference(key) else {
-                continue;
-            };
-            let span = sub(ends[1], ends[0]);
-            let Some(along) = unit(span) else { continue };
-            let foot = dot(sub(at, ends[0]), along);
-            if foot < -0.002 || foot > dot(along, span) + 0.002 {
-                continue;
-            }
-            let anchor = add(ends[0], scale3(along, foot));
-            let delta = sub(at, anchor);
-            let Some(normal) = unit(delta) else { continue };
-            if dot(normal, direction).abs() > EPS
-                || stations.iter().any(|s| {
-                    dot(s.direction, normal) > 1. - EPS
-                        && dot(sub(anchor, s.points[0]), normal).abs() < EPS
-                })
-            {
-                continue;
-            }
-            stations.push(EdgeStation {
-                face,
-                edge: edge.index,
-                key: key.clone(),
-                points: [anchor, at],
-                direction: normal,
-                length: dot(delta, normal),
-            });
-        }
-    }
-    stations.sort_by_key(|s| (s.face, s.edge));
-    stations
-}
-
-impl EdgeStation {
-    pub(crate) fn role(&self) -> String {
-        format!("location.length.f{}.e{}", self.face, self.edge)
-    }
-}
-
-pub(crate) fn independent(a: &EdgeStation, b: &EdgeStation, axis: Point) -> bool {
+fn independent(a: &EdgeStation, b: &EdgeStation, axis: Point) -> bool {
     dot(cross(a.direction, b.direction), axis).abs() > EPS
 }
 
@@ -88,8 +26,8 @@ fn inscribed(
     if stations.len() < 3 || h.opening_diameter() != h.diameter || !h.mouth_chamfers.is_empty() {
         return None;
     }
-    let (seed, _) = auxiliary::support(a, f, direction)?;
-    let patches = auxiliary::coplanar_patches(a, &seed, &f.faces);
+    let (seed, _) = support(a, f, direction)?;
+    let patches = coplanar_patches(a, &seed, &f.faces);
     let mut boundary = BTreeMap::<usize, (usize, Option<&str>)>::new();
     for edge in patches
         .iter()
@@ -195,9 +133,9 @@ fn requested(v: &PlannedView, a: &Analysis, f: &Feature, axis: Point) -> bool {
     !aux.edge_on
         && dot(v.direction, axis).abs() >= 1. - EPS
         && (aux.anchor == f.id
-            || auxiliary::support(a, f, v.direction).is_some_and(|(seed, _)| {
-                auxiliary::face(a, &aux.anchor).is_some_and(|anchor| {
-                    let patches = auxiliary::coplanar_patches(a, &seed, &f.faces);
+            || support(a, f, v.direction).is_some_and(|(seed, _)| {
+                face(a, &aux.anchor).is_some_and(|anchor| {
+                    let patches = coplanar_patches(a, &seed, &f.faces);
                     patches
                         .iter()
                         .any(|r| r.membership().faces == anchor.membership().faces)
