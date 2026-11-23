@@ -58,8 +58,21 @@ fn share(a: &Analysis, request: &mut Request, id: &str) {
         return;
     }
     if !request.meta.full {
-        let refs = anchor_references(a, id, request.camera.toward, request.meta.edge_on);
-        if let Some(bounds) = crop(a, &refs, &request.camera) {
+        // Include adjacent stock around shared openings even when their individual
+        // end faces barely extend beyond the rims.
+        let bounds = |id| {
+            let refs = anchor_references(a, id, request.camera.toward, request.meta.edge_on);
+            let limits = fit_points(a, &refs, &request.camera)?;
+            Some(if request.meta.edge_on {
+                local_crop(a, &request.camera, limits, 0.12, 2.)
+            } else {
+                local_crop(a, &request.camera, limits, 0.25, 6.)
+            })
+        };
+        for bounds in [bounds(&request.meta.anchor), bounds(id)]
+            .into_iter()
+            .flatten()
+        {
             for k in 0..2 {
                 request.meta.bounds[k] = request.meta.bounds[k].min(bounds[k]);
                 request.meta.bounds[k + 2] = request.meta.bounds[k + 2].max(bounds[k + 2]);
@@ -240,7 +253,13 @@ pub(super) fn append(
                 })
                 .or_else(|| {
                     let (parent, direction) = principals.first()?;
-                    let direction = unit(cross(camera, *direction))?;
+                    let mut direction = unit(cross(camera, *direction))?;
+                    let parent_camera = principal(parent.strip_prefix("v:")?)?;
+                    // Either side shows the face edge-on. Face toward the available
+                    // right-hand side of the principal-view row.
+                    if parent_camera.map(direction)[0] < 0. {
+                        direction = direction.map(|x| -x);
+                    }
                     let support = support(a, feature, camera)
                         .and_then(|(face, _)| face.membership().faces.first().copied())
                         .map_or_else(|| id.clone(), |face| format!("face:{face}"));
@@ -252,7 +271,21 @@ pub(super) fn append(
                     {
                         return None;
                     }
-                    let r = request(a, spec, &support, parent.clone(), direction, true).ok()??;
+                    let mut r =
+                        request(a, spec, &support, parent.clone(), direction, true).ok()??;
+                    let refs = anchor_references(a, &support, direction, true);
+                    if let Some(limits) = fit_points(a, &refs, &r.camera) {
+                        // Show the adjoining ends of the stock edges as well as the
+                        // anchor edge. Keep those edges local to the cropped face.
+                        r.meta.bounds = local_crop(a, &r.camera, limits, 0.24, 4.);
+                    }
+                    if spec
+                        .views
+                        .get(&r.name)
+                        .is_none_or(|v| v.place.is_none() && v.sheet.is_none())
+                    {
+                        r.projection = Some(parent_camera.map(direction));
+                    }
                     let id = r.id.clone();
                     intermediate = Some(r);
                     Some(id)

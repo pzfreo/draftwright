@@ -701,6 +701,8 @@ pub struct Scaled {
     pub angular: Vec<(String, Rect)>,
     /// An identity, a width and a height.
     pub derived: Vec<(String, f64, f64)>,
+    /// A derived view, its principal parent and its direction in that parent's plane.
+    pub derived_projections: Vec<(String, String, [f64; 2])>,
 }
 
 /// Which principal views the sheet carries.
@@ -1456,14 +1458,41 @@ fn geometry_with(
     let mut derived = Vec::new();
     let mut derived_fit = true;
     for (id, w, h) in &scaled.derived {
-        let r = largest_empty_rect(drawable, &derived_obstacles, [*w, *h]);
-        if r[2] - r[0] < *w || r[3] - r[1] < *h || derived_obstacles.iter().any(|o| overlaps(&r, o))
+        let size = [*w, *h];
+        let bounds = if let Some((_, parent, direction)) = scaled
+            .derived_projections
+            .iter()
+            .find(|(name, ..)| name == id)
         {
+            let (block, x, y) = match parent.as_str() {
+                "v:front" => (fv, fv_x, fv_y),
+                "v:plan" => (pv, pv_x, pv_y),
+                "v:side" => (derived_side, sv_x, sv_y),
+                _ => unreachable!("a projection helper uses a principal parent"),
+            };
+            beside_projection(
+                size,
+                drawable,
+                &derived_obstacles,
+                block.footprint(x, y),
+                [x, y],
+                *direction,
+            )
+            .map(|[x, y]| [x, y, x + w, y + h])
+        } else {
+            let r = largest_empty_rect(drawable, &derived_obstacles, size);
+            (r[2] - r[0] >= *w
+                && r[3] - r[1] >= *h
+                && !derived_obstacles.iter().any(|o| overlaps(&r, o)))
+            .then(|| {
+                let (cx, cy) = ((r[0] + r[2]) / 2., (r[1] + r[3]) / 2.);
+                [cx - w / 2., cy - h / 2., cx + w / 2., cy + h / 2.]
+            })
+        };
+        let Some(b) = bounds else {
             derived_fit = false;
             break;
-        }
-        let (cx, cy) = ((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0);
-        let b = [cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0];
+        };
         derived.push((id.clone(), b));
         derived_obstacles.push(b);
         obstacles.push(b);
@@ -1573,6 +1602,46 @@ fn geometry_with(
         fits,
         auto_fits,
     }
+}
+
+fn beside_projection(
+    size: [f64; 2],
+    drawable: Rect,
+    obstacles: &[Rect],
+    parent: Rect,
+    centre: [f64; 2],
+    direction: [f64; 2],
+) -> Option<[f64; 2]> {
+    let major = usize::from(direction[1].abs() > direction[0].abs());
+    for axis in [major, 1 - major] {
+        if direction[axis].abs() < 1e-6 {
+            continue;
+        }
+        let cross = 1 - axis;
+        let positive = direction[axis] > 0.;
+        let prefer = match (axis, positive) {
+            (0, false) => Corner::BottomRight,
+            (1, false) => Corner::TopLeft,
+            _ => Corner::BottomLeft,
+        };
+        let mut region = drawable;
+        if positive {
+            region[axis] = parent[axis + 2] + 3.;
+        } else {
+            region[axis + 2] = parent[axis] - 3.;
+        }
+        // Keep the centers aligned where possible. Nearby offsets still
+        // project into the parent footprint if dimension bands need the space.
+        for spread in [0.001, (parent[cross + 2] - parent[cross]) / 2.] {
+            let mut strip = region;
+            strip[cross] = strip[cross].max(centre[cross] - size[cross] / 2. - spread);
+            strip[cross + 2] = strip[cross + 2].min(centre[cross] + size[cross] / 2. + spread);
+            if let Some(at) = fit_box(size, strip, obstacles, prefer, 1.) {
+                return Some(at);
+            }
+        }
+    }
+    None
 }
 
 /// How the scale and sheet were reached when no standard choice fits.

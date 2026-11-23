@@ -216,16 +216,20 @@ fn fit_points(a: &Analysis, references: &[Reference], view: &View) -> Option<Rec
 
 fn crop(a: &Analysis, references: &[Reference], view: &View) -> Option<Rect> {
     let limits = fit_points(a, references, view)?;
-    let pad = (0.12 * (limits[2] - limits[0]).max(limits[3] - limits[1])).max(2.0);
+    Some(local_crop(a, view, limits, 0.12, 2.))
+}
+
+fn local_crop(a: &Analysis, view: &View, limits: Rect, fraction: f64, minimum: f64) -> Rect {
+    let pad = (fraction * (limits[2] - limits[0]).max(limits[3] - limits[1])).max(minimum);
     let (size, centre) = crate::model::extent(a, view);
-    Some(std::array::from_fn(|k| {
+    std::array::from_fn(|k| {
         let axis = k % 2;
         if k < 2 {
             (limits[k] - pad).max(centre[axis] - size[axis] / 2.)
         } else {
             (limits[k] + pad).min(centre[axis] + size[axis] / 2.)
         }
-    }))
+    })
 }
 
 pub(crate) fn extent(rect: Rect) -> ([f64; 2], [f64; 2]) {
@@ -262,6 +266,7 @@ pub(crate) struct Request {
     meta: Auxiliary,
     factor: f64,
     automatic: bool,
+    projection: Option<[f64; 2]>,
 }
 
 pub(crate) fn requests(
@@ -448,6 +453,7 @@ fn make_request(
     });
     Ok(Request {
         automatic: recipe.is_none(),
+        projection: None,
         name,
         id,
         camera,
@@ -470,8 +476,18 @@ const PAD: [f64; 2] = [22., 22.];
 pub(crate) fn reserve(mut scaled: Scaled, requests: &[Request], scale: f64) -> Scaled {
     scaled.derived.extend(requests.iter().map(|r| {
         let [w, h] = extent(r.meta.bounds).0.map(|d| d * scale * r.factor);
-        (r.name.clone(), (w + 2. * PAD[0]).max(65.), h + 2. * PAD[1])
+        if r.projection.is_some() {
+            // This parent carries a caption and the secondary arrow, but no dimensions.
+            (r.name.clone(), (w + 16.).max(24.), h + 24.)
+        } else {
+            (r.name.clone(), (w + 2. * PAD[0]).max(65.), h + 2. * PAD[1])
+        }
     }));
+    scaled.derived_projections.extend(
+        requests
+            .iter()
+            .filter_map(|r| Some((r.name.clone(), r.meta.parent.clone(), r.projection?))),
+    );
     scaled
 }
 
