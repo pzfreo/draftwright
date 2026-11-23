@@ -293,8 +293,8 @@ fn footprints_with_notes(
         };
         out.push(b);
     }
-    // A profile-corner angle is placed only where it is already clear and is dropped otherwise:
-    // it never takes part in choosing the paper or scale.
+    // Measure the diagram's fill independently of optional angle ink. Required angle coverage
+    // is compared separately before applying the fill preference.
     for p in plan
         .dimensions
         .iter()
@@ -1488,14 +1488,16 @@ pub(crate) struct Candidate {
     /// Page width, mm: the paper preference.
     pub width: f64,
     pub fill: f64,
+    /// Required profile angles this pair could not state.
+    pub angular_losses: usize,
     /// Leaders and witnesses through material beyond the first estimate's.
     pub extra_crossings: usize,
 }
 
-/// The maintainer's rule (2026-10-12) over valid, complete candidates only. The smallest fit is
-/// the smallest sheet with a valid complete drawing, at its largest such scale; unless the Spec
-/// names the sheet, only that pair and its next larger sheet at a larger scale compete, and
-/// [`rank`] decides between them by fill. Against a valid first estimate (*seed_clean*), a pair
+/// Compare fitting pairs on the smallest sheet and its immediate neighbour. Fewer required
+/// angle losses can justify a different scale on either sheet. For a small part, a full-size
+/// pair takes precedence over a reducing scale. Otherwise [`rank`] compares fill. Against a
+/// valid first estimate (*seed_clean*), a pair
 /// that adds material crossings is set aside (the quality ratchet); it still defines the smallest
 /// fit. Returns the smallest fit, and the chosen index, or `None` when every allowed pair adds
 /// crossings to the valid first estimate, which is then kept. `None` overall: no candidate.
@@ -1503,24 +1505,34 @@ pub(crate) fn choose(
     candidates: &[Candidate],
     named_sheet: bool,
     seed_clean: bool,
+    prefer_full_size: bool,
 ) -> Option<(Option<usize>, (usize, f64))> {
     let smallest = candidates
         .iter()
-        .map(|c| (c.sheet, c.scale))
-        .min_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)))?;
+        .min_by(|a, b| a.sheet.cmp(&b.sheet).then(b.scale.total_cmp(&a.scale)))?;
+    let first = (smallest.sheet, smallest.scale);
     let key = |c: &Candidate| (c.scale, c.width, c.fill);
     let chosen = candidates
         .iter()
         .enumerate()
         .filter(|(_, c)| {
             named_sheet
-                || (c.sheet == smallest.0 && c.scale == smallest.1)
-                || (c.sheet == smallest.0 + 1 && allowed(smallest, c.sheet, c.scale))
+                || (c.sheet == first.0 && c.scale == first.1)
+                || (c.sheet == first.0 + 1 && allowed(first, c.sheet, c.scale))
+                || (c.sheet <= first.0 + 1 && c.angular_losses < smallest.angular_losses)
         })
         .filter(|(_, c)| !seed_clean || c.extra_crossings == 0)
-        .min_by(|a, b| rank(key(a.1), key(b.1)))
+        .min_by(|(_, a), (_, b)| {
+            a.angular_losses
+                .cmp(&b.angular_losses)
+                .then_with(|| {
+                    let reducing = |c: &Candidate| prefer_full_size && c.scale < 1.0;
+                    reducing(a).cmp(&reducing(b))
+                })
+                .then_with(|| rank(key(a), key(b)))
+        })
         .map(|(i, _)| i);
-    Some((chosen, smallest))
+    Some((chosen, first))
 }
 
 /// Claim unused paper for final annotation bounds, transferring only vacant neighbouring
@@ -2465,6 +2477,7 @@ mod tests {
             scale,
             width: crate::layout::PAGES[sheet].1,
             fill,
+            angular_losses: 0,
             extra_crossings,
         }
     }
@@ -2487,7 +2500,7 @@ mod tests {
     #[test]
     fn below_the_band_the_fullest_valid_pair_wins_on_less_paper() {
         let set = [c(0, 1.0, 0.170), c(1, 2.0, 0.149)];
-        assert_eq!(choose(&set, false, true), Some((Some(0), (0, 1.0))));
+        assert_eq!(choose(&set, false, true, false), Some((Some(0), (0, 1.0))));
     }
     #[test]
     fn historical_route_reference_keeps_its_original_paper_recipe() {
@@ -2522,12 +2535,12 @@ mod tests {
         ];
         // 2026-11-14: the maintainer reversed the fullest-below-band rule;
         // A4 at 30% stays ahead of A3 at 40% until the enlargement reaches 60%.
-        assert_eq!(choose(&set, false, true), Some((Some(0), (0, 1.0))));
+        assert_eq!(choose(&set, false, true, false), Some((Some(0), (0, 1.0))));
         // In the band, the larger scale wins, then the smaller sheet.
         let set = [c(0, 1.0, 0.65), c(1, 2.0, 0.62)];
-        assert_eq!(choose(&set, false, true).unwrap().0, Some(1));
+        assert_eq!(choose(&set, false, true, false).unwrap().0, Some(1));
         let set = [c(0, 2.0, 0.65), c(1, 2.0, 0.70)];
-        assert_eq!(choose(&set, false, true).unwrap().0, Some(0));
+        assert_eq!(choose(&set, false, true, false).unwrap().0, Some(0));
     }
     /// assembly_plate_pin as measured: a valid A3 1:2 adding two crossings still defines the
     /// smallest fit, so A1 is never reached; A2 1:1, its allowed enlargement, is chosen.
@@ -2540,23 +2553,26 @@ mod tests {
             x(2, 0.5, 0.096, 1),
             x(3, 2.0, 0.251, 0),
         ];
-        assert_eq!(choose(&set, false, true), Some((Some(1), (1, 0.5))));
+        assert_eq!(choose(&set, false, true, false), Some((Some(1), (1, 0.5))));
         // An invalid first estimate's crossing count vetoes nothing.
         // 2026-11-14: without a material veto, smaller below-band paper wins.
-        assert_eq!(choose(&set, false, false), Some((Some(0), (1, 0.5))));
+        assert_eq!(choose(&set, false, false, false), Some((Some(0), (1, 0.5))));
         let spool = [
             x(0, 0.2, 0.226, 4),
             x(1, 0.5, 0.311, 2),
             x(2, 1.0, 0.475, 0),
         ];
-        assert_eq!(choose(&spool, false, true), Some((None, (0, 0.2))));
+        assert_eq!(choose(&spool, false, true, false), Some((None, (0, 0.2))));
         // 2026-11-14: an invalid seed permits the smallest fit, not the fuller enlargement.
-        assert_eq!(choose(&spool, false, false), Some((Some(0), (0, 0.2))));
+        assert_eq!(
+            choose(&spool, false, false, false),
+            Some((Some(0), (0, 0.2)))
+        );
     }
     #[test]
     fn a_named_sheet_chooses_its_scale_by_fill() {
         let set = [c(2, 1.0, 0.30), c(2, 0.5, 0.12)];
-        assert_eq!(choose(&set, true, true).unwrap().0, Some(0));
-        assert_eq!(choose(&[], true, true), None);
+        assert_eq!(choose(&set, true, true, false).unwrap().0, Some(0));
+        assert_eq!(choose(&[], true, true, false), None);
     }
 }

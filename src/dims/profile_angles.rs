@@ -38,7 +38,7 @@
 //! (arc and label within twelve label heights of it) and only where they are clear:
 //! last of all, or before the callouts route when that states more corners and is no worse. One with no clear
 //! place stays undrawn (`angular_dimension_dropped`) and lint still reports its corner missing;
-//! it never moves another item, takes a fallback or asks for more paper.
+//! a candidate that states the angle can earn more paper during sheet selection.
 use super::{Measurement, Shape, Want, end_on, fmt, want_id};
 use crate::lint::profile_angles::{
     Corner, chamfer, partner, principal_axes, requirements, undefined_stations,
@@ -128,6 +128,10 @@ fn located(
 }
 
 fn corner_angle(c: &Corner) -> super::angular::Angle {
+    if c.virtual_vertex {
+        // The witnesses start where the straight supports meet the rounded transition.
+        return c.into();
+    }
     super::angular::Angle {
         vertex: c.vertex,
         first: c.ends[0],
@@ -250,8 +254,7 @@ fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> 
                 value,
             })
             .collect(),
-        // Witnesses at the far ends of the corner's straight edges: their lengths bound how far
-        // the arc may reach (a rounded corner's tangent points would bound it too tightly).
+        // Sharp corners use the far ends of their edges; rounded corners use their tangencies.
         shape: Shape::Angular {
             angle: corner_angle(c),
             alternates: corners[1..].iter().map(|c| corner_angle(c)).collect(),

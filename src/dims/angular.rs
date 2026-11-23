@@ -463,6 +463,40 @@ impl Ink {
         Some(p)
     }
 
+    /// Angle between the tangents at a rounded corner whose apex is beyond the outline.
+    /// The arc lies between the apex and the blend. Extend both tangents to its arrows.
+    fn tangent_witnesses(
+        &self,
+        radius: f64,
+        ink: &LabelInk,
+        extension: Option<bool>,
+    ) -> Option<Placed> {
+        let arc = radius - LIFT - self.radial_half;
+        // Leave a clearance collar on the tangents of the rounded transition.
+        let blend = self.lengths[0].min(self.lengths[1]) * (self.sweep * 0.5).tan();
+        let clearance = 0.3;
+        let gap = GAP.max((clearance * (2.0 * blend + clearance)).sqrt());
+        if self.lengths.iter().any(|length| *length - gap <= arc) {
+            return None;
+        }
+        let mut placed = match extension {
+            Some(after) => self.extended_label(radius, ink, after)?,
+            None => self.placed(radius, ink)?,
+        };
+        for ((line, length), angle) in placed
+            .lines
+            .iter_mut()
+            .zip(self.lengths)
+            .zip([self.start, self.start + self.sweep])
+        {
+            *line = [
+                self.point(length - gap, angle),
+                self.point(arc - OVERSHOOT, angle),
+            ];
+        }
+        Some(placed)
+    }
+
     /// As [`Ink::placed`]; *literal* (an authored placement) keeps a radius without that room.
     fn placed_at(&self, radius: f64, ink: &LabelInk, literal: bool) -> Option<Placed> {
         if !literal && !self.room(radius) {
@@ -907,7 +941,7 @@ fn reach(p: &Placed, margin: f64) -> [f64; 4] {
 /// label clear of other ink by reading distance; its arrowheads lie across no other item's
 /// line, its ink keeps out of the span an off-span linear label settles back into, and no
 /// callout's leader or padded label meets its witness lines. With no such place the angle stays
-/// unplaced (dropped): it never takes a fallback, moves another item or asks for more paper.
+/// unplaced (dropped), for the sheet policy to compare against other fitting layouts.
 /// Every corner and equivalent corner tries its midpoint before any remaining item tries
 /// text beyond an arrowhead on a circular continuation. Both keep the normal text gap;
 /// neither may detach the label or displace an established midpoint.
@@ -927,10 +961,7 @@ pub(super) fn place_profile(
     // Give every corner (and every equivalent corner) its midpoint first.
     // An earlier item's outside fallback must not occupy a later item's
     // otherwise readable midpoint.
-    for (extensions, i) in [false, true]
-        .into_iter()
-        .flat_map(|extensions| (0..items.len()).map(move |i| (extensions, i)))
-    {
+    for (phase, i) in (0..3).flat_map(|phase| (0..items.len()).map(move |i| (phase, i))) {
         // An authored placement (`dimensions/<id>/place`) has already been honoured.
         if !(super::profile_angles::is_profile_angle(&items[i])
             || (openings
@@ -953,6 +984,18 @@ pub(super) fn place_profile(
         let Some(proof) = proofs.get(&own) else {
             continue;
         };
+        let outline = frame.outline();
+        let outside = |vertex: P2| {
+            let [x, y] = vertex;
+            (x - x.clamp(outline[0], outline[2])).hypot(y - y.clamp(outline[1], outline[3]))
+        };
+        if phase == 2
+            && std::iter::once(angle)
+                .chain(alternates)
+                .all(|a| outside(frame.page(a.vertex)) <= 1e-6)
+        {
+            continue;
+        }
         let terms = &items[i].terms;
         let ink = label_ink(terms, font());
         let size = [ink.max[0] - ink.min[0], ink.max[1] - ink.min[1]];
@@ -1025,7 +1068,7 @@ pub(super) fn place_profile(
             })
             .collect();
         let area = page.area(view);
-        let clear = |c: &Placed, stubs: usize, straight_ok: bool, vertex: P2| {
+        let clear = |c: &Placed, stubs: usize, straight_ok: bool, vertex: P2, limit: f64| {
             let ink = reach(c, 0.0);
             // The label within the same reach of its corner as the arc.
             let b = c.label_box;
@@ -1033,7 +1076,7 @@ pub(super) fn place_profile(
                 .into_iter()
                 .flat_map(|x| [b[1], b[3]].map(|y| (x - vertex[0]).hypot(y - vertex[1])))
                 .fold(0.0, f64::max);
-            far <= local_radius(size[1]) &&
+            far <= limit &&
             // Within the view's reserved area: never paper the layout did not give the view.
             area.is_none_or(|b| {
                 ink_points(c).all(|q| q[0] >= b[0] && q[0] <= b[2] && q[1] >= b[1] && q[1] <= b[3])
@@ -1082,6 +1125,32 @@ pub(super) fn place_profile(
         };
         let chosen = std::iter::once(angle).chain(alternates).find_map(|angle| {
             let physical = Ink::new(frame, angle, size)?.compact();
+            let local = local_radius(size[1]);
+            if phase == 2 {
+                let outside = outside(physical.vertex);
+                if outside <= 1e-6 || opening_angle {
+                    return None;
+                }
+                let reach = outside + local;
+                return [false, true].into_iter().find_map(|straight_ok| {
+                    [None, Some(false), Some(true)]
+                        .into_iter()
+                        .find_map(|extension| {
+                            (0..TRIES)
+                                .map(|n| physical.minimum + n as f64 * STEP)
+                                .take_while(|&r| physical.label_reach(r) <= reach)
+                                .filter_map(|r| physical.tangent_witnesses(r, &ink, extension))
+                                .find(|p| {
+                                    // Prefer clear model ink, then allow projected outline
+                                    // crossings as for the ordinary angular placement.
+                                    roomy(p)
+                                        && (!straight_ok
+                                            || proof.lines_clear(v, &p.arrows, &[], 0, true))
+                                        && clear(p, 0, straight_ok, physical.vertex, reach)
+                                })
+                        })
+                });
+            }
             let mut extended = Ink::new(
                 frame,
                 &Angle {
@@ -1093,7 +1162,6 @@ pub(super) fn place_profile(
             )?
             .compact();
             extended.lengths = [0.0; 2];
-            let reach = local_radius(size[1]);
             // The label belongs at the sector's midpoint. If that station cannot
             // fit, try beyond an arrowhead on a drawn continuation of the arc.
             // Searching arbitrary interior fractions made a crowded corner's text
@@ -1103,7 +1171,7 @@ pub(super) fn place_profile(
             // part's edges, blend silhouettes included, but never a hole or boss seen end-on.
             // Each the nearest roomy place, else the nearest crowded one (still stated).
             [false, true].into_iter().find_map(|straight_ok| {
-                let stations: &[Option<bool>] = if extensions {
+                let stations: &[Option<bool>] = if phase == 1 {
                     &[Some(false), Some(true)]
                 } else {
                     &[None]
@@ -1114,12 +1182,12 @@ pub(super) fn place_profile(
                         .map(|n| n as f64 * STEP)
                         .take_while(|d| {
                             inks.iter()
-                                .any(|(g, _)| g.label_reach(g.minimum + d) <= reach)
+                                .any(|(g, _)| g.label_reach(g.minimum + d) <= local)
                         })
                         .find_map(|d| {
                             inks.iter().find_map(|(g, stubs)| {
                                 let radius = g.minimum + d;
-                                (g.label_reach(radius) <= reach)
+                                (g.label_reach(radius) <= local)
                                     .then(|| match extension {
                                         None => g.placed(radius, &ink),
                                         Some(after) => g.extended_label(radius, &ink, after),
@@ -1130,9 +1198,9 @@ pub(super) fn place_profile(
                                         // the full check.
                                         if crowded.is_some() {
                                             return roomy(c)
-                                                && clear(c, *stubs, straight_ok, g.vertex);
+                                                && clear(c, *stubs, straight_ok, g.vertex, local);
                                         }
-                                        clear(c, *stubs, straight_ok, g.vertex)
+                                        clear(c, *stubs, straight_ok, g.vertex, local)
                                             && (roomy(c) || {
                                                 crowded = Some(c.clone());
                                                 false

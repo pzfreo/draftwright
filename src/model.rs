@@ -2632,6 +2632,19 @@ fn drops(plan: &Plan) -> usize {
         .count()
 }
 
+/// Profile-angle losses rank fitting pairs before paper and scale preferences.
+pub(crate) fn angular_losses(plan: &Plan) -> usize {
+    plan.problems
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.code.as_str(),
+                "angular_dimension_dropped" | "angular_requirement_missing"
+            )
+        })
+        .count()
+}
+
 /// Name the reported hard findings counted by the recovery, including the Spec's scale floor.
 pub(crate) fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
     let mut codes = BTreeMap::new();
@@ -2887,8 +2900,8 @@ fn carried(plan: &Plan) -> BTreeSet<(String, String)> {
                 .filter(|n| n.placed.is_some())
                 .flat_map(|n| &n.measurements),
         )
-        // A profile-corner angle is placed only where it is clear and otherwise dropped to a
-        // lint warning: it never makes one sheet or scale less complete than another.
+        // Angle coverage has its own comparison: a later candidate may define a corner
+        // with linear stations instead of an angular measurement.
         .filter(|m| m.parameter != crate::dims::PROFILE_ANGLE)
         .map(|m| (m.feature.clone(), m.parameter.clone()))
         .collect();
@@ -4306,6 +4319,15 @@ fn recover_candidates(
     // physically fitting alternative even when source PMI prevents a clean sheet.
     let mut readable_incomplete: Option<((usize, usize, usize, usize), Plan)> = None;
     let mut smallest = None;
+    let mut smallest_angle_losses = 0;
+    let angle_losses = |p: &Plan| {
+        if crate::nominal::comparison() {
+            0
+        } else {
+            angular_losses(p)
+        }
+    };
+    let seed_angle_losses = angle_losses(&first);
     let mut smallest_iso: Option<f64> = None;
     let mut recipes = BTreeMap::new();
     // Exhaust practical single sheets, then R5 allocation, before admitting large paper.
@@ -4339,7 +4361,9 @@ fn recover_candidates(
                 *s >= min_legible_scale && established_scale.is_none_or(|cap| *s <= cap)
             }) {
                 // On the one larger sheet only an enlargement of the smallest fit is allowed.
-                if smallest.is_some_and(|fit| !crate::sheet_fit::allowed(fit, i, scale)) {
+                if smallest.is_some_and(|fit| !crate::sheet_fit::allowed(fit, i, scale))
+                    && smallest_angle_losses == 0
+                {
                     continue;
                 }
                 // A view larger than the usable paper cannot be repaired by annotation placement.
@@ -4413,6 +4437,10 @@ fn recover_candidates(
                 // A failed seed must not restrict the complete drawing to its first arrangement.
                 // Try the other established arrangement, with no new leader-routing strategy.
                 if !seed_clean
+                    || (angle_losses(&p) > 0
+                        && scale >= 1.0
+                        && findings(&p).clean()
+                        && (smallest.is_none() || smallest_angle_losses > 0))
                     || (established_scale.is_some()
                         && (!findings(&p).clean()
                             || extra_corridors(&p) > 0
@@ -4426,6 +4454,7 @@ fn recover_candidates(
                             over_views(p),
                             extra_corridors(p),
                             extra_existing_crossings(p),
+                            angle_losses(p),
                             ink_findings(p),
                             feature_crossings(p),
                         )
@@ -4649,6 +4678,13 @@ fn recover_candidates(
                     ink_findings(&p),
                     p.sheet.arrangement
                 ));
+                let angular_losses = angle_losses(&p);
+                if angular_losses > 0 {
+                    tried
+                        .last_mut()
+                        .expect("candidate trace")
+                        .push_str(&format!("; {angular_losses} required profile-angle losses"));
+                }
                 if line_crossings > 0 {
                     // Invariant: A candidate trace was pushed immediately before updating its final entry.
                     tried
@@ -4724,6 +4760,7 @@ fn recover_candidates(
                 }
                 if smallest.is_none() {
                     smallest = Some((i, scale));
+                    smallest_angle_losses = angular_losses;
                     smallest_iso = p.views.iter().find(|v| v.id == "v:iso").map(|v| v.scale);
                 }
                 candidates.push((
@@ -4732,6 +4769,7 @@ fn recover_candidates(
                         scale,
                         width: p.sheet.page[0],
                         fill: selection_fill,
+                        angular_losses,
                         extra_crossings: crossings + line_crossings,
                     },
                     p,
@@ -4803,9 +4841,16 @@ fn recover_candidates(
         veto_grown_leaders(spec, &mut candidates, &mut tried, sheet, &reference);
     }
     let keys: Vec<_> = candidates.iter().map(|(c, _)| *c).collect();
-    let Some((choice, (i, s))) =
-        crate::sheet_fit::choose(&keys, spec.sheet.size.is_some(), seed_kept)
-    else {
+    let prefer_full_size = !crate::nominal::comparison()
+        && spec.sheet.size.is_none()
+        && smallest.is_some_and(|(i, scale)| i == 0 && scale < 1.0)
+        && is_small(&mut small_part)?;
+    let Some((choice, (i, s))) = crate::sheet_fit::choose(
+        &keys,
+        spec.sheet.size.is_some(),
+        seed_kept,
+        prefer_full_size,
+    ) else {
         if let Some((_, _, _, mut fitting)) = fitting_incomplete {
             fitting.spec = spec.clone();
             fitting.sheet.default = true;
@@ -4915,7 +4960,12 @@ fn recover_candidates(
             .min_by_key(|(_, (c, p))| (c.sheet, ink_findings(p), feature_crossings(p)))
             .map(|(j, _)| j)
     });
-    let choice = retained.or(choice);
+    let choice = retained
+        .filter(|&i| choice.is_none_or(|j| keys[i].angular_losses <= keys[j].angular_losses))
+        .or(choice);
+    let keeps_angles =
+        choice.is_some_and(|i| seed_kept && keys[i].angular_losses > seed_angle_losses);
+    let choice = choice.filter(|_| !keeps_angles);
     let estimate = format!(
         "first estimate {} at {} ({})",
         first.sheet.size,
@@ -4930,6 +4980,10 @@ fn recover_candidates(
     );
     let (mut chosen, kept) = match choice {
         Some(index) => (candidates.swap_remove(index).1, ""),
+        None if keeps_angles => (
+            first.clone(),
+            "; the first estimate keeps required profile angles lost by the fitting alternatives",
+        ),
         None => (
             first.clone(),
             "; every allowed pair adds material crossings to the valid first estimate, which is kept",

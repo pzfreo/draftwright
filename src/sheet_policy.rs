@@ -811,6 +811,10 @@ fn usable_prepared(
         > sheet_fit::illegible_steps(analysis, reference)
     {
         Some("more illegible steps")
+    } else if !crate::nominal::comparison()
+        && model::angular_losses(plan) > model::angular_losses(reference)
+    {
+        Some("required profile angles not carried")
     } else if !model::carries_required(reference, plan) {
         Some("required items not carried")
     } else if !drops(plan).is_subset(&drops(reference)) {
@@ -1708,6 +1712,13 @@ fn select_scales_full(
                     .filter(move |s| *s <= largest && *s + 1e-9 >= floor)
             })
             .collect();
+        // The next sheet already proves this small part reads at full size or
+        // larger. On the smaller sheet keep looking for full-size ink.
+        let full_size_neighbour = !crate::nominal::comparison()
+            && size == spec.pages()[0].0
+            && baseline.sheet.size == spec.pages()[1].0
+            && baseline.sheet.scale_factor >= 1.0
+            && baseline.sheets.is_empty();
         // A conservative band estimate cannot discard the drawing already
         // proved by the inner planner. Recheck its finished ink at this pair.
         if maximise
@@ -1763,6 +1774,9 @@ fn select_scales_full(
                     .into_iter()
                     .collect();
             }
+        }
+        if full_size_neighbour {
+            steps.retain(|&scale| scale >= 1.0);
         }
         // The compact fallback keeps a drawing on one sheet of this paper; a split keeps
         // normal lanes (pinned replay across whole-view sheets is not yet reliable).
@@ -5327,11 +5341,14 @@ mod compact_sheet_regressions {
     use crate::model::{self, Plan, Spec};
     use std::path::Path;
 
-    fn selected(file: &str, size: &str, scale: &str) -> Plan {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+    fn fixture(file: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
-            .join(file);
-        let a = model::analyse_native(&path).unwrap().1;
+            .join(file)
+    }
+
+    fn selected(file: &str, size: &str, scale: &str) -> Plan {
+        let a = model::analyse_native(&fixture(file)).unwrap().1;
         // These regressions pin ISO sheets and metric scale/label recipes.
         let spec = Spec {
             units: crate::units::Units::Mm,
@@ -5384,8 +5401,13 @@ mod compact_sheet_regressions {
     }
 
     #[test]
-    fn shf08_hole_leaves_the_near_side_on_a4_at_two_to_one() {
-        let p = selected("sheet-policy/shf08.step.gz", "A4", "2:1");
+    fn shf08_keeps_required_angles_and_the_near_side_hole_leader() {
+        let path = fixture("sheet-policy/shf08.step.gz");
+        let (part, a) = model::analyse_native(&path).unwrap();
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert!(model::findings(&p).clean());
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert_eq!(model::undrawn_gdt(&p), 0);
         let id = "d:f:hole:f28/bore.diameter";
         assert!(!p.problems.iter().any(|q| matches!(
             q.code.as_str(),
@@ -5394,6 +5416,94 @@ mod compact_sheet_regressions {
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
         let shaft = d.placed.as_ref().unwrap().lines[0];
         assert!((shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) < 20.0);
+        let font =
+            crate::text::Font::new(include_bytes!("../fonts/IBMPlexMono-Regular.ttf").to_vec())
+                .unwrap();
+        let drawings = model::render_sheets(&part, &a, &p, &font).unwrap();
+        let marks: Vec<_> = drawings.iter().flat_map(crate::lint::marks).collect();
+        let angles = marks
+            .iter()
+            .filter(|m| m.text.contains("161.681°"))
+            .flat_map(|m| &m.claims)
+            .filter(|c| c.parameter == crate::dims::PROFILE_ANGLE)
+            .map(|c| &c.feature)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(angles.len(), 2);
+        assert_eq!(model::angular_losses(&p), 0, "{}", p.sheet.basis);
+        assert!(
+            !crate::lint::lint_sheets(&a, &drawings)
+                .iter()
+                .any(|i| i.code == "angular_requirement_missing")
+        );
+    }
+
+    #[test]
+    fn gantry_plate_uses_two_to_one_without_new_layout_warnings() {
+        let file = fixture("sheet-policy/gantry-plate.step.gz");
+        let spec = Spec::default();
+        let plan = crate::api::plan(&file, None, &spec).unwrap();
+        assert_eq!(plan.sheet.scale, "2:1", "{}", plan.sheet.basis);
+        assert!(matches!(plan.sheet.size.as_str(), "A4" | "A3"));
+        let review = crate::api::review(&file, None, &spec).unwrap();
+        // The alpha.2 drawing had ten extension-through-feature warnings.
+        let warnings: Vec<_> = review
+            .problems
+            .iter()
+            .filter(|q| {
+                q.severity == "warning"
+                    && (super::layout_problem(q) || q.code == "extension_through_feature")
+            })
+            .collect();
+        assert!(warnings.len() <= 10, "{warnings:?}");
+        assert!(
+            warnings
+                .iter()
+                .all(|q| q.code == "extension_through_feature"),
+            "{warnings:?}"
+        );
+        assert!(
+            !review
+                .structural
+                .iter()
+                .any(|q| q.code == "annotation_ink_overlap")
+        );
+    }
+
+    #[test]
+    fn ftc08_keeps_its_inch_hole_table_and_avoids_shared_dimension_lines() {
+        let file = fixture("sheet-policy/nist_ftc_08_asme1_ap242-e2.stp.gz");
+        let spec = Spec::default();
+        let (part, analysis) = model::analyse_native(&file).unwrap();
+        let plan = model::plan_recovered(&analysis, &spec).unwrap();
+        assert_eq!(plan.sheet.units, crate::units::Units::In);
+        assert!(matches!(
+            plan.sheet.size.as_str(),
+            "ANSI C" | "ANSI D" | "ANSI E"
+        ));
+        let table = plan
+            .hole_tables
+            .iter()
+            .chain(&plan.hole_table)
+            .find(|t| t.rows.len() == 20)
+            .expect("the 20-row table is installed");
+        assert!(!table.blocks.is_empty());
+        assert!(table.blocks.iter().all(|b| b.placed.is_some()));
+        let font =
+            crate::text::Font::new(include_bytes!("../fonts/IBMPlexMono-Regular.ttf").to_vec())
+                .unwrap();
+        let drawings = model::render_sheets(&part, &analysis, &plan, &font).unwrap();
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .chain(drawings.iter().flat_map(|d| &d.problems))
+                .any(|q| q.code == "dimension_line_shared" || q.code == "hole_table_unavailable")
+        );
+        assert!(
+            !crate::lint::lint_sheets(&analysis, &drawings)
+                .iter()
+                .any(|q| q.code == "angular_requirement_unverifiable")
+        );
     }
 
     fn corpus_analysis(file: &str) -> Option<model::Analysis> {
