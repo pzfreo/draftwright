@@ -2102,14 +2102,10 @@ fn select_scales_from(
     }
     let mut best = if best.is_none() && automatic_auxiliary {
         let mut ordinary = spec.clone();
-        ordinary.purpose = Some(model::DrawingPurpose {
-            kind: "outline".into(),
-            description: None,
-            needs: Default::default(),
-        });
         ordinary.sheets.get_or_insert_with(Default::default).max = Some(hard);
-        let mut plan =
-            select_scales_full(analysis, &ordinary, false, &mut ForcedTrials::default())?;
+        let mut plan = crate::planning::without_automatic_auxiliaries(|| {
+            select_scales_full(analysis, &ordinary, false, &mut ForcedTrials::default())
+        })?;
         let ids: BTreeSet<_> = baseline
             .views
             .iter()
@@ -2165,15 +2161,9 @@ fn select_scales_from(
 
 /// Add the projections at the ordinary drawing's scale before trying reductions.
 fn select_auxiliary_paper(analysis: &Analysis, spec: &Spec, seed: &Plan) -> Result<Plan, Invalid> {
-    // Outline suppresses automatic projections. All other drawing inputs, including
-    // authored auxiliaries, still participate in establishing the ordinary scale.
-    let mut ordinary_spec = spec.clone();
-    ordinary_spec.purpose = Some(model::DrawingPurpose {
-        kind: "outline".into(),
-        description: None,
-        needs: Default::default(),
-    });
-    let mut ordinary = crate::planning::isolated(analysis, || select(analysis, &ordinary_spec))?;
+    let mut ordinary = crate::planning::without_automatic_auxiliaries(|| {
+        crate::planning::isolated(analysis, || select(analysis, spec))
+    })?;
     let intent = &seed.spec;
     let effective = crate::spec_gdt::effective(analysis, intent)?;
     let fit = effective.as_ref();
@@ -2259,10 +2249,30 @@ fn select_auxiliary_paper(analysis: &Analysis, spec: &Spec, seed: &Plan) -> Resu
         }
     }
     ordinary.problems.extend(
-        requested
-            .into_iter()
-            .map(|id| crate::auxiliary::unplaceable(spec, id, true)),
+        seed.problems
+            .iter()
+            .filter(|p| {
+                p.code == "auxiliary_unplaceable" && !crate::auxiliary::automatic_unplaceable(p)
+            })
+            .cloned(),
     );
+    for id in requested {
+        let mut problem = crate::auxiliary::unplaceable(spec, id, true);
+        if let Some(aux) = seed
+            .views
+            .iter()
+            .find(|v| v.id == id)
+            .and_then(|v| v.auxiliary.as_ref())
+        {
+            if aux.anchor.starts_with("f:") {
+                problem.subjects.push(aux.anchor.clone());
+            }
+            problem.subjects.extend(aux.members.iter().cloned());
+        } else if let Some(existing) = seed.problems.iter().find(|p| p.id == problem.id) {
+            problem.subjects.clone_from(&existing.subjects);
+        }
+        ordinary.problems.push(problem);
+    }
     let reason = "supported paper and readable scales exhausted for automatic auxiliary views";
     Ok(finish_choice(ordinary, intent, candidates, reason))
 }
@@ -2339,6 +2349,15 @@ fn place_auxiliary_pair(
         || actual_space_drops(&plan) > actual_space_drops(ordinary)
     {
         return Err("required annotation could not be retained".into());
+    }
+    let crowded = |plan: &Plan| {
+        plan.problems
+            .iter()
+            .filter(|p| p.code == "label_crowded")
+            .count()
+    };
+    if crowded(&plan) > crowded(ordinary) {
+        return Err("automatic auxiliary layout increases label crowding".into());
     }
     Ok(plan)
 }

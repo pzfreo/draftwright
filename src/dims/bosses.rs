@@ -454,6 +454,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             }
             "boss" if let Some(b) = read_inclined(f, &cx.frame) => {
                 problems.push(Problem {
+                    inclined_axis_gap: true,
                     message: format!(
                         "{}'s height and location are not dimensioned: its axis is inclined to every principal axis, so they need a view square to it; its diameter is called out where it is seen most nearly end-on.",
                         crate::wording::capital(&crate::wording::feature(f))

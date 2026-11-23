@@ -2120,9 +2120,91 @@ fn inclined_planner_warning_names_each_holes_anchors() {
     use draftwright::haecceity::brep::Arc;
 
     let Some((part, a)) = cgb217() else { return };
-    // Outline suppresses automatic auxiliary views so the authored fixes can be checked.
-    let p = model::plan_recovered(&a, &parse(json!({"purpose":{"kind":"outline"}}))).unwrap();
+    let p = crate::cache::default_plan(&a, true);
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let lint = draftwright::lint::lint(&a, &drawing);
+    let view_id = "v:aux:f:hole:f26";
+    let view = p
+        .views
+        .iter()
+        .find(|v| v.id == view_id)
+        .expect("shared bore view");
+    let aux = view.auxiliary.as_ref().unwrap();
+    assert_eq!(aux.label, "C");
+    assert_eq!(aux.members, ["f:hole:f28"]);
+    let camera = draftwright::haecceity::hlr::View::new(view.direction, view.up).unwrap();
+    let ink = drawing
+        .sheet
+        .views
+        .iter()
+        .find(|v| v.name == view_id)
+        .unwrap();
+    for id in &COMPOUND_HOLES[..2] {
+        let feature = a.features.iter().find(|f| &f.id == id).unwrap();
+        let Reference::Edge { ends, .. } = a.dimension_reference(&format!("axis:{id}")).unwrap()
+        else {
+            panic!("missing axis for {id}");
+        };
+        let projected = camera.map(ends[0]);
+        let at: [f64; 2] = std::array::from_fn(|k| {
+            view.at[k] + view.scale * (projected[k] - (aux.bounds[k] + aux.bounds[k + 2]) / 2.)
+        });
+        assert!(
+            ink.edges
+                .iter()
+                .any(|edge| matches!(edge, draftwright::output::Curve::Conic {
+            centre, radii, t0, t1, ..
+        } if (centre[0] - at[0]).hypot(centre[1] - at[1]) < 0.01
+            && radii.iter().all(|r| (r - 4.25 * view.scale).abs() < 0.01)
+            && (t1 - t0).abs() > 6.28)),
+            "{id}: true bore rim missing"
+        );
+        assert!(p.dimensions.iter().any(|d| {
+            d.view == view_id
+                && d.placed.is_some()
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature == feature.id && m.parameter == "bore.diameter")
+        }));
+        assert!(
+            !p.problems
+                .iter()
+                .any(|i| i.code == "feature_not_dimensioned" && i.subjects == [*id])
+        );
+        assert!(
+            !lint
+                .iter()
+                .any(|i| i.code == "feature_not_located" && i.subjects == [*id])
+        );
+    }
+    for (id, role) in [
+        ("f:boss:f51", "boss_height.length"),
+        ("f:boss:f52", "boss_height.length"),
+        ("f:hole:f41", "bore.diameter"),
+    ] {
+        let drawn = p.dimensions.iter().any(|d| {
+            d.view.starts_with("v:aux:")
+                && d.placed.is_some()
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature == id && m.parameter == role)
+        });
+        let reported = p
+            .problems
+            .iter()
+            .any(|i| i.code == "auxiliary_unplaceable" && i.subjects.iter().any(|s| s == id));
+        assert!(
+            drawn || reported,
+            "{id}: no auxiliary dimension or unplaceable finding"
+        );
+    }
+
+    let mut omitted = Spec::default();
+    for id in COMPOUND_HOLES {
+        omitted.views.entry(format!("aux:{id}")).or_default().omit = true;
+    }
+    let p = model::plan_recovered(&a, &omitted).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let lint = draftwright::lint::lint(&a, &drawing);
     for id in COMPOUND_HOLES {

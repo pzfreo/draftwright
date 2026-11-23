@@ -2897,6 +2897,7 @@ mod tests {
         );
         EdgeInk {
             resolved: Vec::new(),
+            bore_ends: Default::default(),
             references: Default::default(),
             edges,
             planes: vec![PlanarFace {
@@ -3014,6 +3015,7 @@ mod tests {
     fn a_turned_part_proves_exterior_paper_without_a_planar_interior() {
         let mut ink = EdgeInk {
             resolved: Vec::new(),
+            bore_ends: Default::default(),
             references: Default::default(),
             edges: vec![],
             planes: vec![],

@@ -480,7 +480,7 @@ fn plate_pin_primary_shows_true_height_and_inclination() {
 fn automatic_corner_cut_locates_and_sizes_the_bore() {
     let (part, a) = part("parts/corner-cuts.step.gz");
     let p = plan(&a, json!({}));
-    let ordinary = plan(&a, json!({"purpose":{"kind":"outline"}}));
+    let ordinary = plan(&a, json!({"views":{"aux:f:hole:f10":{"omit":true}}}));
     assert_eq!(
         (ordinary.sheet.size.as_str(), ordinary.sheet.scale.as_str()),
         ("A4", "1:1")
@@ -507,6 +507,10 @@ fn automatic_corner_cut_locates_and_sizes_the_bore() {
         .unwrap()
         .map(edge.direction);
     let shift = page_span([principal.at, edge.at]);
+    assert!(
+        (0..2).all(|axis| projection[axis] * shift[axis] > 0.),
+        "the offset must follow both components of the oblique projection"
+    );
     let beside = (0..2).any(|axis| {
         let cross = 1 - axis;
         projection[axis] * shift[axis] > 0.
@@ -660,6 +664,10 @@ fn automatic_auxiliary_omit_restores_the_bore_finding() {
     assert!(plan(&a, json!({})).views.iter().any(|v| v.id == TRUE));
     let p = plan(&a, json!({"views":{"aux:f:hole:f10":{"omit":true}}}));
     assert!(p.views.iter().all(|v| v.auxiliary.is_none()));
+    let typo: Spec =
+        serde_json::from_value(json!({"views":{"aux:f:hole:f99":{"omit":true}}})).unwrap();
+    let error = model::plan_recovered(&a, &typo).unwrap_err();
+    assert_eq!(error.path.as_deref(), Some("views/aux:f:hole:f99"));
     assert!(
         draftwright::lint::lint(&a, &render(&part, &a, &p))
             .iter()
@@ -688,11 +696,11 @@ fn automatic_auxiliary_reports_when_a_fixed_sheet_cannot_hold_it() {
 }
 
 #[test]
-fn automatic_auxiliaries_respect_outline_and_leave_negative_controls_unchanged() {
+fn automatic_auxiliaries_respect_omit_and_leave_negative_controls_unchanged() {
     let ordinary = |a: &Analysis| model::plan(a, &Spec::default()).unwrap();
     let (_, a) = part("parts/corner-cuts.step.gz");
-    let outline = plan(&a, json!({"purpose":{"kind":"outline"}}));
-    assert!(outline.views.iter().all(|v| v.auxiliary.is_none()));
+    let omitted = plan(&a, json!({"views":{"aux:f:hole:f10":{"omit":true}}}));
+    assert!(omitted.views.iter().all(|v| v.auxiliary.is_none()));
     for path in [
         "pmi/issue505-wedge.step.gz",
         "parts/mouth_angled.step",

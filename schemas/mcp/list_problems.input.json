@@ -58,7 +58,7 @@
       "additionalProperties": false,
       "description": "Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.",
       "patternProperties": {
-        "^(binding|engine_pins|sheets|purpose)$(?!\n)": {
+        "^(binding|engine_pins|sheets)$(?!\n)": {
           "type": [
             "object",
             "null"

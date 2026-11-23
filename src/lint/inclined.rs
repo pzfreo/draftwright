@@ -253,7 +253,38 @@ fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option
         .strip_prefix("location.length.f")?
         .split_once(".e")?;
     let (face, edge) = (face.parse::<usize>().ok()?, edge.parse::<usize>().ok()?);
-    let mouth = super::auxiliary::opening(a, f, frame.direction)?;
+    let c = opening_constraint(a, f, frame.direction, face, edge).or_else(|| {
+        let end = crate::auxiliary::bore_end(a, id, frame.direction)?;
+        if !end.edges.contains(&edge) {
+            return None;
+        }
+        let station = crate::auxiliary_geometry::projected_stations(a, f, frame.direction)
+            .into_iter()
+            .find(|s| s.face == face && s.edge == edge)?;
+        let (key, _) = a.dimension_references().get_key_value(&station.key)?;
+        Some(Constraint {
+            key,
+            anchor: a.dimension_reference(key).ok()?,
+            anchor_index: 0,
+            normal: station.direction,
+            witnesses: station.points,
+            value: station.length,
+            auxiliary: true,
+        })
+    })?;
+    (super::location::nominal_in(&mark.text, c.value, mark.units, mark.precision)
+        && ink_matches(a, mark, &c))
+    .then_some(c)
+}
+
+fn opening_constraint<'a>(
+    a: &'a Analysis,
+    f: &crate::bridge::Feature,
+    toward: [f64; 3],
+    face: usize,
+    edge: usize,
+) -> Option<Constraint<'a>> {
+    let mouth = super::auxiliary::opening(a, f, toward)?;
     let faces = super::auxiliary::opening_faces(a, f, mouth);
     let Reference::Plane {
         origin,
@@ -287,7 +318,7 @@ fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option
     }
     let foot = std::array::from_fn(|k| first[k] + along[k] * distance);
     let delta = sub(piercing, foot);
-    let c = Constraint {
+    Some(Constraint {
         key,
         anchor,
         anchor_index: 0,
@@ -295,10 +326,7 @@ fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option
         witnesses: [foot, piercing],
         value: dot(delta, delta).sqrt(),
         auxiliary: true,
-    };
-    (super::location::nominal_in(&mark.text, c.value, mark.units, mark.precision)
-        && ink_matches(a, mark, &c))
-    .then_some(c)
+    })
 }
 
 /// A printed start-and-angle can establish a physical support edge. The
@@ -453,6 +481,9 @@ pub(crate) fn located(
             .flatten()
     });
     let Some(d) = d else { return false };
+    if profile_located(a, marks, id) {
+        return true;
+    }
     let constraints = constraints(a, marks, id);
     let stations = Stations { a, edges, roots };
     let excluded = stations.excluding(&constraints);
@@ -465,6 +496,81 @@ pub(crate) fn located(
                 return true;
             }
             normals.push(c.normal);
+        }
+    }
+    false
+}
+
+fn profile_located(a: &Analysis, marks: &[Mark], id: &str) -> bool {
+    let Some(feature) = a.features.iter().find(|f| f.id == id && f.kind == "hole") else {
+        return false;
+    };
+    for mark in marks {
+        let Some(view) = mark.view.as_deref().filter(|v| v.starts_with("v:aux:")) else {
+            continue;
+        };
+        if !mark
+            .claims
+            .iter()
+            .any(|c| c.feature == id && c.parameter.starts_with("location.length.profile."))
+        {
+            continue;
+        }
+        let Some((frame, _)) = witness(mark) else {
+            continue;
+        };
+        let Some(end) = crate::auxiliary::bore_end(a, id, frame.direction) else {
+            continue;
+        };
+        let Some([axis, end]) = crate::auxiliary_geometry::profile_stations(
+            a,
+            feature,
+            frame.direction,
+            &end.profile_ends,
+        ) else {
+            continue;
+        };
+        if !marks.iter().any(|m| {
+            !m.text.trim_start().starts_with('(')
+                && m.claims
+                    .iter()
+                    .any(|c| c.feature == axis.reference && c.parameter == "step.diameter")
+        }) {
+            continue;
+        }
+        if [axis, end].iter().all(|station| {
+            let role = station.role();
+            let value = station.length(frame.direction);
+            let delta = sub(station.points[1], station.points[0]);
+            let Some(normal) = unit(std::array::from_fn(|k| {
+                delta[k] - dot(delta, frame.direction) * frame.direction[k]
+            })) else {
+                return false;
+            };
+            let c = Constraint {
+                key: &station.reference,
+                anchor: Reference::Vertex {
+                    point: station.points[0],
+                    membership: Default::default(),
+                },
+                anchor_index: 0,
+                normal,
+                witnesses: station.points,
+                value,
+                auxiliary: true,
+            };
+            marks.iter().any(|m| {
+                m.view.as_deref() == Some(view)
+                    && !m.text.trim_start().starts_with('(')
+                    && m.claims
+                        .iter()
+                        .any(|cl| cl.feature == id && cl.parameter == role)
+                    && super::location::nominal_in(&m.text, value, m.units, m.precision)
+                    && witness(m).is_some()
+                    && ink_matches(a, m, &c)
+            })
+        }) {
+            return true;
         }
     }
     false

@@ -55,9 +55,10 @@ fn accepted_cad_frame_layout(file: &str) {
         // 2026-11-14: repair preserving shared rows clears 21 crossings and 19 feature contacts.
         "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [33, 0, 6, 1, 1, 0], [1, 5, 26]),
         // Both inclined projections and the plate's basic dimensions fit at
-        // the ordinary scale. The handwritten variant uses compact spacing.
+        // the ordinary scale. A3 keeps the handwritten drawing's crowding at
+        // main's three contacts and clears its bore leader crossing.
         "assembly_plate_pin.step" => ("A3", "1:1", [1, 1, 0, 0, 2, 0], [0, 0, 1]),
-        "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [2, 0, 0, 0, 5, 0], [0, 0, 2]),
+        "hw_assembly_plate_pin_intent.step" => ("A3", "1:2", [3, 1, 0, 0, 3, 0], [2, 0, 1]),
         "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
         _ => unreachable!(),
     };

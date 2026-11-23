@@ -379,41 +379,6 @@
               "mm",
               "in"
             ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false,
@@ -922,41 +887,6 @@
             "enum": [
               "mm",
               "in"
-            ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
             ]
           }
         },
@@ -1505,41 +1435,6 @@
               "mm",
               "in"
             ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false,
@@ -1980,41 +1875,6 @@
             "enum": [
               "mm",
               "in"
-            ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
             ]
           }
         },
@@ -2475,41 +2335,6 @@
               "mm",
               "in"
             ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false,
@@ -2946,41 +2771,6 @@
             "enum": [
               "mm",
               "in"
-            ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
             ]
           }
         },
@@ -3465,41 +3255,6 @@
             "enum": [
               "mm",
               "in"
-            ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
             ]
           }
         },
@@ -3989,41 +3744,6 @@
               "mm",
               "in"
             ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false,
@@ -4493,41 +4213,6 @@
               "mm",
               "in"
             ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false,
@@ -4969,41 +4654,6 @@
               "mm",
               "in"
             ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false,
@@ -5435,41 +5085,6 @@
             "enum": [
               "mm",
               "in"
-            ]
-          },
-          "purpose": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "needs": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "null"
-              }
             ]
           }
         },

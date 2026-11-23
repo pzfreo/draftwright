@@ -398,8 +398,6 @@ pub struct Spec {
     pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub purpose: Option<DrawingPurpose>,
     pub schema: String,
     /// Part identity from `draftwright parts`: a persistent key or its numeric index.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -475,17 +473,6 @@ pub struct Spec {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub gears: Vec<crate::gears::GearSpec>,
 }
-/// The stated drawing purpose. An unset purpose uses the geometry review defaults.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DrawingPurpose {
-    pub kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub needs: BTreeMap<String, bool>,
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
 struct SpecFields {
@@ -494,8 +481,6 @@ struct SpecFields {
     pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub purpose: Option<DrawingPurpose>,
     pub schema: String,
     /// Part identity from `draftwright parts`: a persistent key or its numeric index.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -577,7 +562,6 @@ impl Default for SpecFields {
         Self {
             units: s.units,
             process: s.process,
-            purpose: s.purpose,
             schema: s.schema,
             part: s.part,
             binding: s.binding,
@@ -647,7 +631,6 @@ impl<'de> Deserialize<'de> for Spec {
         Ok(Self {
             units: s.units,
             process: s.process,
-            purpose: s.purpose,
             schema: if s.schema == crate::engine_pins::SCHEMA && s.engine_pins.is_none() {
                 SPEC_SCHEMA.into()
             } else {
@@ -824,7 +807,6 @@ impl Default for Spec {
         Spec {
             units: crate::units::Units::Auto,
             process: None,
-            purpose: None,
             schema: SPEC_SCHEMA.into(),
             part: None,
             binding: None,
@@ -1361,6 +1343,10 @@ pub struct Cut {
 pub struct Problem {
     pub id: String,
     pub code: String,
+    /// Internal provenance for the dimensional gap from the inclined-axis recipe.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub inclined_axis_gap: bool,
     /// `error`, `warning` or `info`.
     pub severity: String,
     pub message: String,
@@ -2378,6 +2364,10 @@ pub fn recognise(part: &Part, analysis: &mut Analysis, json: &str) -> Result<(),
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
     dimension_geometry::memberships(analysis);
+    let bore_ends = crate::auxiliary::bore_evidence(part, analysis);
+    if let Some(ink) = &mut analysis.edge_ink {
+        ink.bore_ends = bore_ends;
+    }
     analysis.unrecognised.clear();
     Ok(())
 }
@@ -2501,6 +2491,10 @@ pub fn recognise_document(
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
     dimension_geometry::memberships(analysis);
+    let bore_ends = crate::auxiliary::bore_evidence(part, analysis);
+    if let Some(ink) = &mut analysis.edge_ink {
+        ink.bore_ends = bore_ends;
+    }
     analysis.modelled_thread_ink = crate::modelled_threads::evidence(part, analysis);
     // Physical threads use conventional carriers. Their raw helix HLR would be
     // thrown away by the planner and renderer; keep raw conservative evidence
@@ -5027,7 +5021,6 @@ fn recover_candidates(
 pub(crate) fn pin_base(spec: &Spec) -> Spec {
     let mut base = Spec {
         units: spec.units,
-        purpose: spec.purpose.clone(),
         ..Spec::default()
     };
     base.sheet.paper = spec.sheet.paper;
@@ -5336,10 +5329,17 @@ fn plan_recovered_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid
         ));
     }
     let prepared = crate::modelled_threads::planning(analysis, spec);
-    let mut plan = crate::dims::pmi_policy::planning(|| plan_recovered_inner(&prepared, spec))?;
-    if spec.sheet.keep_layout == Some(true) || !crate::sheet_policy::finishes_selection(spec) {
-        finish_selected(&prepared, &mut plan);
-    }
+    let mut plan = crate::dims::pmi_policy::planning(|| {
+        crate::auxiliary::retain_dimensioned(&prepared, spec, |intent| {
+            let mut plan = plan_recovered_inner(&prepared, intent)?;
+            if intent.sheet.keep_layout == Some(true)
+                || !crate::sheet_policy::finishes_selection(intent)
+            {
+                finish_selected(&prepared, &mut plan);
+            }
+            Ok(plan)
+        })
+    })?;
     crate::modelled_threads::source_hash(
         analysis,
         matches!(&prepared, std::borrow::Cow::Owned(_)),
@@ -6639,7 +6639,11 @@ fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan, recovere
 
 fn plan_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let prepared = crate::modelled_threads::planning(analysis, spec);
-    let mut plan = crate::dims::pmi_policy::planning(|| plan_inner(&prepared, spec))?;
+    let mut plan = crate::dims::pmi_policy::planning(|| {
+        crate::auxiliary::retain_dimensioned(&prepared, spec, |intent| {
+            plan_inner(&prepared, intent)
+        })
+    })?;
     crate::half_section::apply(&prepared, &mut plan);
     crate::modelled_threads::source_hash(
         analysis,
@@ -7132,6 +7136,7 @@ fn plan_with_presentation(
         });
         if !inactive.is_empty() {
             problems.push(Problem {
+                inclined_axis_gap: false,
                 crossing_kinds: Vec::new(),
                 ink_is_leader: None,
                 id: "p:spec_entries_inactive:part".into(),
@@ -7657,6 +7662,7 @@ fn plan_with_presentation(
     // A section left out is said, with why and what would bring it back (draftwright records
     // every section decision: ISSUE-1190-b); one the author omits needs no saying.
     let section_not_shown = |why: String, fix: Vec<crate::items::Op>| Problem {
+        inclined_axis_gap: false,
         crossing_kinds: Vec::new(),
         ink_is_leader: None,
         id: format!("p:section_not_shown:v:{section_name}"),

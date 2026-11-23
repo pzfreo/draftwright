@@ -1,7 +1,7 @@
 //! Auxiliary orthographic views whose viewing direction is true in their parent.
 use haecceity::hlr::View;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::auxiliary_geometry::{
     Point, coplanar_patches, cross, dot, face, feature_axis, sub, support, unit,
@@ -11,6 +11,8 @@ use crate::model::dimension_geometry::Reference;
 use crate::model::{Analysis, Invalid, Plan, PlannedView, Problem, Spec, VIEWS};
 
 mod automatic;
+mod visibility;
+pub(crate) use visibility::{BoreEnd, bore_end, bore_evidence};
 
 const TOLERANCE: f64 = 1e-6;
 
@@ -403,7 +405,20 @@ pub(crate) fn requests(
         }
         pending = next;
     }
-    automatic::append(a, spec, &shown, &principal, &mut out, problems);
+    let recognized = automatic::append(a, spec, &shown, &principal, &mut out, problems);
+    if crate::planning::automatic_auxiliaries() {
+        for (name, v) in spec.views.iter().filter(|(name, _)| is_name(name)) {
+            if v.auxiliary.is_none()
+                && !recognized.contains(name)
+                && !(v.omit && automatic::known_feature_view(a, name))
+            {
+                return Err(invalid(
+                    name,
+                    "has no matching automatic view or auxiliary request",
+                ));
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -519,7 +534,7 @@ pub(crate) fn place(
     for r in requests {
         if !views.iter().any(|v| v.id == r.meta.parent) {
             problems.push(if r.automatic {
-                unplaceable(spec, &r.id, true)
+                unplaceable_request(spec, &r)
             } else {
                 unavailable_parent(&r.name, &r.meta.parent, "could not be placed")
             });
@@ -565,7 +580,7 @@ pub(crate) fn place(
                 broken: None,
             });
         } else {
-            problems.push(unplaceable(spec, &r.id, r.automatic));
+            problems.push(unplaceable_request(spec, &r));
         }
     }
 }
@@ -579,7 +594,114 @@ pub(crate) fn automatic_in(plan: &Plan) -> bool {
 }
 
 pub(crate) fn automatic_unplaceable(problem: &Problem) -> bool {
-    problem.code == "auxiliary_unplaceable" && problem.message.contains("automatic auxiliary view")
+    problem.code == "auxiliary_unplaceable"
+        && problem.id.starts_with("p:auxiliary_unplaceable:auto:")
+}
+
+fn unplaceable_request(spec: &Spec, r: &Request) -> Problem {
+    let mut problem = unplaceable(spec, &r.id, r.automatic);
+    if r.automatic && r.meta.anchor.starts_with("f:") {
+        problem.subjects.push(r.meta.anchor.clone());
+        problem.subjects.extend(r.meta.members.iter().cloned());
+    }
+    problem
+}
+
+/// Resize and reroute only when a selected projection cannot carry its dimensions.
+pub(crate) fn retain_dimensioned(
+    a: &Analysis,
+    spec: &Spec,
+    make_plan: impl Fn(&Spec) -> Result<Plan, Invalid>,
+) -> Result<Plan, Invalid> {
+    let mut intent = std::borrow::Cow::Borrowed(spec);
+    let mut refused = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    loop {
+        let mut plan = make_plan(&intent)?;
+        let failed = undimensioned(a, &plan);
+        if failed.is_empty() {
+            for (name, entry) in refused {
+                if let Some(entry) = entry {
+                    plan.spec.views.insert(name, entry);
+                } else {
+                    plan.spec.views.remove(&name);
+                }
+            }
+            plan.problems.extend(diagnostics);
+            return Ok(plan);
+        }
+        for (view, features) in failed {
+            let name = spec_name(spec, view);
+            let current = intent.to_mut().views.entry(name.into()).or_default();
+            if current.omit {
+                return Err(invalid(name, "was drawn despite omission"));
+            }
+            refused.insert(name.to_owned(), spec.views.get(name).cloned());
+            current.omit = true;
+            diagnostics.extend(features.into_iter().map(|id| {
+                unproved(
+                    spec,
+                    view,
+                    id,
+                    "the placed projection cannot state all its required dimensions",
+                )
+            }));
+        }
+    }
+}
+
+/// A provisional projection only survives if the placed drawing states what
+/// the corresponding recipe reported missing.
+fn undimensioned<'a>(a: &Analysis, plan: &'a Plan) -> Vec<(&'a str, Vec<&'a str>)> {
+    plan.views
+        .iter()
+        .filter(|v| is_automatic_view(v))
+        .filter_map(|v| {
+            let aux = v.auxiliary.as_ref()?;
+            let anchors =
+                std::iter::once(aux.anchor.as_str()).chain(aux.members.iter().map(String::as_str));
+            let mut members = Vec::new();
+            let mut incomplete = false;
+            for id in anchors {
+                let Some(feature) = a.features.iter().find(|f| f.id == id) else {
+                    continue;
+                };
+                let (role, open_location) = match feature.kind.as_str() {
+                    "hole" if !aux.edge_on => (
+                        "bore.diameter",
+                        plan.problems
+                            .iter()
+                            .any(|p| p.inclined_axis_gap && p.subjects == [id]),
+                    ),
+                    "boss" if aux.edge_on => ("boss_height.length", false),
+                    _ => continue,
+                };
+                members.push(id);
+                incomplete |= open_location
+                    || !plan.dimensions.iter().any(|d| {
+                        d.view == v.id
+                            && d.placed.is_some()
+                            && d.measurements
+                                .iter()
+                                .any(|m| m.feature == id && m.parameter == role)
+                    });
+            }
+            incomplete.then_some((v.id.as_str(), members))
+        })
+        .collect()
+}
+
+pub(crate) fn unproved(spec: &Spec, view: &str, feature: &str, reason: &str) -> Problem {
+    let mut problem = unplaceable(spec, view, true);
+    problem.id = format!("p:auxiliary_unplaceable:geometry:{view}:{feature}");
+    problem.subjects.push(feature.into());
+    problem.message =
+        format!("Cannot draw the automatic auxiliary view for {feature} because {reason}.");
+    problem.fix = vec![crate::items::Op::set(
+        format!("views/{}/omit", crate::items::key(spec_name(spec, view))),
+        serde_json::json!(true),
+    )];
+    problem
 }
 
 pub(crate) fn unplaceable(spec: &Spec, id: &str, automatic: bool) -> Problem {
@@ -596,7 +718,10 @@ pub(crate) fn unplaceable(spec: &Spec, id: &str, automatic: bool) -> Problem {
         )]
     };
     Problem {
-        id: format!("p:auxiliary_unplaceable:{id}"),
+        id: format!(
+            "p:auxiliary_unplaceable:{}{id}",
+            if automatic { "auto:" } else { "" }
+        ),
         code: "auxiliary_unplaceable".into(),
         severity: "warning".into(),
         message: format!(

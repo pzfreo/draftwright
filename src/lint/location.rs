@@ -583,7 +583,7 @@ fn reference_node(a: &Analysis, key: &str, axis: usize) -> Option<String> {
 /// Test a physical anchor in a measured direction using the same typed station
 /// routes as ordinary holes. Coordinates along the support or out of the
 /// measurement direction do not have to be stated.
-pub(super) fn anchor_rooted(
+pub(crate) fn anchor_rooted(
     a: &Analysis,
     edges: &[Edge],
     roots: &[Vec<f64>; 3],

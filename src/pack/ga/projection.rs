@@ -864,6 +864,7 @@ mod exact_cache_tests {
             Curve::Rational(vec![vec![[1., 0., 1.], [w, w, w], [0., 1., 1.]]]),
         ];
         a.edge_ink = Some(EdgeInk {
+            bore_ends: BTreeMap::new(),
             references: BTreeMap::new(),
             edges: Vec::new(),
             planes: Vec::new(),

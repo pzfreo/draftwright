@@ -924,42 +924,63 @@ pub(crate) fn auxiliary_needs(analysis: &Analysis, spec: &Spec) -> BTreeSet<Stri
         .filter(pmi_policy::inclined_gap)
         .flat_map(|p| p.subjects)
         .collect();
-    if !needs.is_empty()
-        && spec.dimensions.values().any(|d| {
-            !d.omit
-                && d.between.as_ref().is_some_and(|ends| {
-                    ends.iter().any(|end| {
-                        end.strip_prefix("axis:").is_some_and(|id| {
-                            needs.contains(id)
-                                || analysis
-                                    .dimension_reference_axis_face(end)
-                                    .is_some_and(|face| {
-                                        analysis.features.iter().any(|f| {
-                                            f.faces.contains(&face) && needs.contains(&f.id)
-                                        })
-                                    })
-                        })
+    let mut authored = BTreeMap::<String, usize>::new();
+    for dimension in spec.dimensions.values().filter(|d| !d.omit) {
+        let Some(ends) = &dimension.between else {
+            continue;
+        };
+        let subjects = ends
+            .iter()
+            .filter_map(|end| end.strip_prefix("axis:"))
+            .filter_map(|end| {
+                needs.get(end).map(String::as_str).or_else(|| {
+                    let face = analysis.dimension_reference_axis_face(end)?;
+                    analysis.features.iter().find_map(|f| {
+                        (f.faces.contains(&face) && needs.contains(&f.id)).then_some(f.id.as_str())
                     })
                 })
-        })
-    {
-        // Ask the existing authored-location audit whether the intended dimensions
-        // actually place and ground the axis in the ordinary drawing.
-        let mut ordinary = spec.clone();
-        ordinary.purpose = Some(crate::model::DrawingPurpose {
-            kind: "outline".into(),
-            description: None,
-            needs: Default::default(),
+            })
+            .collect::<BTreeSet<_>>();
+        for id in subjects {
+            *authored.entry(id.to_owned()).or_default() += 1;
+        }
+    }
+    // One authored distance cannot independently fix both transverse freedoms.
+    // Cache the actual placement audit across paper trials when two are present.
+    if authored.values().any(|&count| count >= 2) {
+        let key = serde_json::to_vec(&(spec, crate::planning::policy_key(analysis)))
+            .expect("authored location inputs serialize");
+        let missing = crate::planning::memo(analysis, "authored-inclined-locations", key, || {
+            crate::planning::without_automatic_auxiliaries(|| crate::model::plan(analysis, spec))
+                .ok()
+                .map(|plan| {
+                    plan.problems
+                        .into_iter()
+                        .filter(pmi_policy::inclined_gap)
+                        .flat_map(|p| p.subjects)
+                        .collect::<BTreeSet<_>>()
+                })
         });
-        if let Ok(plan) = crate::model::plan(analysis, &ordinary) {
+        if let Some(missing) = missing {
             needs.retain(|id| {
-                plan.problems
-                    .iter()
-                    .any(|p| p.code == "feature_not_dimensioned" && p.subjects.contains(id))
+                authored.get(id.as_str()).copied().unwrap_or(0) < 2 || missing.contains(id)
             });
         }
     }
+
     needs
+}
+
+pub(crate) fn auxiliary_stock_pair(
+    a: &Analysis,
+    spec: &Spec,
+    feature: &crate::bridge::Feature,
+    toward: [f64; 3],
+) -> Option<[crate::auxiliary_geometry::EdgeStation; 2]> {
+    let (mut wants, ..) = pmi_policy::wants(a, spec);
+    schemes::apply(a, spec, &mut wants).ok()?;
+    authored::append(a, spec, &mut wants).ok()?;
+    auxiliary::projected_pair(a, feature, toward, &wants)
 }
 
 /// Exact visibility is useful only for established fractional callouts that may
