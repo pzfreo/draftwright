@@ -151,9 +151,7 @@ pub(super) fn tangent_edges(a: &Analysis, h: &holes::Hole<'_>, toward: Point) ->
         else {
             return None;
         };
-        let Some(along) = unit(sub(ends[1], ends[0])) else {
-            return None;
-        };
+        let along = unit(sub(ends[1], ends[0]))?;
         let delta = sub(mouth.at, ends[0]);
         let foot = dot(along, delta);
         let offset = std::array::from_fn(|k| delta[k] - foot * along[k]);

@@ -372,21 +372,105 @@ fn plate_pin_primary_shows_true_height_and_inclination() {
         panic!("pin axis")
     };
     assert_true(sub(ends[1], ends[0]), view.direction);
-    let dimensions: Vec<_> = p.dimensions.iter().filter(|d| d.view == PIN_VIEW).collect();
     assert!(
-        dimensions
+        p.views
             .iter()
-            .any(|d| d.id.ends_with("/boss_height.length")
-                && (d.value - 20.).abs() < 1e-6
-                && d.placed.is_some())
+            .any(|v| v.sheet == view.sheet && v.id == "v:section_aa")
     );
+    assert_eq!(spec_json["auxiliary"]["label"], "B");
+    let mut detail_request = request.clone();
+    detail_request["sheet"]["size"] = json!("A2");
+    detail_request["views"]["detail_b"] = json!({"detail":{"around":"f:hole:f6","from":"plan"}});
+    let detailed = plan(&a, detail_request);
+    let detail = detailed
+        .views
+        .iter()
+        .find(|v| v.id == "v:detail_b")
+        .expect("detail B");
+    let aux = detailed
+        .views
+        .iter()
+        .find(|v| v.id == PIN_VIEW)
+        .expect("auxiliary with a detail");
+    assert_eq!(detail.sheet, aux.sheet);
+    assert_ne!(
+        serde_json::to_value(detail).unwrap()["detail"]["label"],
+        serde_json::to_value(aux).unwrap()["auxiliary"]["label"]
+    );
+
+    let dimension = |suffix: &str| {
+        p.dimensions
+            .iter()
+            .find(|d| d.view == PIN_VIEW && d.id.ends_with(suffix) && d.placed.is_some())
+            .unwrap()
+    };
+    let height = dimension("/boss_height.length");
+    let angle = dimension("/boss.inclination.angle");
+    assert!((height.value - 20.).abs() < 1e-6);
+    assert_eq!(angle.label, "21.9°");
+
+    let camera = View::new(view.direction, view.up).unwrap();
+    let height_ink = height.placed.as_ref().unwrap();
+    let measured = lift(
+        &camera,
+        page_span([height_ink.arrows[0][0], height_ink.arrows[1][0]]),
+    );
+    let axis = sub(ends[1], ends[0]);
+    assert_true(measured, view.direction);
+    assert!((dot(measured, axis).abs() / dot(axis, axis).sqrt() / view.scale - 20.).abs() < 1e-6);
+    let rays = [0, 1].map(|i| lift(&camera, page_span(angle.placed.as_ref().unwrap().lines[i])));
+    for ray in rays {
+        assert_true(ray, view.direction);
+    }
+    let parallel = |ray, model| {
+        let cosine = dot(ray, model).abs() / (dot(ray, ray) * dot(model, model)).sqrt();
+        (cosine - 1.).abs() < 1e-6
+    };
+    let seat = [0., 0., 1.];
     assert!(
-        dimensions
-            .iter()
-            .any(|d| d.id.ends_with("/boss.inclination.angle")
-                && d.label == "21.9°"
-                && d.placed.is_some())
+        parallel(rays[0], seat) && parallel(rays[1], axis)
+            || parallel(rays[1], seat) && parallel(rays[0], axis)
     );
+
+    // Reorient just the seat evidence about its contact on the pin axis.
+    let mut tilted = a.clone();
+    let angle_from_z = 10_f64.to_radians();
+    let horizontal = axis[0].hypot(axis[1]);
+    for face in tilted
+        .edge_ink
+        .as_mut()
+        .unwrap()
+        .references
+        .values_mut()
+        .flatten()
+    {
+        if let Reference::Plane {
+            membership,
+            origin,
+            normal,
+            ..
+        } = face
+            && membership.faces == [2]
+        {
+            *origin = [30., 0., 5.];
+            *normal = [
+                axis[0] / horizontal * angle_from_z.sin(),
+                axis[1] / horizontal * angle_from_z.sin(),
+                angle_from_z.cos(),
+            ];
+        }
+    }
+    let tilted = plan(&tilted, request);
+    let angle_to_seat = tilted
+        .dimensions
+        .iter()
+        .find(|d| d.view == PIN_VIEW && d.id.ends_with("/boss.inclination.angle"))
+        .unwrap();
+    assert_eq!(
+        angle_to_seat.label, "11.9°",
+        "the inclination is measured from the changed seat"
+    );
+    assert!(angle.basis.contains("seat face normal"));
     let d = render(&part, &a, &p);
     arrow(&d, &p, PIN_VIEW, "v:plan");
     assert_fidelity(&d, PIN_VIEW);

@@ -1,7 +1,8 @@
 //! Measurements whose true projection is carried by a requested auxiliary view.
 use super::{Measurement, Shape, Want, add, angular::Angle, fmt_in, scale3, want_id};
 use crate::auxiliary_geometry::{
-    EdgeStation, Point, coplanar_patches, cross, dot, edge_stations, face, sub, support, unit,
+    EdgeStation, Point, coplanar_patches, cross, dot, edge_stations, face, seat_normal, sub,
+    support, unit,
 };
 use crate::bridge::{Feature, holes};
 use crate::model::dimension_geometry::Reference;
@@ -229,7 +230,6 @@ pub(super) fn apply<'a>(
             continue;
         };
         let base = add(at, scale3(axis, -height));
-        let vertical = [0., 0., axis[2].signum()];
         let end_view = views.iter().find(|v| {
             v.auxiliary
                 .as_ref()
@@ -249,10 +249,12 @@ pub(super) fn apply<'a>(
                     "height along the boss axis, shown true",
                 ),
             );
-            if dot(v.direction, vertical).abs() <= EPS {
+            if let Some(normal) = seat_normal(a, f, base, axis)
+                && dot(v.direction, normal).abs() <= EPS
+            {
                 // In a view along the normal of the inclination plane, the
                 // cylindrical generator is parallel to the axis at true length.
-                // Use that drawn support and a vertical through its upper end.
+                // Use that drawn support and the seat normal through its upper end.
                 let radius = f
                     .parameters
                     .get("diameter")
@@ -266,7 +268,7 @@ pub(super) fn apply<'a>(
                 let vertex = add(at, radial);
                 let angle = Angle {
                     vertex,
-                    first: add(vertex, scale3(vertical, -height)),
+                    first: add(vertex, scale3(normal, -height)),
                     second: add(base, radial),
                 };
                 if let Some(value) = angle.degrees() {
@@ -283,7 +285,7 @@ pub(super) fn apply<'a>(
                                 angle,
                                 alternates: Vec::new(),
                             },
-                            "inclination of the boss axis from vertical, shown true",
+                            "inclination of the boss axis from the seat face normal, shown true",
                         ),
                     );
                 }

@@ -385,9 +385,10 @@ identifier also keys the Spec entry. An edge view may additionally use
 ```
 
 The viewing direction must lie in the parent's plane. A primary's parent is a
-principal view. A secondary's parent is a primary auxiliary. Omitting a parent
-suppresses its descendants. Without `from`, Draftwright searches the principal
-views. A missing geometry anchor leaves the Spec entry in place and reports
+principal view. A secondary's parent is a primary auxiliary. An omitted, hidden,
+or missing parent leaves the request in the Spec and reports
+`auxiliary_parent_unapplied`. Restore or change the parent, or use the offered edit
+to omit the request. Without `from`, Draftwright searches the principal views. A missing geometry anchor leaves the Spec entry in place and reports
 `auxiliary_anchor_unapplied`.
 
 The layout places these views in free boxes. Each parent shows a reference
@@ -406,9 +407,10 @@ The true-shape view can carry an inclined bore or boss's diameter and
 perpendicular location spans from its support face's straight edges. Those
 spans use `location.length.<face>.<edge>` roles, for example
 `location.length.f4.e2`. Lint requires two independent printed distances from
-located edges. An inscribed bore adds a tangency note below its size when all
-outer sides are verified tangent. An auxiliary edge view can carry an inclined
-boss's true axial height and inclination.
+located edges and verifies the extension ink against the geometry. An inscribed
+bore adds a tangency note below its size. Lint checks the note's count and tangency
+to 0.001 mm. An auxiliary edge view can carry an inclined boss's true axial height
+and its angle from the seat face normal.
 
 #### Recognition corrections (#76 item 2)
 

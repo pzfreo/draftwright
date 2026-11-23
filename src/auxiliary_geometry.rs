@@ -53,7 +53,7 @@ pub(crate) fn face(a: &Analysis, anchor: &str) -> Option<Reference> {
     face_at(a, index)
 }
 
-pub(crate) fn face_at(a: &Analysis, index: usize) -> Option<Reference> {
+fn face_at(a: &Analysis, index: usize) -> Option<Reference> {
     a.dimension_references()
         .values()
         .flatten()
@@ -193,7 +193,6 @@ pub(crate) fn support(
 pub(crate) struct EdgeStation {
     pub face: usize,
     pub edge: usize,
-    pub key: String,
     pub points: [Point; 2],
     pub direction: Point,
     pub length: f64,
@@ -235,7 +234,6 @@ pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -
             stations.push(EdgeStation {
                 face,
                 edge: edge.index,
-                key: key.clone(),
                 points: [anchor, at],
                 direction: normal,
                 length: dot(delta, normal),
@@ -250,4 +248,66 @@ impl EdgeStation {
     pub(crate) fn role(&self) -> String {
         format!("location.length.f{}.e{}", self.face, self.edge)
     }
+}
+
+/// Find the surface that seats the boss or the common-axis turned component
+/// carrying it. End caps belonging to the component are not seating faces.
+pub(crate) fn seat_normal(a: &Analysis, f: &Feature, base: Point, axis: Point) -> Option<Point> {
+    let component = a.features.iter().find(|peer| {
+        peer.kind == "turned_body" && f.faces.iter().all(|face| peer.faces.contains(face))
+    });
+    let excluded = component.map_or(f.faces.as_slice(), |peer| peer.faces.as_slice());
+    let mut contacts = vec![base];
+    if let (Some(_), Some(ink)) = (component, &a.edge_ink) {
+        let retreat = a
+            .dimension_references()
+            .values()
+            .flatten()
+            .filter(
+                |r| matches!(r.membership().faces.as_slice(), [face] if excluded.contains(face)),
+            )
+            .flat_map(|r| r.membership().edges.iter().flatten())
+            .filter_map(|e| ink.edges.get(e.index))
+            .flatten()
+            .map(|&p| dot(sub(p, base), axis))
+            .fold(0., f64::min);
+        if retreat < -0.002 {
+            contacts.push(add(base, scale(axis, retreat)));
+        }
+    }
+    for point in contacts {
+        let mut normals = a.dimension_references().values().flatten().filter_map(|r| {
+            let Reference::Plane {
+                membership,
+                origin,
+                normal,
+                bounds,
+            } = r
+            else {
+                return None;
+            };
+            if !matches!(membership.faces.as_slice(), [face] if !excluded.contains(face))
+                || dot(sub(point, *origin), *normal).abs() > 0.002
+                || !(0..3)
+                    .all(|k| (bounds[0][k] - 0.002..=bounds[1][k] + 0.002).contains(&point[k]))
+            {
+                return None;
+            }
+            let normal = unit(*normal)?;
+            let cosine = dot(axis, normal);
+            (cosine.abs() > TOLERANCE && cosine.abs() < 1. - TOLERANCE).then(|| {
+                if cosine < 0. {
+                    scale(normal, -1.)
+                } else {
+                    normal
+                }
+            })
+        });
+        if let Some(normal) = normals.next()
+            && normals.all(|other| dot(normal, other) > 1. - TOLERANCE)
+        {
+            return Some(normal);
+        }
+    }
+    None
 }

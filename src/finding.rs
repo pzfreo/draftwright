@@ -236,11 +236,11 @@ catalogue! {
     hole_pattern_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     hole_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     hole_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
-    hole_tangent_note_unverifiable => Incomplete, Requirement, Code, "The printed tangency and edge count are unsupported by the bore opening.";
     hole_table_entry_invalid => Incomplete, Requirement, Code, "The drawn evidence does not correctly state the required source information.";
     hole_table_escalated => Advisory, Information, Code, "A hole table replaced crowded individual callouts.";
     hole_table_tag_order_retained => Advisory, Information, Code, "Legacy tags retain the finished geometry when spatial relabelling would collide or detach a row leader.";
     hole_table_unavailable => Decision, Tidy, Code, "An explicit table request was not met; individual dimensions remain.";
+    hole_tangent_note_unverifiable => Incomplete, Requirement, Code, "The printed tangency and edge count are unsupported by the bore opening.";
     id_not_migrated => Advisory, Information, Code, "A saved legacy identity has no exact current match; its key and intent are retained.";
     inch_design_detected => Advisory, Information, Code, "Model sizes closely follow sixteenth-inch or decimal-inch grids; units remain unchanged.";
     incremental_basis_kept => Advisory, Information, Code, "Existing dimension basis retained; explicit datum re-base available.";
