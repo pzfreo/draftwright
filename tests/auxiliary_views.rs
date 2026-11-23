@@ -480,6 +480,17 @@ fn plate_pin_primary_shows_true_height_and_inclination() {
 fn automatic_corner_cut_locates_and_sizes_the_bore() {
     let (part, a) = part("parts/corner-cuts.step.gz");
     let p = plan(&a, json!({}));
+    let ordinary = plan(&a, json!({"purpose":{"kind":"outline"}}));
+    assert_eq!(
+        (ordinary.sheet.size.as_str(), ordinary.sheet.scale.as_str()),
+        ("A4", "1:1")
+    );
+    assert_eq!(p.sheet.size, ordinary.sheet.size);
+    assert_eq!(p.sheet.scale, ordinary.sheet.scale);
+    assert_eq!(
+        p.sheet.dimension_spacing,
+        model::DimensionSpacing::Compact
+    );
     let square = p
         .views
         .iter()
@@ -494,9 +505,36 @@ fn automatic_corner_cut_locates_and_sizes_the_bore() {
     assert_eq!(edge.auxiliary.as_ref().unwrap().parent, "v:plan");
     assert_true(square.direction, edge.direction);
     assert!(p.spec.views.is_empty());
+    let principal = p.views.iter().find(|v| v.id == "v:plan").unwrap();
+    let projection = View::new(principal.direction, principal.up)
+        .unwrap()
+        .map(edge.direction);
+    let shift = page_span([principal.at, edge.at]);
+    let beside = (0..2).any(|axis| {
+        let cross = 1 - axis;
+        projection[axis] * shift[axis] > 0.
+            && principal.area[cross] <= edge.at[cross]
+            && edge.at[cross] <= principal.area[cross + 2]
+            && if shift[axis] > 0. {
+                (0.0..42.).contains(&(edge.area[axis] - principal.area[axis + 2]))
+            } else {
+                (0.0..42.).contains(&(principal.area[axis] - edge.area[axis + 2]))
+            }
+    });
+    assert!(beside, "{:?} beside {:?}", edge.area, principal.area);
 
     let d = render(&part, &a, &p);
     arrow(&d, &p, TRUE, parent);
+    assert!(
+        d.sheet
+            .views
+            .iter()
+            .find(|v| &v.name == parent)
+            .unwrap()
+            .edges
+            .len()
+            > 1
+    );
     assert_fidelity(&d, TRUE);
     let stations: Vec<_> = p
         .dimensions
@@ -515,6 +553,7 @@ fn automatic_corner_cut_locates_and_sizes_the_bore() {
         .find(|d| d.id == format!("d:{BORE}/bore.diameter"))
         .unwrap();
     assert_eq!(bore.view, TRUE);
+    assert_eq!(bore.label, "⌀11.993 THRU\nTANGENT TO 3 EDGES");
     let tip = bore.placed.as_ref().unwrap().arrows[0][0];
     let shape = d.sheet.views.iter().find(|v| v.name == TRUE).unwrap();
     assert!(
