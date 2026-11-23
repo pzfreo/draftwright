@@ -2954,6 +2954,7 @@ fn plan_inventory_uncached(
                         | "annotation_outside_area"
                         | "dimension_line_shared"
                         | "dimension_text_stray"
+                        | "leader_across_view"
                         | "leader_through_feature"
                         | "extension_through_feature"
                 )
@@ -4141,7 +4142,17 @@ fn plan_inventory_ordered(
     // Radius exceptions are placed around the existing drawing ink. Their addition must not
     // reroute unrelated approved callouts into clutter.
     let mut callout_views = chosen.clone();
+    let mut late_profile_callouts = Vec::new();
     for (i, w) in all.iter().enumerate() {
+        if !profile_first
+            && matches!(w.shape, Shape::Callout { .. })
+            && w.measurements
+                .iter()
+                .any(|m| m.parameter == profile_angles::PARAMETER)
+            && callout_views[i].is_some()
+        {
+            late_profile_callouts.push((i, callout_views[i].take()));
+        }
         if owner[i].is_some()
             && !drawn[i]
             && matches!(w.shape, Shape::Callout { .. })
@@ -4493,6 +4504,32 @@ fn plan_inventory_ordered(
         views,
         &interior_proofs,
     );
+    // Tangent angle callouts also try the settled drawing first. In a tight
+    // view their leader must not move an existing hole leader into another view.
+    if !late_profile_callouts.is_empty() {
+        let mut late_views = callout_views;
+        for (i, w) in all.iter().enumerate() {
+            if matches!(w.shape, Shape::Callout { .. }) && placed[i].is_none() {
+                late_views[i] = None;
+            }
+        }
+        for (i, view) in late_profile_callouts {
+            late_views[i] = view;
+        }
+        leader_problems.extend(leaders::place_with_obstacles(
+            analysis,
+            spec,
+            cache,
+            views,
+            &frames,
+            &all,
+            &late_views,
+            &sides,
+            &mut placed,
+            &page,
+            obstacles,
+        ));
+    }
     for (i, old) in retry_angles {
         if placed[i].is_none() {
             placed[i] = Some(old);
@@ -4657,8 +4694,11 @@ fn plan_inventory_ordered(
             from_spec.push("place".into());
         }
         let view = chosen.unwrap_or(w.views[0]);
-        let dropped_angle =
-            placed.is_none() && chosen.is_some() && profile_angles::is_profile_angle(&w);
+        let dropped_angle = placed.is_none()
+            && chosen.is_some()
+            && w.measurements
+                .iter()
+                .any(|m| m.parameter == profile_angles::PARAMETER);
         if dropped_angle {
             problems.push(Problem {
                 id: format!("p:angular_dimension_dropped:{}", w.id),
