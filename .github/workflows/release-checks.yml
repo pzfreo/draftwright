@@ -45,7 +45,7 @@ jobs:
       - name: Require all five release checks to pass
         shell: bash
         run: |
-          args=(--release --locked --lib --bins --tests
+          args=(--release --locked --test core --test audits --test rendering --test dimensions
                 --config-file .release-ci-guard/.config/nextest.toml -E "$NEXTEST_RELEASE_FILTER")
           count=$(cargo nextest list "${args[@]}" --message-format oneline | wc -l)
           if [ "$count" -ne 5 ]; then
