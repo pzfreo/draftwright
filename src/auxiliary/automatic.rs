@@ -9,6 +9,16 @@ fn parallel(a: Point, b: Point) -> bool {
     dot(perpendicular, perpendicular) <= TOLERANCE.powi(2)
 }
 
+fn already_end_on(feature: &Feature, axis: Point, toward: Point) -> bool {
+    let cosine = dot(axis, toward).abs();
+    parallel(axis, toward)
+        // A near-end-on rim can already show the diameter to model resolution.
+        // This gates view creation only; its location warning stays in the plan.
+        || (cosine >= 0.999
+            && feature.parameters.get("diameter").and_then(serde_json::Value::as_f64)
+                .is_some_and(|diameter| diameter * (1. - cosine) <= 0.001))
+}
+
 fn perpendicular(a: Point, b: Point) -> bool {
     dot(a, b).abs() <= TOLERANCE
 }
@@ -90,9 +100,7 @@ pub(super) fn append(
     out: &mut Vec<Request>,
     problems: &mut Vec<Problem>,
 ) {
-    if spec.purpose.as_ref().is_some_and(|p| p.kind == "outline")
-        || spec.dimension_source == crate::model::DimensionSource::Authored
-    {
+    if spec.purpose.as_ref().is_some_and(|p| p.kind == "outline") {
         return;
     }
     let needs = crate::dims::auxiliary_needs(a, spec);
@@ -111,10 +119,6 @@ pub(super) fn append(
         .iter()
         .filter_map(|&n| Some((format!("v:{n}"), principal(n)?.toward)))
         .collect();
-    let existing = |axis| {
-        principals.iter().any(|(_, d)| parallel(*d, axis))
-            || pictorial.iter().any(|&d| parallel(d, axis))
-    };
     let mut omitted = Vec::new();
 
     // Profile cameras come first so a coaxial bore can use one as its parent.
@@ -127,7 +131,12 @@ pub(super) fn append(
             let Some(axis) = anchor_direction(a, id) else {
                 continue;
             };
-            if existing(axis) || (edge && out.iter().any(|r| parallel(r.camera.toward, axis))) {
+            let already_shown = principals
+                .iter()
+                .map(|(_, d)| d)
+                .chain(&pictorial)
+                .any(|&d| already_end_on(feature, axis, d));
+            if already_shown || (edge && out.iter().any(|r| parallel(r.camera.toward, axis))) {
                 continue;
             }
             let (parent, camera) = if edge {

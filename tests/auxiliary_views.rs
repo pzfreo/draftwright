@@ -630,6 +630,7 @@ fn automatic_auxiliary_reports_when_a_fixed_sheet_cannot_hold_it() {
 
 #[test]
 fn automatic_auxiliaries_respect_outline_and_leave_negative_controls_unchanged() {
+    let ordinary = |a: &Analysis| model::plan(a, &Spec::default()).unwrap();
     let (_, a) = part("parts/corner-cuts.step.gz");
     let outline = plan(&a, json!({"purpose":{"kind":"outline"}}));
     assert!(outline.views.iter().all(|v| v.auxiliary.is_none()));
@@ -641,10 +642,7 @@ fn automatic_auxiliaries_respect_outline_and_leave_negative_controls_unchanged()
     ] {
         let (_, a) = part(path);
         assert!(
-            plan(&a, json!({}))
-                .views
-                .iter()
-                .all(|v| v.auxiliary.is_none()),
+            ordinary(&a).views.iter().all(|v| v.auxiliary.is_none()),
             "{path}"
         );
     }
@@ -653,10 +651,7 @@ fn automatic_auxiliaries_respect_outline_and_leave_negative_controls_unchanged()
         for path in include_str!("../tools/quality_parts.txt").lines() {
             let (_, a) = model::analyse_native(&Path::new(&corpus).join(path)).unwrap();
             assert!(
-                plan(&a, json!({}))
-                    .views
-                    .iter()
-                    .all(|v| v.auxiliary.is_none()),
+                ordinary(&a).views.iter().all(|v| v.auxiliary.is_none()),
                 "{path}"
             );
         }

@@ -368,7 +368,8 @@ A sheet-scale or omitted iso carries no NTS caption. This furniture does not cha
 
 Draftwright adds a view when an inclined cylindrical hole or boss needs a
 dimension and the planned views do not show the feature end-on. Features can
-share the same auxiliary camera. Set `"purpose": {"kind": "outline"}` to skip
+share the same auxiliary camera. A near-end-on view already shows the diameter
+when foreshortening is within 0.001 mm. Set `"purpose": {"kind": "outline"}` to skip
 automatic auxiliaries. With no purpose, Draftwright uses the geometry review
 defaults. An inclined face on its own keeps its dimensions in the principal views.
 
