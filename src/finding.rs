@@ -138,6 +138,8 @@ catalogue! {
     assembly_principal_drawn => Advisory, Information, Code, "The assembly's largest part, holding the others, was drawn alone; the others are not drawn.";
     authored_dimension_invalid => Decision, FixBeforePrinting, Code, "The authored dimension needs a valid user definition.";
     automatic_scale_limited => Advisory, Information, Code, "Larger automatic scales were refused for the reported fit or readability reasons.";
+    auxiliary_anchor_unapplied => Decision, Tidy, Code, "The requested auxiliary view needs a current planar face or feature axis.";
+    auxiliary_unplaceable => Readability, Tidy, Code, "A requested auxiliary view has no room in the drawing.";
     axial_length_missing => Incomplete, Requirement, Code, "The drawing does not state the axial length.";
     balloon_dropped => Incomplete, Requirement, Code, "A required drawing item was dropped before it could be stated.";
     blend_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";

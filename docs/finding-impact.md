@@ -88,6 +88,8 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `assembly_principal_drawn` | advisory | information | The assembly's largest part, holding the others, was drawn alone; the others are not drawn. |
 | `authored_dimension_invalid` | decision | fix_before_printing | The authored dimension needs a valid user definition. |
 | `automatic_scale_limited` | advisory | information | Larger automatic scales were refused for the reported fit or readability reasons. |
+| `auxiliary_anchor_unapplied` | decision | tidy | The requested auxiliary view needs a current planar face or feature axis. |
+| `auxiliary_unplaceable` | readability | tidy | A requested auxiliary view has no room in the drawing. |
 | `axial_length_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state the axial length. |
 | `balloon_dropped` | incomplete | fix_before_printing (information when severity=info) | A required drawing item was dropped before it could be stated. |
 | `blend_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
