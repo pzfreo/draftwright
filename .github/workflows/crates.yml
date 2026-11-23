@@ -48,7 +48,14 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo publish --dry-run --locked -p draftwright
 
+  release-checks:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
+    uses: ./.github/workflows/release-checks.yml
+    with:
+      tag: ${{ github.event.release.tag_name || inputs.tag }}
+
   publish:
+    needs: release-checks
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'release'

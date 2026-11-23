@@ -73,6 +73,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-checks:
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main')
+    uses: ./.github/workflows/release-checks.yml
+    with:
+      tag: ${{ github.event.release.tag_name || inputs.tag }}
+
   guard-test:
     runs-on: ubuntu-latest
     steps:
@@ -186,7 +194,7 @@ jobs:
   # No sdist: this is a binary distribution for installs without Rust. Source users have
   # Cargo and the repository; unsupported platforms should not unexpectedly compile Rust.
   publish:
-    needs: [wheels, guard-test]
+    needs: [wheels, guard-test, release-checks]
     if: >-
       github.event_name == 'release' ||
       (github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main')

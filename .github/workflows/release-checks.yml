@@ -1,0 +1,55 @@
+name: Pre-publication tests
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-only:
+    runs-on: ubuntu-latest
+    env:
+      DRAFTWRIGHT_CORPUS: ${{ github.workspace }}/quiddity/tests/corpus
+      DRAFTWRIGHT_CORPUS_REQUIRED: '1'
+      NEXTEST_RELEASE_FILTER: 'group(=release-only)'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      # Apply the current gate even when dispatching a backfill from an older tag.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-ci-guard
+          sparse-checkout: .config/nextest.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: pzfreo/quiddity-python
+          ref: 6d544e060cd0eeb4442d2196e5df757b5a15ea55
+          path: quiddity
+          sparse-checkout: tests/corpus
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        with:
+          tool: nextest@0.9.146
+      - name: Require all five release checks to pass
+        shell: bash
+        run: |
+          args=(--release --locked --lib --bins --tests
+                --config-file .release-ci-guard/.config/nextest.toml -E "$NEXTEST_RELEASE_FILTER")
+          count=$(cargo nextest list "${args[@]}" --message-format oneline | wc -l)
+          if [ "$count" -ne 5 ]; then
+            echo "::error::Expected five release checks, found $count"
+            exit 1
+          fi
+          cargo nextest run "${args[@]}" --no-tests=fail
