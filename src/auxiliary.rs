@@ -8,7 +8,7 @@ use crate::auxiliary_geometry::{
 };
 use crate::layout::{Rect, Scaled};
 use crate::model::dimension_geometry::Reference;
-use crate::model::{Analysis, Invalid, PlannedView, Problem, Spec, VIEWS};
+use crate::model::{Analysis, Invalid, Plan, PlannedView, Problem, Spec, VIEWS};
 
 mod automatic;
 
@@ -537,11 +537,19 @@ pub(crate) fn place(
     }
 }
 
+pub(crate) fn is_automatic_view(view: &PlannedView) -> bool {
+    view.auxiliary.is_some() && view.basis.starts_with("automatic auxiliary projection")
+}
+
+pub(crate) fn automatic_in(plan: &Plan) -> bool {
+    plan.views.iter().any(is_automatic_view) || plan.problems.iter().any(automatic_unplaceable)
+}
+
 pub(crate) fn automatic_unplaceable(problem: &Problem) -> bool {
     problem.code == "auxiliary_unplaceable" && problem.message.contains("automatic auxiliary view")
 }
 
-fn unplaceable(spec: &Spec, id: &str, automatic: bool) -> Problem {
+pub(crate) fn unplaceable(spec: &Spec, id: &str, automatic: bool) -> Problem {
     use crate::items::{Op, key};
     let name = spec_name(spec, id);
     let fix = if spec.sheet.size.is_some() {

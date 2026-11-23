@@ -812,6 +812,11 @@ pub(crate) fn small_fallback(
         tried.push("small-sheet allocation blocked by explicit sheets.max = 1".into());
         return None;
     }
+    if spec.sheets.as_ref().and_then(|s| s.max).is_none()
+        && crate::auxiliary::automatic_in(required)
+    {
+        return None;
+    }
     for (name, _, _) in spec.pages().iter().take(2) {
         let mut working = spec.clone();
         working.sheet.size = Some((*name).into());

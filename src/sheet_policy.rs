@@ -1340,7 +1340,12 @@ fn select_scales_full(
     };
     // Unset spacing may fall back to compact lanes; an explicit choice holds for every trial.
     let fallback = spec.sheet.dimension_spacing.is_none();
-    let hard = spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9);
+    let automatic_auxiliary = crate::auxiliary::automatic_in(&baseline);
+    let hard = spec
+        .sheets
+        .as_ref()
+        .and_then(|s| s.max)
+        .unwrap_or(if automatic_auxiliary { 1 } else { 9 });
     let mut candidates = Vec::new();
     let mut search_trace = Vec::new();
     let mut best = sheet_fit::inside_frames(fit, &baseline).then(|| baseline.clone());
@@ -1352,7 +1357,10 @@ fn select_scales_full(
     // automatic search: a part whose views fit A3 full size is not offered a large sheet.
     let small = std::cell::OnceCell::new();
     let first_estimate = std::cell::OnceCell::new();
-    for (size, max) in requests(spec) {
+    for (size, max) in requests(spec)
+        .into_iter()
+        .filter(|(_, count)| *count <= hard as usize)
+    {
         let large = spec
             .pages()
             .iter()
@@ -2078,12 +2086,44 @@ fn select_scales_full(
             search_trace,
         );
     }
-    let mut best = best.ok_or_else(|| Invalid {
-        path: None,
-        also: Vec::new(),
-        message: "No unclipped automatic drawing fits on supported paper within sheets.max; increase sheets/max or state an explicit layout.".into(),
-        choices: vec!["sheets/max".into(),"sheet/size".into()],
-    })?;
+    let mut best = if best.is_none() && automatic_auxiliary {
+        let mut ordinary = spec.clone();
+        ordinary.purpose = Some(model::DrawingPurpose {
+            kind: "outline".into(),
+            description: None,
+            needs: Default::default(),
+        });
+        ordinary.sheets.get_or_insert_with(Default::default).max = Some(hard);
+        let mut plan =
+            select_scales_full(analysis, &ordinary, false, &mut ForcedTrials::default())?;
+        let ids: BTreeSet<_> = baseline
+            .views
+            .iter()
+            .filter(|v| {
+                v.auxiliary.is_some() && v.basis.starts_with("automatic auxiliary projection")
+            })
+            .map(|v| &v.id)
+            .chain(
+                baseline
+                    .problems
+                    .iter()
+                    .filter(|p| crate::auxiliary::automatic_unplaceable(p))
+                    .flat_map(|p| &p.refs),
+            )
+            .collect();
+        plan.problems.extend(
+            ids.into_iter()
+                .map(|id| crate::auxiliary::unplaceable(spec, id, true)),
+        );
+        plan
+    } else {
+        best.ok_or_else(|| Invalid {
+            path: None,
+            also: Vec::new(),
+            message: "No unclipped automatic drawing fits on supported paper within sheets.max; increase sheets/max or state an explicit layout.".into(),
+            choices: vec!["sheets/max".into(),"sheet/size".into()],
+        })?
+    };
     best.problems.push(model::Problem {
         id:"p:layout_recovery_exhausted:sheet-preferences".into(),
         code:"layout_recovery_exhausted".into(),severity:"warning".into(),
