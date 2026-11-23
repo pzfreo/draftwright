@@ -23,7 +23,7 @@ pub(crate) fn planning<T>(run: impl FnOnce() -> T) -> T {
     run()
 }
 
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 pub(crate) fn carries(a: &Analysis) -> bool {
     matches!(&a.pmi, Some(Reading::Read(r)) if !r.records.is_empty())
 }
@@ -564,14 +564,28 @@ pub(super) fn cover(
     // so only identical precedence decisions share this pass-local result.
     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
     let key = serde_json::to_vec(&(&*kept, &*given)).expect("precedence inputs serialize");
+    let carriers: BTreeMap<_, _> = kept
+        .iter()
+        .map(|(w, _, view, _)| (w.id.clone(), *view))
+        .collect();
     let (items, terms, covered) = crate::planning::memo(a, "pmi-precedence", key, || {
         let mut items = kept.clone();
         let mut terms = given.clone();
         let mut covered = Vec::new();
         cover_uncached(a, &mut items, &mut terms, &mut covered);
+        let items: Vec<_> = items
+            .into_iter()
+            .map(|(w, default, _, ends)| (w, default, ends))
+            .collect();
         (items, terms, covered)
     });
-    *kept = items;
+    *kept = items
+        .into_iter()
+        .map(|(w, default, ends)| {
+            let carrier = carriers[&w.id];
+            (w, default, carrier, ends)
+        })
+        .collect();
     *given = terms;
     omitted.extend(covered);
 }
@@ -959,20 +973,41 @@ pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
 
 fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
     use crate::lint::inclined;
+    let auxiliary_bosses: BTreeSet<_> = p
+        .dimensions
+        .iter()
+        .filter(|d| d.view.starts_with("v:aux:") && d.placed.is_some())
+        .filter_map(|d| d.id.strip_prefix("d:")?.strip_suffix("/boss_height.length"))
+        .collect();
     let warning = |q: &Problem| {
         q.code == "feature_not_dimensioned"
             && q.message
                 .contains("location is not dimensioned: its axis is inclined")
             && matches!(q.subjects.as_slice(), [id] if inclined::is_inclined(a, id))
     };
-    if !p.problems.iter().any(warning) {
+    if auxiliary_bosses.is_empty() && !p.problems.iter().any(warning) {
         return;
     }
     let marks = dimension_marks(a, p, |_| true, true);
     let roots = location::drawing_roots(a, &marks);
     let edges = location::drawn_edges(a, &marks);
     let mut located = BTreeSet::new();
-    p.problems.retain(|q| {
+    p.problems.retain_mut(|q| {
+        if q.code == "feature_not_dimensioned"
+            && q.message
+                .contains("height and location are not dimensioned: its axis is inclined")
+            && let Some(id) = q.subjects.first()
+            && auxiliary_bosses.contains(id.as_str())
+        {
+            if inclined::located(a, &marks, &edges, &roots, id) {
+                return false;
+            }
+            q.message = format!(
+                "{} has its height in the auxiliary view. Its foot still needs a location.",
+                crate::wording::capital(&crate::wording::feature_id(a, id))
+            );
+            return true;
+        }
         if !warning(q) {
             return true;
         }
@@ -984,6 +1019,18 @@ fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
         true
     });
     for q in p.problems.iter_mut().filter(|q| warning(q)) {
+        let true_size = p.dimensions.iter().any(|d| {
+            d.view.starts_with("v:aux:")
+                && d.id == format!("d:{}/bore.diameter", q.subjects[0])
+                && d.placed.is_some()
+        });
+        if true_size {
+            let name = crate::wording::capital(&crate::wording::feature_id(a, &q.subjects[0]));
+            q.message = format!(
+                "{name} has its size in the auxiliary view. Its location still needs two perpendicular distances from grounded edges."
+            );
+            continue;
+        }
         if let Some(fix) = inclined::fix(a, &marks, &edges, &roots, &q.subjects[0], false)
             && let Some((name, _)) = q.message.split_once("'s location is not dimensioned:")
         {
@@ -1042,7 +1089,7 @@ fn dimension_marks(
         let Some(view) = p.views.iter().find(|v| v.id == d.view) else {
             continue;
         };
-        let at = if view.detail.is_some() {
+        let at = if view.detail.is_some() || view.auxiliary.is_some() {
             Frame::new(a, view).page([0, 1, 2].map(|k| 0.5 * (a.envelope[0][k] + a.envelope[1][k])))
         } else {
             view.at

@@ -269,6 +269,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -449,6 +459,70 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "$defs": {
+      "auxiliary_request": {
+        "type": "object",
+        "properties": {
+          "square_to": {
+            "type": "string",
+            "minLength": 1
+          },
+          "edge_on": {
+            "type": "string",
+            "minLength": 1
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scale_factor": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "full": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+        "oneOf": [
+          {
+            "required": [
+              "square_to"
+            ],
+            "not": {
+              "required": [
+                "edge_on"
+              ]
+            }
+          },
+          {
+            "required": [
+              "edge_on"
+            ],
+            "not": {
+              "required": [
+                "square_to"
+              ]
+            }
+          }
+        ]
+      }
     }
   },
   "list_items": {
@@ -708,6 +782,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -1241,6 +1325,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -1672,6 +1766,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -2121,6 +2225,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -2548,6 +2662,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -3022,6 +3146,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -3500,6 +3634,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -3959,6 +4103,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -4390,6 +4544,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {
@@ -4812,6 +4976,16 @@
                     "around"
                   ],
                   "additionalProperties": false
+                },
+                "auxiliary": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "patternProperties": {

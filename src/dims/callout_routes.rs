@@ -486,7 +486,7 @@ pub(crate) fn prefer_interior(
         })
         .collect();
     super::detail_routes(analysis, &mut wants, &plan.views);
-    super::route(&mut wants, &frames, analysis);
+    super::route(&mut wants, &frames, analysis, &BTreeMap::new());
     let fixed = furniture(plan);
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(gdt::proxy));
@@ -1029,7 +1029,7 @@ fn finish_with(
         })
         .collect();
     super::detail_routes(analysis, &mut wants, &plan.views);
-    super::route(&mut wants, &frames, analysis);
+    super::route(&mut wants, &frames, analysis, &BTreeMap::new());
     let mut fixed = furniture(plan);
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(gdt::proxy));
