@@ -1297,6 +1297,34 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
+                if spec.units.is_mm()
+                    && across_ids.contains(&id)
+                    && plan
+                        .dimensions
+                        .iter()
+                        .any(|d| d.kind == "callout" && placed_angle(d))
+                    && let Some(want) = &want
+                    && let Some(frame) = frames.get(view.id.trim_start_matches("v:"))
+                {
+                    // The absolute sweep starts at proven sites. Also try short
+                    // bends relative to the held tip, as an offset edit does,
+                    // and validate the resulting radial attachment below.
+                    let held = old.as_ref().map(|p| (p, d.terms.as_slice()));
+                    for direction in 0..16 {
+                        let angle = f64::from(direction) * std::f64::consts::TAU / 16.0;
+                        let (sin, cos) = angle.sin_cos();
+                        for reach in [8.0, 11.0] {
+                            if let Some(route) = leaders::offset_intent(
+                                frame,
+                                want,
+                                [reach * cos, reach * sin],
+                                held,
+                            ) {
+                                candidates.push(route);
+                            }
+                        }
+                    }
+                }
                 if wrapped_repair
                     || (spec.units.is_mm() && across_ids.contains(&id) && new_contacts.is_none())
                 {
