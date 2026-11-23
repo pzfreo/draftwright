@@ -1119,7 +1119,7 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
 
 fn select_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     crate::dims::idle_decided(analysis, spec, || {
-        let plan = select_once(analysis, spec)?;
+        let plan = recover_conflicting_hole_locations(analysis, spec, select_once(analysis, spec)?);
         let decision = crate::dims::idle_decision(analysis, spec);
         let paper = |p: &Plan| {
             (
@@ -1157,6 +1157,77 @@ fn select_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             _ => Ok(plan),
         }
     })
+}
+
+/// Replacing conflicting coordinate dimensions with their schedule can make the drawing
+/// readable. Give its blocks room before accepting the damaged automatic fallback.
+fn recover_conflicting_hole_locations(analysis: &Analysis, spec: &Spec, plan: Plan) -> Plan {
+    if !automatic(spec)
+        || !spec.hole_table.is_auto()
+        || crate::placement_intent::has_pins(spec)
+        || crate::nominal::comparison()
+        || !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "hole_table_unavailable")
+        || !plan.problems.iter().any(|p| {
+            p.code == "dimension_line_shared"
+                && p.subjects.iter().any(|id| {
+                    plan.dimensions.iter().any(|d| {
+                        &d.id == id
+                            && d.measurements.iter().any(|m| {
+                                m.feature.starts_with("f:hole:")
+                                    && m.parameter.starts_with("location.length.")
+                            })
+                    })
+                })
+        })
+    {
+        return plan;
+    }
+    let Some(index) = spec
+        .pages()
+        .iter()
+        .position(|page| page.0 == plan.sheet.size)
+    else {
+        return plan;
+    };
+    for &(size, _, _) in spec.pages().iter().skip(index).take(2) {
+        let mut trial = plan.spec.clone();
+        trial.sheet.size = Some(size.into());
+        trial.sheet.scale = Some(plan.sheet.scale.clone());
+        trial.hole_table = crate::hole_table::Setting::Always;
+        // The fitting candidate carries the same authored intent. "Always" here
+        // allows the table's existing alternate block compositions to compete.
+        let Ok(candidate) = model::plan_automatic(analysis, &trial) else {
+            continue;
+        };
+        let intent = &plan.spec;
+        let Ok(mut candidate) = finished_preview(analysis, &trial, intent, &candidate, Some(&plan))
+        else {
+            continue;
+        };
+        if candidate.hole_tables.is_empty() && candidate.hole_table.is_none()
+            || candidate
+                .problems
+                .iter()
+                .any(|p| p.code == "dimension_line_shared")
+            || !model::finished_sheets_fit(analysis, &candidate)
+            || usable(
+                analysis,
+                &candidate,
+                &plan,
+                readable_floor(analysis, &plan, spec),
+            )
+            .is_err()
+        {
+            continue;
+        }
+        candidate.sheet.default = true;
+        candidate.sheet.basis += "; the hole schedule replaces overlapping coordinate dimensions";
+        return candidate;
+    }
+    plan
 }
 
 fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
