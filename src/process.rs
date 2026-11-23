@@ -95,6 +95,7 @@ pub(crate) fn defaults(a: &Analysis, spec: &Spec, requirements: &mut Vec<SheetRe
             id: "process:general_tolerance".into(),
             kind: "general_tolerance",
             source: "process".into(),
+            tolerance_table: false,
             value: if p.printed() {
                 format!(
                     "{} CHECK",
@@ -123,6 +124,7 @@ pub(crate) fn defaults(a: &Analysis, spec: &Spec, requirements: &mut Vec<SheetRe
             id: "process:default_surface_finish".into(),
             kind: "default_surface_finish",
             source: "process".into(),
+            tolerance_table: false,
             value: if p == Process::Moulded {
                 "as moulded"
             } else {

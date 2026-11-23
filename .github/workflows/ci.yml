@@ -23,10 +23,11 @@ env:
   RUST_TEST_THREADS: "8"
   DRAFTWRIGHT_CORPUS: ${{ github.workspace }}/quiddity/tests/corpus
   DRAFTWRIGHT_CORPUS_REQUIRED: "1"
+  NEXTEST_MAIN_FILTER: 'not group(=release-only)'
 
 # fmt and clippy run beside the build; the build compiles every test binary once into a nextest
-# archive, and the archive's tests run in parallel jobs. Every test of `cargo test --release`
-# runs in exactly one of them (doc-tests, which nextest does not run, run in the build job).
+# archive, and the CI tier's tests run in parallel jobs. Release-only tests run in the
+# pre-publication gate, and doc-tests run in the build job.
 # The acceptance jobs need only the release executable, which the `binary` job builds in
 # about half the build's time, so they start before the test binaries are linked.
 jobs:
@@ -150,7 +151,7 @@ jobs:
       - name: Assert PR and slow tiers cover the full main inventory
         run: |
           cargo nextest list --archive-file nextest-archive.tar.zst \
-            --workspace-remap . --profile ci --message-format json > nextest-list.json
+            --workspace-remap . --profile ci -E "$NEXTEST_MAIN_FILTER" --message-format json > nextest-list.json
           # Have nextest independently evaluate the actual filters, rather than trusting
           # the Python selector to prove its own coverage. Keep each filter below ARG_MAX.
           for k in 1 2; do
@@ -268,7 +269,7 @@ jobs:
           FULL: ${{ needs.changes.outputs.full }}
         run: |
           cargo nextest list --archive-file nextest-archive.tar.zst \
-            --workspace-remap . --profile ci --message-format json > nextest-list.json
+            --workspace-remap . --profile ci -E "$NEXTEST_MAIN_FILTER" --message-format json > nextest-list.json
           tier_args=()
           if [ "$FULL" != true ]; then tier_args=(--max-seconds 10); fi
           filter=$(python3 -I tools/test_shards.py --list nextest-list.json --shard ${{ matrix.shard }} \

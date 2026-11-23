@@ -734,6 +734,7 @@ pub struct SheetRequirement {
     /// What the sheet states: the tolerance's designation, the finish's Ra value in µm, the
     /// note's text.
     pub value: String,
+    pub tolerance_table: bool,
     pub basis: String,
     /// A default finish's material removal condition as an AP242 surface texture states it
     /// (`material removal required`, `no material removal`); empty for any process allowed, and
@@ -808,6 +809,7 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                     source: r.source_id.clone(),
                     kind: "no_requirement",
                     value: r.label.clone(),
+                    tolerance_table: false,
                     removal: String::new(),
                     basis: format!(
                         "info: AP242 {} {} states no requirement; read, with no drawing needed",
@@ -837,7 +839,13 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
     let tolerances = of("general_tolerances");
     match tolerances[..] {
         [] => {}
-        [r] => match designation(r) {
+        [r] => match designation(
+            r,
+            analysis
+                .declared_length_unit
+                .as_ref()
+                .unwrap_or(&haecceity::pmi::LengthUnit::Millimetre),
+        ) {
             Ok(d) => out.push(SheetRequirement {
                 id: id(r),
                 source: r.source_id.clone(),
@@ -847,6 +855,10 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                     d, r.source_id
                 ),
                 value: d,
+                tolerance_table: r
+                    .fields
+                    .iter()
+                    .any(|(name, _)| matches!(name.as_str(), "tolerance table" | "tolerance note")),
                 removal: String::new(),
             }),
             Err(why) => refuse(&mut problems, r, why),
@@ -877,6 +889,7 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                     r.source_id
                 ),
                 value: ra,
+                tolerance_table: false,
                 removal: r
                     .fields
                     .iter()
@@ -940,6 +953,7 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                 source: r.source_id.clone(),
                 kind: "document_note",
                 value: part_note_text(r),
+                tolerance_table: false,
                 basis: format!(
                     "source-authored: the AP242 {} '{}' ({}), a general note (draftwright's DocumentNote)",
                     r.kind.replace('_', " "),
@@ -986,9 +1000,10 @@ pub fn plan_sheet(
     given: &std::collections::BTreeMap<String, String>,
     title: &mut std::collections::BTreeMap<String, String>,
     block: [f64; 4],
-) -> (Vec<PlannedRequirement>, Vec<Problem>) {
+) -> (Vec<PlannedRequirement>, Vec<Problem>, bool) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
+    let mut tolerance_table = false;
     for r in requirements {
         let id = r.id.clone();
         let mut planned = PlannedRequirement {
@@ -1013,7 +1028,11 @@ pub fn plan_sheet(
                     None => {
                         title.insert("tolerance".into(), r.value.clone());
                     }
-                    Some(v) if v.trim() == r.value => {
+                    Some(v)
+                        if v.trim() == r.value
+                            || (r.tolerance_table
+                                && tolerance_spelling(v) == tolerance_spelling(&r.value)) =>
+                    {
                         planned.basis +=
                             "; the spec states the same tolerance (sheet/title/tolerance)";
                     }
@@ -1033,6 +1052,7 @@ pub fn plan_sheet(
                         continue;
                     }
                 }
+                tolerance_table = r.tolerance_table;
             }
             "default_surface_finish" => {
                 planned.carrier = "sheet".into();
@@ -1051,13 +1071,53 @@ pub fn plan_sheet(
         }
         out.push(planned);
     }
-    (out, problems)
+    (out, problems, tolerance_table)
 }
 
-/// A general tolerance's designation (`_general_tolerance_designation`): its prose before any
-/// `;`, or its structured tolerance class, which must agree with the prose unless the prose is
-/// only `general tolerances`.
-fn designation(r: &Record) -> Result<String, &'static str> {
+/// Specify's read-back joins rows with middle dots and spells angular minutes and seconds
+/// with typographic primes. The STEP note can store the same angle with ASCII quotes.
+fn tolerance_spelling(text: &str) -> String {
+    text.trim()
+        .replace(" · ", "\n")
+        .replace('′', "'")
+        .replace('″', "\"")
+}
+
+/// A general tolerance's designation: table rows and semantic text, or the legacy prose
+/// before any semicolon and the structured class, which must agree with that prose.
+fn designation(r: &Record, file_unit: &haecceity::pmi::LengthUnit) -> Result<String, &'static str> {
+    use crate::pmi::Field;
+
+    let note = r.fields.iter().find_map(|(name, field)| match field {
+        Field::Text(text) if name == "tolerance note" => Some(text.as_str()),
+        _ => None,
+    });
+    if let Some((_, Field::ToleranceCells(cells))) =
+        r.fields.iter().find(|(n, _)| n == "tolerance table")
+    {
+        let file_unit = r
+            .fields
+            .iter()
+            .find_map(|(_, field)| match field {
+                Field::ToleranceUnit { unit } => Some(unit),
+                _ => None,
+            })
+            .unwrap_or(file_unit);
+        let rows = tolerance_rows(cells, note, file_unit);
+        return if rows.is_empty() {
+            Err("general-tolerance table is empty")
+        } else {
+            Ok(rows.join("\n"))
+        };
+    }
+    if note.is_some() {
+        let rows = tolerance_rows(&[], note, file_unit);
+        return if rows.is_empty() {
+            Err("general-tolerance note is empty")
+        } else {
+            Ok(rows.join("\n"))
+        };
+    }
     let prose = r.label.split(';').next().unwrap_or("").trim().to_string();
     let class = r.fields.iter().find(|(n, _)| n == "tolerance class");
     let d = match (r.fields.is_empty(), class) {
@@ -1074,6 +1134,156 @@ fn designation(r: &Record) -> Result<String, &'static str> {
         return Err("general-tolerance designation is empty");
     }
     Ok(d)
+}
+
+/// The table's rows and its companion text, in source order, following Specify's read-back.
+pub(crate) fn tolerance_rows(
+    cells: &[haecceity::pmi::ToleranceCell],
+    note: Option<&str>,
+    file_unit: &haecceity::pmi::LengthUnit,
+) -> Vec<String> {
+    use haecceity::pmi::{CellValue, LengthUnit};
+
+    let dotted_inch = cells.iter().any(|cell| {
+        cell.items.iter().any(|(_, v)| {
+            matches!(v, CellValue::Value(v)
+                if v.as_length().is_some_and(|l| l.unit == LengthUnit::Inch))
+        }) && cell.items.iter().any(|(name, v)| {
+            matches!(
+                name.as_str(),
+                "significant number of digits" | "number of decimal places"
+            ) && matches!(v, CellValue::Count(d) if d.to_f64() >= 1.0)
+        })
+    });
+    let mut rows: Vec<_> = cells
+        .iter()
+        .filter(|cell| !cell.items.is_empty())
+        .map(|cell| {
+            tolerance_cell_text(cell, file_unit, dotted_inch).unwrap_or_else(|| {
+                cell.items
+                    .iter()
+                    .map(|(name, v)| {
+                        let value = match v {
+                            CellValue::Value(v) => tolerance_measure(v, file_unit, false),
+                            CellValue::Count(d) => d.as_str().into(),
+                            CellValue::Text(t) => t.clone(),
+                        };
+                        format!("{name} {value}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+        })
+        .collect();
+    rows.extend(
+        note.into_iter()
+            .flat_map(|text| text.split("; "))
+            .flat_map(str::lines)
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned),
+    );
+    rows
+}
+
+/// Read the typed items by name because STEP serializes them as a SET.
+fn tolerance_cell_text(
+    cell: &haecceity::pmi::ToleranceCell,
+    file_unit: &haecceity::pmi::LengthUnit,
+    dotted_inch: bool,
+) -> Option<String> {
+    use haecceity::pmi::{CellValue, LengthUnit};
+
+    let get = |name| cell.items.iter().find(|(n, _)| n == name).map(|(_, v)| v);
+    let value = |name| match get(name) {
+        Some(CellValue::Value(v)) => Some(v),
+        _ => None,
+    };
+    let digits = ["significant number of digits", "number of decimal places"]
+        .into_iter()
+        .find_map(|name| match get(name) {
+            Some(CellValue::Count(d)) => Some(d),
+            _ => None,
+        });
+    let symmetric = value("plus minus tolerance value");
+    let upper = value("upper tolerance value");
+    let lower = value("lower tolerance value");
+    let inch = [symmetric, upper, lower]
+        .into_iter()
+        .flatten()
+        .any(|v| v.as_length().is_some_and(|l| l.unit == LengthUnit::Inch));
+    let notation = if let Some(d) = digits {
+        let n = d.to_f64();
+        if n.fract() == 0.0 && (0.0..=32.0).contains(&n) {
+            let xs = "X".repeat(n as usize);
+            match (inch, n == 0.0) {
+                (_, true) => "X".into(),
+                (true, false) => format!(".{xs}"),
+                (false, false) => format!("X.{xs}"),
+            }
+        } else {
+            format!("{} digits", d.as_str())
+        }
+    } else {
+        let lo = tolerance_measure(value("lower limit")?, file_unit, false);
+        let hi = tolerance_measure(value("upper limit")?, file_unit, false);
+        format!("{lo} to {hi}")
+    };
+    let implied = inch && (dotted_inch || digits.is_some_and(|d| d.to_f64() >= 1.0));
+    let measure = |v| tolerance_measure(v, file_unit, implied);
+    let tolerance = if let Some(v) = symmetric {
+        format!("±{}", measure(v))
+    } else {
+        let signed = |v| {
+            let text = measure(v);
+            if text.starts_with(['+', '-']) {
+                text
+            } else {
+                format!("+{text}")
+            }
+        };
+        format!("{}/{}", signed(upper?), signed(lower?))
+    };
+    Some(format!("{notation} {tolerance}"))
+}
+
+fn tolerance_measure(
+    v: &haecceity::pmi::Value,
+    file_unit: &haecceity::pmi::LengthUnit,
+    inch_implied: bool,
+) -> String {
+    use haecceity::pmi::{AngleUnit, LengthUnit, Quantity};
+
+    match &v.quantity {
+        Quantity::Length(l) => {
+            let inch = l.unit == LengthUnit::Inch;
+            let raw = l.value.as_str();
+            let raw = raw.strip_suffix('.').unwrap_or(raw);
+            let number = match (inch, raw.strip_prefix("0."), raw.strip_prefix("-0.")) {
+                (true, Some(rest), _) => format!(".{rest}"),
+                (true, _, Some(rest)) => format!("-.{rest}"),
+                _ => raw.into(),
+            };
+            if l.unit == *file_unit || (inch && inch_implied) {
+                return number;
+            }
+            let unit = match &l.unit {
+                LengthUnit::Millimetre => "mm",
+                LengthUnit::Micrometre => "µm",
+                LengthUnit::Centimetre => "cm",
+                LengthUnit::Metre => "m",
+                LengthUnit::Inch => "in",
+                LengthUnit::Foot => "ft",
+                LengthUnit::Other { name, .. } => name,
+            };
+            format!("{number} {unit}")
+        }
+        Quantity::Angle(a) => match &a.unit {
+            AngleUnit::Degree => format!("{}°", a.value.as_str()),
+            AngleUnit::Radian => format!("{} rad", a.value.as_str()),
+            AngleUnit::Other { name, .. } => format!("{} {name}", a.value.as_str()),
+        },
+    }
 }
 
 /// The Ra value of a default surface texture stated as draftwright reads one
@@ -1458,7 +1668,9 @@ fn surface_finish(r: &Record, centre: [f64; 3]) -> Result<Lowered, Vec<String>> 
                     });
                 }
             }
-            crate::pmi::Field::Text(_) => {}
+            crate::pmi::Field::Text(_)
+            | crate::pmi::Field::ToleranceCells(_)
+            | crate::pmi::Field::ToleranceUnit { .. } => {}
         }
     }
     if texture.parameters.is_empty() {

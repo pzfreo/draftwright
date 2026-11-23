@@ -2113,22 +2113,17 @@ fn cgb217() -> Option<(std::sync::Arc<draftwright::haecceity::Part>, Analysis)> 
     Some(crate::cache::native(&path))
 }
 
-fn cgb217_inclined_finding_plan(a: &Analysis) -> &model::Plan {
-    static PLAN: std::sync::OnceLock<model::Plan> = std::sync::OnceLock::new();
-    PLAN.get_or_init(|| {
-        // Exercise the authored fix with the inclined feature still unlocated.
-        model::plan_recovered(a, &parse(json!({"purpose":{"kind":"outline"}}))).unwrap()
-    })
-}
-
 const COMPOUND_HOLES: [&str; 3] = ["f:hole:f26", "f:hole:f28", "f:hole:f41"];
 
 #[test]
 fn inclined_planner_warning_names_each_holes_anchors() {
+    use draftwright::haecceity::brep::Arc;
+
     let Some((part, a)) = cgb217() else { return };
-    let p = cgb217_inclined_finding_plan(&a);
+    // Outline suppresses automatic auxiliary views so the authored fixes can be checked.
+    let p = model::plan_recovered(&a, &parse(json!({"purpose":{"kind":"outline"}}))).unwrap();
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
-    let drawing = model::render(&part, &a, p, &font).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
     let lint = draftwright::lint::lint(&a, &drawing);
     for id in COMPOUND_HOLES {
         let issue = lint
@@ -2153,24 +2148,7 @@ fn inclined_planner_warning_names_each_holes_anchors() {
             "{id}: {plain}"
         );
         assert!(!plain.contains(":v1:"), "{id}: {plain}");
-    }
-}
-
-#[test]
-fn inclined_suggestions_exclude_tangent_and_silhouette_edges() {
-    use draftwright::haecceity::brep::Arc;
-
-    let Some((part, a)) = cgb217() else { return };
-    let p = cgb217_inclined_finding_plan(&a);
-    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
-    let drawing = model::render(&part, &a, p, &font).unwrap();
-    let lint = draftwright::lint::lint(&a, &drawing);
-    for id in COMPOUND_HOLES {
-        let fix = lint
-            .iter()
-            .find(|i| i.code == "feature_not_located" && i.subjects == [id])
-            .and_then(|i| i.fix.as_deref())
-            .unwrap();
+        let fix = issue.fix.as_deref().unwrap();
         for dimension in suggested_inclined_dimensions(fix).into_values() {
             let key = dimension["between"][1].as_str().unwrap();
             match a.dimension_reference(key).unwrap() {

@@ -1436,10 +1436,9 @@ fn pack_reserved_at(
             "title_field_overflow" | "general_tolerance_missing"
         ) && !q.refs.iter().any(|r| r.starts_with("title_block/"))
     });
-    p.problems.extend(crate::title_block::problems(
-        &p.sheet.title_cells,
-        p.sheet.page,
-    ));
+    let title_problems = crate::title_block::problems(&p.sheet.title_cells, p.sheet.page);
+    crate::title_block::tolerance_state(&mut p.requirements, &p.sheet.title_cells, &title_problems);
+    p.problems.extend(title_problems);
     p.problems.retain(|q| {
         !matches!(
             q.code.as_str(),

@@ -29,6 +29,9 @@ on:
         description: The release tag to publish, e.g. v0.2.15
         required: true
         type: string
+      release_checks_run:
+        description: Shared pre-publication run ID or run ID/attempt for a backfill or retry
+        type: string
 
 permissions:
   contents: read
@@ -116,11 +119,11 @@ jobs:
           sparse-checkout: tools/check_release_ci.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: Require full main CI on the release commit
+      - name: Require full main CI and the shared release checks
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: python3 .release-ci-guard/tools/check_release_ci.py --tag "$TAG"
+        run: python3 .release-ci-guard/tools/check_release_ci.py --tag "$TAG" --require-release-checks
       - name: Mint a crates.io token
         if: steps.missing.outputs.publish == 'yes'
         id: auth

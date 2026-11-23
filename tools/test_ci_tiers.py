@@ -179,7 +179,7 @@ class CITiers(unittest.TestCase):
                          ['pr-list-1.json', 'pr-list-2.json'])
         lists = [c for c in commands if c[:3] == ['cargo', 'nextest', 'list']]
         self.assertEqual(len(lists), 2)
-        self.assertNotIn('-E', lists[0])
+        self.assertEqual(lists[0][lists[0].index('-E') + 1], '$NEXTEST_MAIN_FILTER')
         self.assertEqual(lists[1][lists[1].index('-E') + 1], '$filter')
         self.assertNotIn('if', self.jobs['quality-pins'])
         self.assertEqual(self.jobs['quality-gate']['if'], "${{ !cancelled() && needs.binary.result == 'success' }}")

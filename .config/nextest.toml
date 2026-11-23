@@ -1,4 +1,4 @@
-# The `ci` profile is what .github/workflows/ci.yml runs, hash-partitioned across shards.
+# The `ci` profile is what .github/workflows/ci.yml runs, balanced across shards.
 #
 # nextest runs each test in its own process, so a test binary whose tests share one analysis
 # through a `OnceLock` repeats it in every test: issue_drafting's tests took 1136 s in all under
@@ -31,6 +31,22 @@ threads-required = 2
 [[profile.default.overrides]]
 filter = 'test(=problem_wording::problem_messages_are_public_and_only_sheet_problems_name_the_sheet)'
 priority = 100
+
+# CI shards exclude this group. The pre-publication job runs it on the release tag.
+[test-groups.release-only]
+max-threads = 2
+
+[[profile.default.overrides]]
+filter = '''
+    (binary(=core) & (
+        test(=fix_never_worse::local_fixes_leave_fewer_findings_on_the_quality_parts)
+        | test(=identity::version_1_specs_migrate_and_plan_identically)
+    ))
+    | (binary(=audits) & test(=issue_tiers::quality_parts_report_tier_counts_without_discarding_any_finding))
+    | (binary(=rendering) & test(=dxf_native_gdt::nist_and_pmi_fixtures_write_each_frame_as_one_positional_tolerance))
+    | (binary(=dimensions) & test(=pmi_dimensions::the_same_part_gives_the_same_plan_and_bytes::nist_ftc_10_asme1_ap242_e2))
+'''
+test-group = 'release-only'
 
 [profile.ci]
 default-filter = 'not (binary(issue_drafting) | binary(issue_trust) | binary(steerability))'
