@@ -398,6 +398,8 @@ pub struct Spec {
     pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<DrawingPurpose>,
     pub schema: String,
     /// Part identity from `draftwright parts`: a persistent key or its numeric index.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -473,6 +475,17 @@ pub struct Spec {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub gears: Vec<crate::gears::GearSpec>,
 }
+/// The stated drawing purpose. An unset purpose uses the geometry review defaults.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DrawingPurpose {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub needs: BTreeMap<String, bool>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
 struct SpecFields {
@@ -481,6 +494,8 @@ struct SpecFields {
     pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<DrawingPurpose>,
     pub schema: String,
     /// Part identity from `draftwright parts`: a persistent key or its numeric index.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -562,6 +577,7 @@ impl Default for SpecFields {
         Self {
             units: s.units,
             process: s.process,
+            purpose: s.purpose,
             schema: s.schema,
             part: s.part,
             binding: s.binding,
@@ -631,6 +647,7 @@ impl<'de> Deserialize<'de> for Spec {
         Ok(Self {
             units: s.units,
             process: s.process,
+            purpose: s.purpose,
             schema: if s.schema == crate::engine_pins::SCHEMA && s.engine_pins.is_none() {
                 SPEC_SCHEMA.into()
             } else {
@@ -807,6 +824,7 @@ impl Default for Spec {
         Spec {
             units: crate::units::Units::Auto,
             process: None,
+            purpose: None,
             schema: SPEC_SCHEMA.into(),
             part: None,
             binding: None,
@@ -2568,6 +2586,12 @@ const HARD_LAYOUT: [&str; 9] = [
 const RADIUS_DEFAULT_WITHDRAWN: &str =
     "cannot assert a blanket radius while an exception is undrawn.";
 
+fn hard_layout(p: &Problem) -> bool {
+    p.severity != "info"
+        && !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN)
+        && (HARD_LAYOUT.contains(&p.code.as_str()) || crate::auxiliary::automatic_unplaceable(p))
+}
+
 /// A plan's findings for the recovery. The port drops for want of room only the hole items it
 /// placed off the sheet ([`crate::hole_table`]: an item that collides is placed and reported; one
 /// no shown view carries is kept unplaced, which no sheet or scale changes), so its completeness
@@ -2600,12 +2624,7 @@ pub(crate) fn findings(plan: &Plan) -> layout::Findings {
     let scale = plan.sheet.scale_factor;
     layout::Findings {
         hard: usize::from(crate::sheets::floor(&plan.spec).is_some_and(|f| scale < f))
-            + plan
-                .problems
-                .iter()
-                .filter(|p| HARD_LAYOUT.contains(&p.code.as_str()) && p.severity != "info")
-                .filter(|p| !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN))
-                .count(),
+            + plan.problems.iter().filter(|p| hard_layout(p)).count(),
         dropped: axes
             .values()
             .map(|o| layout::crowded_locations(o, scale))
@@ -2639,11 +2658,7 @@ fn drops(plan: &Plan) -> usize {
 /// Name the reported hard findings counted by the recovery, including the Spec's scale floor.
 pub(crate) fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
     let mut codes = BTreeMap::new();
-    for p in plan.problems.iter().filter(|p| {
-        HARD_LAYOUT.contains(&p.code.as_str())
-            && p.severity != "info"
-            && !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN)
-    }) {
+    for p in plan.problems.iter().filter(|p| hard_layout(p)) {
         *codes.entry(p.code.as_str()).or_default() += 1;
     }
     if crate::sheets::floor(&plan.spec).is_some_and(|floor| plan.sheet.scale_factor < floor) {
@@ -4981,6 +4996,7 @@ fn recover_candidates(
 pub(crate) fn pin_base(spec: &Spec) -> Spec {
     let mut base = Spec {
         units: spec.units,
+        purpose: spec.purpose.clone(),
         ..Spec::default()
     };
     base.sheet.paper = spec.sheet.paper;
@@ -5009,6 +5025,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
         }
     }
     base.views.keep_sections_from(&spec.views);
+    base.views.keep_auxiliaries_from(&spec.views);
     base.views.keep_breaks_from(&spec.views);
     base.views.keep_pictorials_from(&spec.views);
     if spec.dimensions.values().any(|d| d.between.is_some()) {
@@ -6827,6 +6844,7 @@ fn plan_with_presentation(
             let mut unnamed = base.clone();
             unnamed.views.clear();
             unnamed.views.keep_sections_from(&spec.views);
+            unnamed.views.keep_auxiliaries_from(&spec.views);
             unnamed.views.keep_breaks_from(&spec.views);
             unnamed.views.keep_pictorials_from(&spec.views);
             if let Ok(default) = plan_automatic(analysis, &unnamed)
@@ -6837,6 +6855,7 @@ fn plan_with_presentation(
             {
                 base.views.clear();
                 base.views.keep_sections_from(&spec.views);
+                base.views.keep_auxiliaries_from(&spec.views);
                 base.views.keep_breaks_from(&spec.views);
                 base.views.keep_pictorials_from(&spec.views);
             }
@@ -8232,7 +8251,14 @@ fn plan_with_presentation(
             problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", scale_name(detail.scale)),refs:vec![format!("v:{name}")],..Default::default()});
         }
     }
-    crate::auxiliary::place(&mut views, auxiliary, &g.derived, pick.scale, &mut problems);
+    crate::auxiliary::place(
+        spec,
+        &mut views,
+        auxiliary,
+        &g.derived,
+        pick.scale,
+        &mut problems,
+    );
     crate::auxiliary::letters(&mut views);
     if require_automatic
         && !views

@@ -42,6 +42,18 @@ impl Views {
             self.entries.insert(name.clone(), view);
         }
     }
+    pub(crate) fn keep_auxiliaries_from(&mut self, source: &Self) {
+        for (name, view) in source
+            .entries
+            .iter()
+            .filter(|(name, _)| crate::auxiliary::is_name(name))
+        {
+            let mut view = view.clone();
+            view.place = None;
+            view.sheet = None;
+            self.entries.insert(name.clone(), view);
+        }
+    }
     pub(crate) fn keep_breaks_from(&mut self, source: &Self) {
         for (name, view) in source.entries.iter().filter(|(_, v)| v.broken.is_some()) {
             let mut view = view.clone();

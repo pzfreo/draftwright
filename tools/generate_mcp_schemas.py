@@ -2,7 +2,7 @@
 import json
 import re
 from copy import deepcopy
-from mcp_spec import auxiliary_request, document, outline, pictorial_fields, PAPER_SIZES
+from mcp_spec import auxiliary_request, document, drawing_purpose, outline, pictorial_fields, PAPER_SIZES
 from pathlib import Path
 MAX_OPS = int(re.search(r'pub const MAX_OPS: usize = (\d+);', (Path(__file__).resolve().parent.parent / 'src/stateless.rs').read_text())[1])
 S = {'type': 'string'}
@@ -349,7 +349,9 @@ for mode in ('validation', 'published'):
 # Add the auxiliary property after compaction to preserve the existing preflight
 # shapes and corrective messages. The private document's root lists tools only.
 for schema in validation.values():
-    views = schema['properties']['spec']['properties']['views']
+    props = schema['properties']['spec']['properties']
+    props['purpose'] = drawing_purpose()
+    views = props['views']
     views['additionalProperties']['properties']['auxiliary'] = nullable(
         ref('inspect_part/$defs/auxiliary_request'))
 validation['inspect_part']['$defs'] = {'auxiliary_request': auxiliary_request()}

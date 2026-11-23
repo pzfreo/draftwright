@@ -312,7 +312,7 @@ pub(crate) fn validate(spec: &Spec) -> Result<(), Invalid> {
                 || group.iter().any(|n| {
                     !["front", "plan", "side", "iso", "section_aa", "hole_table"]
                         .contains(&n.as_str())
-                        && !spec.views.get(n).is_some_and(|v| v.auxiliary.is_some())
+                        && !crate::auxiliary::is_name(n)
                 })
             {
                 return Err(refuse(
@@ -492,6 +492,9 @@ pub(crate) fn allocate_counted(
     let before = RUNS.with(Cell::get);
     let result = (|| {
         let mut plan = allocate_inner(analysis, spec, None)?;
+        if let Some(allocated) = recover_automatic_auxiliaries(analysis, spec, &plan) {
+            plan = allocated;
+        }
         // Finish forced allocations and table presentation before checking paths that
         // bypassed ordinary recovery (fixed scale, pins, or a rebuilt hole schedule).
         if spec.sheet.size.is_none()
@@ -520,6 +523,56 @@ pub(crate) fn allocate_counted(
     })();
     *steps += RUNS.with(Cell::get) - before;
     result
+}
+
+/// A fixed paper size can still use the sheet-count permission to carry complete
+/// auxiliary blocks. Compose their ink on roomy paper, then use whole-view
+/// allocation at the original size and scale.
+fn recover_automatic_auxiliaries(analysis: &Analysis, spec: &Spec, plan: &Plan) -> Option<Plan> {
+    let max = maximum(spec);
+    if max == 1
+        || !max_only(spec)
+        || spec.sheet.size.is_none()
+        || crate::placement_intent::has_pins(spec)
+        || !plan
+            .problems
+            .iter()
+            .any(crate::auxiliary::automatic_unplaceable)
+    {
+        return None;
+    }
+    let mut wide = spec.clone();
+    let size = &plan.sheet.size;
+    let largest = spec.pages().last()?.0;
+    if size == largest {
+        return None;
+    }
+    wide.sheet.size = Some(largest.into());
+    wide.sheet.scale = Some(plan.sheet.scale.clone());
+    wide.sheets = None;
+    let source = model::plan_escalated_layout(analysis, &wide).ok()?;
+    if source
+        .problems
+        .iter()
+        .any(crate::auxiliary::automatic_unplaceable)
+        || !plan
+            .problems
+            .iter()
+            .filter(|p| crate::auxiliary::automatic_unplaceable(p))
+            .flat_map(|p| &p.refs)
+            .all(|id| source.views.iter().any(|v| &v.id == id))
+    {
+        return None;
+    }
+    let mut allocated = separate_views(analysis, &source, size, max as usize)?;
+    if !model::finished_sheets_fit(analysis, &allocated)
+        || model::findings(&allocated).hard > model::findings(plan).hard
+    {
+        return None;
+    }
+    allocated.spec = plan.spec.clone();
+    allocated.sheet.basis = format!("{size} at {}; {}", plan.sheet.scale, WHOLE_VIEW_ALLOCATION);
+    Some(allocated)
 }
 
 fn allocate_inner(
@@ -715,12 +768,7 @@ pub(crate) fn reference_views(spec: &Spec) -> crate::sections::Views {
     views.keep_sections_from(&spec.views);
     views.keep_breaks_from(&spec.views);
     views.keep_pictorials_from(&spec.views);
-    for (name, entry) in spec.views.iter().filter(|(_, v)| v.auxiliary.is_some()) {
-        let mut entry = entry.clone();
-        entry.place = None;
-        entry.sheet = None;
-        views.insert(name.clone(), entry);
-    }
+    views.keep_auxiliaries_from(&spec.views);
     views
 }
 
@@ -2466,6 +2514,7 @@ fn separate_views_inner(
     plan.dimensions = crate::placement_intent::held_dimensions(Some(source), &plan.views);
     crate::centrelines::trim_to_frame(&mut plan.views, plan.sheet.page);
     cross_references(analysis, &mut plan);
+    crate::auxiliary::letters(&mut plan.views);
     crate::iso_caption::refresh(analysis, &mut plan);
     // Re-evaluate spatial findings after transport. Required losses and every
     // unsupported requirement remain in the inventory and problem list.

@@ -134,6 +134,7 @@ fn requested(v: &PlannedView, a: &Analysis, f: &Feature, axis: Point) -> bool {
     !aux.edge_on
         && dot(v.direction, axis).abs() >= 1. - EPS
         && (aux.anchor == f.id
+            || aux.members.contains(&f.id)
             || support(a, f, v.direction).is_some_and(|(seed, _)| {
                 face(a, &aux.anchor).is_some_and(|anchor| {
                     let patches = coplanar_patches(a, &seed, &f.faces);
@@ -231,9 +232,10 @@ pub(super) fn apply<'a>(
         };
         let base = add(at, scale3(axis, -height));
         let end_view = views.iter().find(|v| {
-            v.auxiliary
-                .as_ref()
-                .is_some_and(|aux| aux.anchor == f.id && dot(v.direction, axis).abs() <= EPS)
+            v.auxiliary.as_ref().is_some_and(|aux| {
+                (aux.anchor == f.id || aux.members.contains(&f.id))
+                    && dot(v.direction, axis).abs() <= EPS
+            })
         });
         if let Some(v) = end_view {
             add_want(
@@ -348,7 +350,7 @@ pub(super) fn apply<'a>(
             .chain(peers.into_iter().map(|(site, _)| site))
             .collect();
         arcs.clear();
-        w.basis = "size called out on the true circle in the requested auxiliary view".into();
+        w.basis = "size called out on the true circle in the auxiliary view".into();
         routes.insert(w.id.clone(), v.id.trim_start_matches("v:"));
     }
     routes

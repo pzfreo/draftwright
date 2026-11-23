@@ -907,6 +907,53 @@ fn wants(
     result
 }
 
+/// Features for which the dimension recipe reports an inclined-axis gap.
+pub(crate) fn auxiliary_needs(analysis: &Analysis, spec: &Spec) -> BTreeSet<String> {
+    let frame = crate::bridge::holes::frame(analysis);
+    if !analysis.features.iter().any(|f| {
+        matches!(f.kind.as_str(), "hole" | "boss")
+            && crate::bridge::holes::point(f.parameters.get("axis"))
+                .map(|d| crate::bridge::holes::dir_to_part(&frame, d))
+                .is_some_and(|d| crate::bridge::holes::principal(d).is_none())
+    }) {
+        return BTreeSet::new();
+    }
+    let mut needs: BTreeSet<_> = pmi_policy::wants(analysis, spec)
+        .1
+        .into_iter()
+        .filter(pmi_policy::inclined_gap)
+        .flat_map(|p| p.subjects)
+        .collect();
+    if !needs.is_empty()
+        && spec.dimensions.values().any(|d| {
+            !d.omit
+                && d.between.as_ref().is_some_and(|ends| {
+                    ends.iter().any(|end| {
+                        end.strip_prefix("axis:")
+                            .is_some_and(|id| needs.contains(id))
+                    })
+                })
+        })
+    {
+        // Ask the existing authored-location audit whether the intended dimensions
+        // actually place and ground the axis in the ordinary drawing.
+        let mut ordinary = spec.clone();
+        ordinary.purpose = Some(crate::model::DrawingPurpose {
+            kind: "outline".into(),
+            description: None,
+            needs: Default::default(),
+        });
+        if let Ok(plan) = crate::model::plan(analysis, &ordinary) {
+            needs.retain(|id| {
+                plan.problems
+                    .iter()
+                    .any(|p| p.code == "feature_not_dimensioned" && p.subjects.contains(id))
+            });
+        }
+    }
+    needs
+}
+
 /// Exact visibility is useful only for established fractional callouts that may
 /// need a different corridor. Integer statements and newly added recesses use
 /// the conservative projected edge evidence without running hidden-line removal.

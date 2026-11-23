@@ -35,6 +35,7 @@ def outline():
         'dimension_source': enum('auto', 'authored'),
         'pmi': enum('strict', 'first', 'ignore'),
         'process': {'type': ['string', 'null']},
+        'purpose': {'type': ['object', 'null']},
         'origin': {'type': 'object'},
         'hole_table': enum('auto', 'always', 'never'),
         'envelope_tolerance': {'type': ['string', 'null']},
@@ -101,6 +102,10 @@ def pictorial_fields():
         'colour': {**arr({**I, 'maximum': 255}, minItems=3, maxItems=3), 'description': 'Pictorial base sRGB colour; default [184,196,204].'},
         'direction': {**arr({**N, 'minimum': -1000000, 'maximum': 1000000}, minItems=3, maxItems=3), 'description': 'Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1].'},
     })
+
+
+def drawing_purpose():
+    return nullable(obj({'kind': S, 'description': nullable(S), 'needs': mapping(B)}, ['kind']))
 
 
 def auxiliary_request():
@@ -208,6 +213,7 @@ def document():
              'balloons': ref('balloon_settings'),
              'iso_scale_factor': nullable(N), 'sheets': nullable(ref('sheets')),
              'dimension_source': enum('auto', 'authored'),
+             'purpose': drawing_purpose(),
         'pmi': enum('strict', 'first', 'ignore'),
         'origin': {'description': 'Datum stations: min, max, a unique normal plane or axis:<reference> transverse to the named coordinate.', **obj({k: S for k in ('x', 'y', 'z')})}, 'hole_table': enum('auto', 'always', 'never'),
              'envelope_tolerance': nullable(S),

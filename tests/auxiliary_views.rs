@@ -475,3 +475,195 @@ fn plate_pin_primary_shows_true_height_and_inclination() {
     arrow(&d, &p, PIN_VIEW, "v:plan");
     assert_fidelity(&d, PIN_VIEW);
 }
+
+#[test]
+fn automatic_corner_cut_locates_and_sizes_the_bore() {
+    let (part, a) = part("parts/corner-cuts.step.gz");
+    let p = plan(&a, json!({}));
+    let square = p
+        .views
+        .iter()
+        .find(|v| v.id == TRUE)
+        .expect("automatic true shape");
+    let parent = &square.auxiliary.as_ref().unwrap().parent;
+    let edge = p
+        .views
+        .iter()
+        .find(|v| &v.id == parent)
+        .expect("automatic primary");
+    assert_eq!(edge.auxiliary.as_ref().unwrap().parent, "v:plan");
+    assert_true(square.direction, edge.direction);
+    assert!(p.spec.views.is_empty());
+
+    let d = render(&part, &a, &p);
+    arrow(&d, &p, TRUE, parent);
+    assert_fidelity(&d, TRUE);
+    let stations: Vec<_> = p
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.id.starts_with(&format!("d:{BORE}/location.length."))
+                && d.view == TRUE
+                && d.placed.is_some()
+        })
+        .collect();
+    assert_eq!(stations.len(), 2);
+    assert!(stations.iter().all(|d| (d.value - 5.9964).abs() < 1e-4));
+    let bore = p
+        .dimensions
+        .iter()
+        .find(|d| d.id == format!("d:{BORE}/bore.diameter"))
+        .unwrap();
+    assert_eq!(bore.view, TRUE);
+    let tip = bore.placed.as_ref().unwrap().arrows[0][0];
+    let shape = d.sheet.views.iter().find(|v| v.name == TRUE).unwrap();
+    assert!(
+        shape
+            .edges
+            .iter()
+            .any(|edge| matches!(edge, Curve::Conic { centre, radii, .. }
+        if (radii[0] - radii[1]).abs() < 1e-6
+        && (radii[0] / square.scale - 5.9964).abs() < 1e-4
+        && ((tip[0] - centre[0]).hypot(tip[1] - centre[1]) - radii[0]).abs() < 1e-4))
+    );
+    assert!(
+        draftwright::lint::lint(&a, &d)
+            .iter()
+            .all(|f| !f.subjects.iter().any(|id| id == BORE))
+    );
+}
+
+#[test]
+fn automatic_pin_view_shows_inclination_and_axial_height() {
+    let (part, a) = part("pmi/step/assembly_plate_pin.step.gz");
+    let p = plan(&a, json!({}));
+    let view = p
+        .views
+        .iter()
+        .find(|v| v.id == PIN_VIEW)
+        .expect("automatic primary");
+    assert_eq!(view.auxiliary.as_ref().unwrap().parent, "v:plan");
+    let Reference::Edge { ends, .. } = a.dimension_reference(&format!("axis:{PIN}")).unwrap()
+    else {
+        panic!("pin axis");
+    };
+    let span = sub(ends[1], ends[0]);
+    assert_true(span, view.direction);
+    let on_view = |role| {
+        p.dimensions
+            .iter()
+            .find(|d| d.id == format!("d:{PIN}/{role}") && d.view == PIN_VIEW)
+            .expect("automatic auxiliary dimension")
+    };
+    assert_eq!(on_view("boss.inclination.angle").label, "21.9°");
+    assert!(on_view("boss.inclination.angle").placed.is_some());
+    let height = on_view("boss_height.length")
+        .placed
+        .as_ref()
+        .expect("placed height");
+    let camera = View::new(view.direction, view.up).unwrap();
+    let measured = lift(
+        &camera,
+        page_span([height.arrows[0][0], height.arrows[1][0]]),
+    );
+    assert!((dot(measured, span).abs() / dot(span, span).sqrt() / view.scale - 20.).abs() < 1e-6);
+    let d = render(&part, &a, &p);
+    assert_fidelity(&d, PIN_VIEW);
+}
+
+#[test]
+fn automatic_coaxial_bosses_share_a_profile_view() {
+    let (_, a) = part("pmi/step/assembly_plate_pin.step.gz");
+    let p = plan(&a, json!({}));
+    for id in [PIN, "f:boss:f24"] {
+        let height = p
+            .dimensions
+            .iter()
+            .find(|d| d.id == format!("d:{id}/boss_height.length"))
+            .expect("height on each coaxial boss");
+        assert_eq!(height.view, PIN_VIEW);
+    }
+    let pin = p.views.iter().find(|v| v.id == PIN_VIEW).unwrap();
+    assert_eq!(
+        p.views
+            .iter()
+            .filter(|v| {
+                v.auxiliary.is_some() && dot(v.direction, pin.direction).abs() >= 1. - 1e-12
+            })
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn automatic_auxiliary_omit_restores_the_bore_finding() {
+    let (part, a) = part("parts/corner-cuts.step.gz");
+    assert!(plan(&a, json!({})).views.iter().any(|v| v.id == TRUE));
+    let p = plan(&a, json!({"views":{"aux:f:hole:f10":{"omit":true}}}));
+    assert!(p.views.iter().all(|v| v.auxiliary.is_none()));
+    assert!(
+        draftwright::lint::lint(&a, &render(&part, &a, &p))
+            .iter()
+            .any(|f| f.code == "feature_not_located" && f.subjects.iter().any(|id| id == BORE))
+    );
+}
+
+#[test]
+fn automatic_auxiliary_reports_when_a_fixed_sheet_cannot_hold_it() {
+    let (_, a) = part("parts/corner-cuts.step.gz");
+    let p = plan(&a, json!({"sheet":{"size":"A4","scale":"2:1"}}));
+    assert_eq!(p.sheet.size, "A4");
+    assert!(p.sheets.is_empty());
+    assert!(p.views.iter().all(|v| v.id != TRUE));
+    let problem = p
+        .problems
+        .iter()
+        .find(|f| f.code == "auxiliary_unplaceable" && f.refs.iter().any(|id| id == TRUE))
+        .expect("automatic auxiliary could not fit");
+    assert!(!problem.fix.is_empty());
+    assert!(
+        p.problems
+            .iter()
+            .any(|f| f.code == "feature_not_dimensioned" && f.subjects.iter().any(|id| id == BORE))
+    );
+}
+
+#[test]
+fn automatic_auxiliaries_respect_outline_and_leave_negative_controls_unchanged() {
+    let (_, a) = part("parts/corner-cuts.step.gz");
+    let outline = plan(&a, json!({"purpose":{"kind":"outline"}}));
+    assert!(outline.views.iter().all(|v| v.auxiliary.is_none()));
+    for path in [
+        "pmi/issue505-wedge.step.gz",
+        "parts/mouth_angled.step",
+        "parts/issue_1247_angled_blind_step.step",
+        "samples/draftwright-demo-bracket.step.gz",
+    ] {
+        let (_, a) = part(path);
+        assert!(
+            plan(&a, json!({}))
+                .views
+                .iter()
+                .all(|v| v.auxiliary.is_none()),
+            "{path}"
+        );
+    }
+    let corpus = std::env::var_os("DRAFTWRIGHT_CORPUS");
+    if let Some(corpus) = corpus {
+        for path in include_str!("../tools/quality_parts.txt").lines() {
+            let (_, a) = model::analyse_native(&Path::new(&corpus).join(path)).unwrap();
+            assert!(
+                plan(&a, json!({}))
+                    .views
+                    .iter()
+                    .all(|v| v.auxiliary.is_none()),
+                "{path}"
+            );
+        }
+    } else {
+        assert_ne!(
+            std::env::var("DRAFTWRIGHT_CORPUS_REQUIRED").as_deref(),
+            Ok("1")
+        );
+    }
+}

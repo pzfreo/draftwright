@@ -74,6 +74,41 @@
         "authored"
       ]
     },
+    "purpose": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "needs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "boolean"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "pmi": {
       "enum": [
         "strict",
@@ -1997,6 +2032,41 @@
           "enum": [
             "auto",
             "authored"
+          ]
+        },
+        "purpose": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "description": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "needs": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "pmi": {

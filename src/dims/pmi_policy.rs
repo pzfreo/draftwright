@@ -971,6 +971,16 @@ pub(crate) fn audit(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
     crate::planning::with(a, || audit_inner(a, s, p));
 }
 
+pub(super) fn inclined_gap(problem: &Problem) -> bool {
+    problem.code == "feature_not_dimensioned"
+        && (problem
+            .message
+            .contains("location are not dimensioned: its axis is inclined")
+            || problem
+                .message
+                .contains("location is not dimensioned: its axis is inclined"))
+}
+
 fn audit_inclined(a: &Analysis, p: &mut crate::model::Plan) {
     use crate::lint::inclined;
     let auxiliary_bosses: BTreeSet<_> = p
