@@ -128,10 +128,6 @@ fn located(
 }
 
 fn corner_angle(c: &Corner) -> super::angular::Angle {
-    if c.virtual_vertex {
-        // The witnesses start where the straight supports meet the rounded transition.
-        return c.into();
-    }
     super::angular::Angle {
         vertex: c.vertex,
         first: c.ends[0],
@@ -229,11 +225,55 @@ fn lean_angle(c: &Corner, reference: [f64; 3], toward: [f64; 3]) -> super::angul
     }
 }
 
-fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> Want {
+/// A blend can cut off the apex so far outside the part that an arc close to it cannot
+/// reach the tangents. The callout identifies the included angle at its actual blend.
+fn tangent_angle_site(c: &Corner, envelope: [[f64; 3]; 2]) -> Option<[f64; 3]> {
+    let [lo, hi] = envelope;
+    if !c.virtual_vertex
+        || (0..3)
+            .filter(|&i| i != c.axis)
+            .all(|i| c.vertex[i] >= lo[i] - 1e-6 && c.vertex[i] <= hi[i] + 1e-6)
+    {
+        return None;
+    }
+    let angle = super::angular::Angle::from(c);
+    let [u, v] = angle.rays()?;
+    let half = 0.5 * c.degrees().to_radians();
+    let distance = |p: [f64; 3]| {
+        (0..3)
+            .map(|i| (p[i] - c.vertex[i]).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    };
+    let tangent = 0.5 * (distance(c.first) + distance(c.second));
+    let midpoint = tangent * (1.0 / half.cos() - half.tan());
+    Some([0, 1, 2].map(|i| c.vertex[i] + midpoint * (u[i] + v[i]) / (2.0 * half.cos())))
+}
+
+fn angle_want(
+    analysis: &Analysis,
+    id: String,
+    corners: &[&Corner],
+    reference: bool,
+    automatic: bool,
+    basis: &str,
+) -> Want {
     let c = corners[0];
     // atan2 differs in its last bits between native and WASM libm; the plan's value must not.
     let value = (c.degrees() * 1e9).round() / 1e9;
-    let mut text = format!("{}°", fmt(value));
+    let tangent_sites = (automatic && !reference && !crate::nominal::comparison())
+        .then(|| {
+            corners
+                .iter()
+                .map(|c| tangent_angle_site(c, analysis.envelope).map(|at| (at, 0.0)))
+                .collect::<Option<Vec<_>>>()
+        })
+        .flatten();
+    let mut text = if tangent_sites.is_some() {
+        format!("TANGENT ANGLE {}°", fmt(value))
+    } else {
+        format!("{}°", fmt(value))
+    };
     if corners.len() > 1 {
         text = format!("{}× {text}", corners.len());
     }
@@ -254,10 +294,15 @@ fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> 
                 value,
             })
             .collect(),
-        // Sharp corners use the far ends of their edges; rounded corners use their tangencies.
-        shape: Shape::Angular {
-            angle: corner_angle(c),
-            alternates: corners[1..].iter().map(|c| corner_angle(c)).collect(),
+        shape: match tangent_sites {
+            Some(sites) => Shape::Callout {
+                sites,
+                arcs: Vec::new(),
+            },
+            None => Shape::Angular {
+                angle: corner_angle(c),
+                alternates: corners[1..].iter().map(|c| corner_angle(c)).collect(),
+            },
         },
         turning: None,
         basis: basis.into(),
@@ -403,9 +448,11 @@ fn build(
             let defined = missing.iter().all(Vec::is_empty);
             if !defined || mode == CornerMode::Angle || shown(&id) {
                 added.push(angle_want(
+                    analysis,
                     id,
                     &group,
                     defined,
+                    false,
                     "the equal corners of a closed polygonal outer profile, one counted angle in the view that shows them true",
                 ));
             }
@@ -448,9 +495,11 @@ fn build(
                             .map_or(support_b.as_str(), |(_, e)| e)
                     );
                     added.push(angle_want(
+                        analysis,
                         id(&pair, PARAMETER),
                         &[mine[x], mine[y]],
                         false,
+                        true,
                         "two mirror-equal outer-profile corners its linear dimensions do not fix, one counted angle in the view that shows them true",
                     ));
                 }
@@ -663,8 +712,10 @@ fn build(
                 // An angle the Spec omits stays a known item, omitted, beside the stations.
                 if spec.dimensions.contains_key(&id) {
                     added.push(angle_want(
+                        analysis,
                         id,
                         &[c],
+                        false,
                         false,
                         "a non-right convex outer-profile corner's angle the Spec asks for, in the view that shows it true",
                     ));
@@ -673,10 +724,13 @@ fn build(
             }
             let defined = miss.is_empty();
             if !defined || mode == CornerMode::Angle || shown(&id) {
+                let automatic = mode == CornerMode::Auto && !shown(&id);
                 added.push(angle_want(
+                    analysis,
                     id,
                     &[c],
                     defined,
+                    automatic,
                     "a non-right convex outer-profile corner its linear dimensions do not fix, in the view that shows it true",
                 ));
             }
