@@ -399,7 +399,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
 /// and implicit degree notation. Other angular planning keeps its existing policy.
 pub(super) fn share_pmi(
     analysis: &crate::model::Analysis,
-    kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<super::Omitted>,
 ) {
@@ -467,7 +467,7 @@ pub(super) fn share_pmi(
 /// Reuse an already printed first bevel leg instead of adding the same depth line.
 pub(super) fn share_bevel_depths(
     analysis: &crate::model::Analysis,
-    kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<super::Omitted>,
 ) {

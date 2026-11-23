@@ -1849,7 +1849,10 @@ fn settable(
     }
     let base = match item.item.kind.as_str() {
         "dimension" => format!("dimensions/{}", items::key(id)),
-        "view" => format!("views/{}", items::key(id.trim_start_matches("v:"))),
+        "view" => format!(
+            "views/{}",
+            items::key(crate::auxiliary::spec_name(session.spec(), id))
+        ),
         "control_frame" | "datum_feature" | "label" | "surface_finish" | "note"
             if item.item.kind != "note" || id.starts_with("n:f:blend:") =>
         {
@@ -1892,6 +1895,18 @@ fn settable(
                     json!({"forms":["[x,y,z] towards viewer; Z up"]}),
                 );
             }
+            if id.starts_with("v:aux:") {
+                fields.insert(
+                    format!("{base}/auxiliary/full"),
+                    choices(json!([false, true])),
+                );
+                fields.insert(
+                    format!("{base}/auxiliary/scale_factor"),
+                    json!({
+                        "forms":["positive multiplier of the sheet scale"]
+                    }),
+                );
+            }
             // A profile view of a turned part may be drawn as a half section ([`crate::half_section`]).
             if matches!(id.as_str(), "v:front" | "v:plan" | "v:side") {
                 fields.insert(
@@ -1901,7 +1916,7 @@ fn settable(
             }
             // Preserve default single-sheet answers until the author enables sheet controls.
             if session.spec().sheets.is_some() {
-                let name = id.trim_start_matches("v:");
+                let name = crate::auxiliary::spec_name(session.spec(), id);
                 let max = session
                     .spec()
                     .sheets
@@ -1945,7 +1960,7 @@ fn settable(
                 choices(json!(
                     view_anchors
                         .iter()
-                        .map(|v| v.trim_start_matches("v:"))
+                        .map(|v| crate::auxiliary::spec_name(session.spec(), v))
                         .collect::<Vec<_>>()
                 )),
             );
@@ -1954,7 +1969,7 @@ fn settable(
                 choices(json!(["above", "below", "left", "right"])),
             );
             fields.insert(format!("{base}/place/gap"), json!({"range":[0,1000],"consequences":["Clear paper distance in mm between the views’ annotation bands, not their part outlines (default 10 mm)."]}));
-            let name = id.trim_start_matches("v:");
+            let name = crate::auxiliary::spec_name(session.spec(), id);
             let anchor = session
                 .spec()
                 .views
@@ -1964,7 +1979,7 @@ fn settable(
                 .or_else(|| {
                     view_anchors
                         .iter()
-                        .map(|v| v.trim_start_matches("v:"))
+                        .map(|v| crate::auxiliary::spec_name(session.spec(), v))
                         .find(|anchor| crate::placement_intent::projection_related(name, anchor))
                 })
                 .unwrap_or("");
@@ -2369,7 +2384,7 @@ fn answers(plan: &Plan, analysis: &Analysis) -> Vec<ItemAnswer> {
                 a.anchors = plan
                     .spec
                     .views
-                    .get(id.trim_start_matches("v:"))
+                    .get(crate::auxiliary::spec_name(&plan.spec, id))
                     .and_then(|v| v.place.as_ref())
                     .map(|p| vec![format!("v:{}", p.relative_to)])
                     .unwrap_or_default();
@@ -2504,7 +2519,10 @@ fn answers(plan: &Plan, analysis: &Analysis) -> Vec<ItemAnswer> {
                         } else if item.kind == "sheet" {
                             "sheet".into()
                         } else if item.kind == "view" {
-                            format!("views/{}", items::key(id.trim_start_matches("v:")))
+                            format!(
+                                "views/{}",
+                                items::key(crate::auxiliary::spec_name(&plan.spec, id))
+                            )
                         } else if item.kind == "dimension" {
                             format!("dimensions/{}", items::key(id))
                         } else {

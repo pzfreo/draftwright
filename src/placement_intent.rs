@@ -160,6 +160,7 @@ pub(crate) fn check(s: &Spec) -> Result<(), Invalid> {
         if let Some(v) = &p.view
             && !["front", "plan", "side"].contains(&v.as_str())
             && !crate::detail::NAMES.contains(&v.as_str())
+            && !crate::auxiliary::is_name(v)
         {
             return Err(error(
                 format!("The placement view of {id} must be a principal or detail view."),
@@ -222,7 +223,8 @@ pub(crate) fn check(s: &Spec) -> Result<(), Invalid> {
             if p.relative_to == *name
                 || (!["front", "plan", "side", "iso", "iso_below", "section_aa"]
                     .contains(&p.relative_to.as_str())
-                    && !crate::detail::NAMES.contains(&p.relative_to.as_str()))
+                    && !crate::detail::NAMES.contains(&p.relative_to.as_str())
+                    && !crate::auxiliary::is_name(&p.relative_to))
             {
                 return Err(error(
                     format!("The placement anchor of {name} is not another view."),
@@ -393,7 +395,7 @@ pub(crate) fn views(
     let mut resolved = BTreeSet::new();
     for _ in 0..views.len() {
         for i in 0..views.len() {
-            let name = views[i].id.trim_start_matches("v:").to_string();
+            let name = crate::auxiliary::spec_name(s, &views[i].id).to_string();
             let Some(p) = s.views.get(&name).and_then(|v| v.place.as_ref()) else {
                 resolved.insert(name);
                 continue;
@@ -408,10 +410,10 @@ pub(crate) fn views(
             {
                 continue;
             }
-            let Some(anchor) = views
-                .iter()
-                .find(|v| v.id == format!("v:{}", p.relative_to))
-            else {
+            let Some(anchor) = views.iter().find(|v| {
+                v.id.strip_prefix("v:") == Some(p.relative_to.as_str())
+                    || crate::auxiliary::spec_name(s, &v.id) == p.relative_to
+            }) else {
                 continue;
             };
             let b = anchor.area;

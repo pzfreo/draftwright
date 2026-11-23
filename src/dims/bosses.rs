@@ -923,7 +923,7 @@ const SAME_PLANE: f64 = 0.005 + 1e-6;
 /// it for: ISSUE-1511-a's inactive owner), takes nothing, so the fact is never moved to nowhere.
 pub(super) fn consolidate(
     analysis: &Analysis,
-    kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
     omitted: &mut Vec<Omitted>,
 ) {
     let frame = QFrame(analysis.recognition.as_ref().map_or(

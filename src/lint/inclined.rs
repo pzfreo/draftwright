@@ -5,13 +5,13 @@ use super::{Mark, location::AXES};
 use crate::model::Analysis;
 use crate::model::dimension_geometry::Reference;
 
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub(super) fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|k| a[k] - b[k])
 }
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+pub(super) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     (0..3).map(|k| a[k] * b[k]).sum()
 }
-fn unit(a: [f64; 3]) -> Option<[f64; 3]> {
+pub(super) fn unit(a: [f64; 3]) -> Option<[f64; 3]> {
     let n = dot(a, a).sqrt();
     (n > 1e-10).then(|| a.map(|v| v / n))
 }
@@ -46,6 +46,23 @@ fn axis(a: &Analysis, id: &str) -> Option<([f64; 3], [f64; 3])> {
         .then_some((ends[0], d))
 }
 
+fn auxiliary_axis(a: &Analysis, id: &str) -> Option<[f64; 3]> {
+    if let Some((_, direction)) = axis(a, id) {
+        return Some(direction);
+    }
+    a.features.iter().find(|f| f.id == id && f.kind == "boss")?;
+    let Reference::Edge {
+        ends: [start, end], ..
+    } = a.dimension_reference(&format!("axis:{id}")).ok()?
+    else {
+        return None;
+    };
+    let direction = unit(sub(end, start))?;
+    crate::bridge::holes::principal(direction)
+        .is_none()
+        .then_some(direction)
+}
+
 pub(crate) fn is_inclined(a: &Analysis, id: &str) -> bool {
     axis(a, id).is_some()
 }
@@ -67,6 +84,7 @@ struct Constraint<'a> {
     normal: [f64; 3],
     witnesses: [[f64; 3]; 2],
     value: f64,
+    auxiliary: bool,
 }
 
 impl Constraint<'_> {
@@ -152,6 +170,7 @@ fn constraint<'a>(
         normal,
         witnesses,
         value: m.value,
+        auxiliary: false,
     })
 }
 
@@ -174,11 +193,14 @@ fn witness(mark: &Mark) -> Option<Witness> {
     serde_json::from_str(word).ok()
 }
 
-fn constraints<'a>(a: &Analysis, marks: &'a [Mark], id: &str) -> Vec<(&'a str, Constraint<'a>)> {
+fn constraints<'a>(a: &'a Analysis, marks: &'a [Mark], id: &str) -> Vec<(&'a str, Constraint<'a>)> {
     let mut constraints = Vec::new();
     for mark in marks {
         if mark.text.trim_start().starts_with('(') {
             continue;
+        }
+        if let Some(c) = auxiliary_constraint(a, mark, id) {
+            constraints.push((mark.name.as_str(), c));
         }
         for claim in &mark.claims {
             let Some((refs, along)) = claim
@@ -207,6 +229,173 @@ fn constraints<'a>(a: &Analysis, marks: &'a [Mark], id: &str) -> Vec<(&'a str, C
         }
     }
     constraints
+}
+
+/// Rebuild the actual piercing point and edge normal, and require drawn ink
+/// in an end-on camera before a claimed in-face role can enter the chain.
+fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option<Constraint<'a>> {
+    let view = mark.view.as_deref()?;
+    if !view.starts_with("v:aux:") {
+        return None;
+    }
+    let claim = mark
+        .claims
+        .iter()
+        .find(|c| c.feature == id && c.parameter.starts_with("location.length.f"))?;
+    let axis = auxiliary_axis(a, id)?;
+    let (frame, _) = witness(mark)?;
+    if dot(frame.direction, axis).abs() < 1. - 1e-6 {
+        return None;
+    }
+    let f = a.features.iter().find(|f| f.id == id)?;
+    let (face, edge) = claim
+        .parameter
+        .strip_prefix("location.length.f")?
+        .split_once(".e")?;
+    let (face, edge) = (face.parse::<usize>().ok()?, edge.parse::<usize>().ok()?);
+    let mouth = super::auxiliary::opening(a, f, frame.direction)?;
+    let faces = super::auxiliary::opening_faces(a, f, mouth);
+    let Reference::Plane {
+        origin,
+        normal,
+        membership,
+        ..
+    } = faces.into_iter().find(|r| r.membership().faces == [face])?
+    else {
+        return None;
+    };
+    let shift = dot(sub(*origin, mouth.at), *normal) / dot(mouth.normal, *normal);
+    let piercing = std::array::from_fn(|k| mouth.at[k] + shift * mouth.normal[k]);
+    let reference = membership
+        .edges
+        .as_ref()?
+        .iter()
+        .find(|e| e.index == edge)?;
+    let (key, _) = a
+        .dimension_references()
+        .get_key_value(reference.reference.as_ref()?)?;
+    let anchor = a.dimension_reference(key).ok()?;
+    let Reference::Edge { ends, .. } = &anchor else {
+        return None;
+    };
+    let [first, last] = *ends;
+    let span = sub(last, first);
+    let along = unit(span)?;
+    let distance = dot(sub(piercing, first), along);
+    if distance < -0.002 || distance > dot(span, along) + 0.002 {
+        return None;
+    }
+    let foot = std::array::from_fn(|k| first[k] + along[k] * distance);
+    let delta = sub(piercing, foot);
+    let c = Constraint {
+        key,
+        anchor,
+        anchor_index: 0,
+        normal: unit(delta)?,
+        witnesses: [foot, piercing],
+        value: dot(delta, delta).sqrt(),
+        auxiliary: true,
+    };
+    (super::location::nominal_in(&mark.text, c.value, mark.units, mark.precision)
+        && ink_matches(a, mark, &c))
+    .then_some(c)
+}
+
+/// A printed start-and-angle can establish a physical support edge. The
+/// principal face's station and the corner's trace must both be grounded.
+fn trace_rooted(
+    a: &Analysis,
+    marks: &[Mark],
+    edges: &[super::location::Edge],
+    roots: &[Vec<f64>; 3],
+    excluded: &BTreeSet<usize>,
+    c: &Constraint<'_>,
+) -> bool {
+    let Reference::Edge { ends, membership } = &c.anchor else {
+        return false;
+    };
+    let Some(line) = unit(sub(ends[1], ends[0])) else {
+        return false;
+    };
+    let on_line = |p| {
+        let d = cross(sub(p, ends[0]), line);
+        dot(d, d) < 1e-8
+    };
+    let spans: Vec<_> = edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !excluded.contains(i))
+        .map(|(_, e)| (e.axis, e.a, e.b))
+        .collect();
+    let station = |k: usize, value| super::profile_angles::rooted_at(&roots[k], &spans, k, value);
+    let support_face = membership.faces.iter().find_map(|&face| {
+        let r = super::auxiliary::face_at(a, face)?;
+        matches!(&r, Reference::Plane { normal, .. } if crate::bridge::holes::principal(*normal).is_none()).then_some(r)
+    });
+    let on_face = |p| match &support_face {
+        Some(Reference::Plane { normal, origin, .. }) => dot(*normal, sub(p, *origin)).abs() < 1e-6,
+        _ => false,
+    };
+    let adjoining_stock_located = membership.faces.iter().any(|&face| {
+        let Some(Reference::Plane { normal, origin, .. }) = super::auxiliary::face_at(a, face)
+        else {
+            return false;
+        };
+        crate::bridge::holes::principal(*normal).is_some_and(|axis| station(axis, origin[axis]))
+    });
+    let mut directions = Vec::new();
+    for corner in super::profile_angles::requirements(a) {
+        let mut id = corner.feature.split(':');
+        if id.next() != Some("outer_profile") {
+            continue;
+        }
+        let Some(face) = id
+            .next()
+            .and_then(|word| word.strip_prefix('f'))
+            .and_then(|n| n.parse().ok())
+        else {
+            continue;
+        };
+        let Some(end) = corner.oblique_end() else {
+            continue;
+        };
+        let fixed = station(corner.axis, corner.vertex[corner.axis])
+            && (super::profile_angles::undefined_stations(&corner, &station).is_empty()
+                || (super::profile_angles::located_with_angle(&corner, &station)
+                    && marks.iter().any(|mark| {
+                        mark.view
+                            .as_deref()
+                            .and_then(view_normal)
+                            .is_some_and(|n| n[corner.axis].abs() > 1. - 1e-6)
+                            && mark.claims.iter().any(|cl| {
+                                cl.feature == corner.feature
+                                    && cl.parameter == "profile_angle.angle"
+                            })
+                            && corner.states(&mark.text)
+                    })));
+        if !fixed {
+            continue;
+        }
+        if membership.faces.contains(&face) && on_line(corner.vertex) && on_line(end) {
+            return true;
+        }
+        // Two nonparallel grounded traces establish this inclined plane. Its
+        // intersection with a grounded stock plane then establishes the edge.
+        if adjoining_stock_located
+            && on_face(corner.vertex)
+            && on_face(end)
+            && let Some(direction) = unit(sub(end, corner.vertex))
+        {
+            if directions
+                .iter()
+                .any(|&d| dot(direction, d).abs() < 1. - 1e-6)
+            {
+                return true;
+            }
+            directions.push(direction);
+        }
+    }
+    false
 }
 
 struct Stations<'a> {
@@ -251,15 +440,27 @@ pub(crate) fn located(
     roots: &[Vec<f64>; 3],
     id: &str,
 ) -> bool {
-    let Some((_, d)) = axis(a, id) else {
-        return false;
-    };
+    let d = axis(a, id).map(|(_, d)| d).or_else(|| {
+        marks
+            .iter()
+            .any(|m| {
+                m.view.as_deref().is_some_and(|v| v.starts_with("v:aux:"))
+                    && m.claims
+                        .iter()
+                        .any(|c| c.feature == id && c.parameter.starts_with("location.length.f"))
+            })
+            .then(|| auxiliary_axis(a, id))
+            .flatten()
+    });
+    let Some(d) = d else { return false };
     let constraints = constraints(a, marks, id);
     let stations = Stations { a, edges, roots };
     let excluded = stations.excluding(&constraints);
     let mut normals = Vec::new();
     for (_, c) in constraints {
-        if stations.rooted(&c, &excluded) {
+        if stations.rooted(&c, &excluded)
+            || (c.auxiliary && trace_rooted(a, marks, edges, roots, &excluded, &c))
+        {
             if normals.iter().any(|&n| independent(n, c.normal, d)) {
                 return true;
             }
@@ -293,23 +494,30 @@ fn ink_matches(a: &Analysis, mark: &Mark, c: &Constraint<'_>) -> bool {
     let centre = view.map(std::array::from_fn(|k| {
         (a.envelope[0][k] + a.envelope[1][k]) / 2.
     }));
-    let station = |p| {
+    let paper = |p| {
         let p = view.map(p);
-        project([
+        [
             frame.at[0] + frame.scale * (p[0] - centre[0]),
             frame.at[1] + frame.scale * (p[1] - centre[1]),
-        ])
+        ]
     };
-    let ink: Vec<_> = lines[..2].iter().map(|e| project(e[0])).collect();
-    let want = c.witnesses.map(station);
+    let want = c.witnesses.map(paper);
     let near = |x: f64, y: f64| (x - y).abs() < 1e-5;
+    let reaches = |line: [[f64; 2]; 2], point: [f64; 2]| {
+        near(project(line[0]), project(point))
+            && (!c.auxiliary || {
+                let gap = sub2(line[0], point);
+                // Extension ink may leave a small gap at the measured point.
+                gap[0].hypot(gap[1]) <= 3.
+            })
+    };
     let along = sub2(lines[2][1], lines[2][0]);
     (along[0] * u[1] - along[1] * u[0]).abs() < 1e-5
         && lines[..2]
             .iter()
             .all(|e| near(project(e[0]), project(e[1])))
-        && ((near(ink[0], want[0]) && near(ink[1], want[1]))
-            || (near(ink[0], want[1]) && near(ink[1], want[0])))
+        && ((reaches(lines[0], want[0]) && reaches(lines[1], want[1]))
+            || (reaches(lines[0], want[1]) && reaches(lines[1], want[0])))
 }
 fn sub2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     [a[0] - b[0], a[1] - b[1]]
@@ -788,6 +996,7 @@ mod tests {
             anchor_index: 1,
             witnesses: [[0., -5., 0.], [0., 0., 0.]],
             value: 5.,
+            auxiliary: false,
         };
         assert_eq!(ViewInk::default().crossings(&a, &c), Some(0));
         let ink = ViewInk {

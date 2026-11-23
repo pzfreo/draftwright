@@ -537,8 +537,14 @@ fn report(analysis: &crate::model::Analysis, plan: &mut Plan) {
         add(&mut sheet.basis, Family::Attachment, Target::Document);
     }
     for v in &mut plan.views {
-        let id = v.id.trim_start_matches("v:");
+        let id = crate::auxiliary::spec_name(&plan.spec, &v.id);
         add(&mut v.basis, Family::Views, Target::View(id));
+        if v.auxiliary.is_some() {
+            v.basis += &format!(
+                "; Spec: views/{}/auxiliary sets the anchor, parent, crop and relative scale",
+                crate::items::key(id)
+            );
+        }
         add(&mut v.basis, Family::Linework, Target::View(id));
         if let Some(b) = &v.broken
             && !v.basis.contains(&format!("; applied {}:", b.source))
