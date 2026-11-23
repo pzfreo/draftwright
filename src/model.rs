@@ -5631,44 +5631,64 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
 // Nominal consolidation can add conflicts after the historical schedule
 // decision. Judge the finished inch ladder too, at its existing paper and scale.
 fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    if spec.units != crate::units::Units::In
+        || spec.hole_table != crate::hole_table::Setting::Auto
+        || crate::nominal::comparison()
+    {
+        return;
+    }
+    let shared_hole_line = plan
+        .problems
+        .iter()
+        .any(|p| p.code == "hole_table_unavailable")
+        && plan.problems.iter().any(|p| {
+            p.code == "dimension_line_shared"
+                && p.subjects.iter().any(|id| {
+                    plan.dimensions.iter().any(|d| {
+                        &d.id == id
+                            && d.measurements.iter().any(|m| {
+                                m.feature.starts_with("f:hole:")
+                                    && m.parameter.starts_with("location.length.")
+                            })
+                    })
+                })
+        });
     // A kept-layout edit must replay the whole automatic presentation, not
     // stop when its first ordinary schedule has returned. The late remedy may
     // have added the other carrying views after nominal consolidation.
     let kept_edit = spec.sheet.keep_layout == Some(true)
         && (!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec));
-    if spec.units != crate::units::Units::In
-        || spec.hole_table != crate::hole_table::Setting::Auto
-        || ((!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec)) && !kept_edit)
-        || crate::nominal::comparison()
-        || !plan.gdt.is_empty()
+    if ((!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec)) && !kept_edit)
+        || (!plan.gdt.is_empty() && !shared_hole_line)
         || (!plan.hole_tables.is_empty() && !kept_edit)
         || crate::hole_table::select(analysis, plan).tables.is_empty()
     {
         return;
     }
     let mut pairs = vec![(plan.sheet.size.clone(), plan.sheet.scale_factor)];
-    // The ANSI B landscape is shallower than A3. If the measured schedule
-    // cannot fit, permit the existing one-sheet enlargement rule: one larger
-    // standard sheet, with the next larger standard scale, never extra paper
-    // merely to spread out the same geometry.
+    // A schedule that clears a shared dimension line earns one larger sheet at
+    // the same readable scale. Other ladders keep the usual enlargement rule.
     if spec.sheet.size.is_none() && spec.sheet.scale.is_none() {
         let pages = spec.pages();
         if let Some(i) = pages.iter().position(|p| p.0 == plan.sheet.size)
             && let Some(next) = pages.get(i + 1)
-            && spec.sheet.preferred_max_size.as_ref().is_none_or(|limit| {
+        {
+            if shared_hole_line {
+                pairs.push((next.0.into(), plan.sheet.scale_factor));
+            } else if spec.sheet.preferred_max_size.as_ref().is_none_or(|limit| {
                 pages
                     .iter()
                     .position(|p| p.0 == limit)
                     .is_some_and(|cap| i < cap)
-            })
-            && let Some(scale) = spec
+            }) && let Some(scale) = spec
                 .scales()
                 .iter()
                 .copied()
                 .filter(|s| *s > plan.sheet.scale_factor)
                 .min_by(f64::total_cmp)
-        {
-            pairs.push((next.0.into(), scale));
+            {
+                pairs.push((next.0.into(), scale));
+            }
         }
     }
     for (size, scale) in pairs {
@@ -5685,6 +5705,16 @@ fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
             continue;
         };
         if candidate.hole_tables.is_empty() {
+            continue;
+        }
+        if shared_hole_line
+            && (candidate
+                .problems
+                .iter()
+                .any(|p| p.code == "dimension_line_shared")
+                || !carries_required(plan, &candidate)
+                || undrawn_gdt(&candidate) > undrawn_gdt(plan))
+        {
             continue;
         }
         if finished_sheets_fit(analysis, &candidate)
@@ -5706,7 +5736,11 @@ fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                     block.default = true;
                 }
             }
-            candidate.sheet.basis += "; the finished inch ladder triggers a hole schedule; one larger sheet is allowed only with standard-scale enlargement and fewer measured conflicts";
+            candidate.sheet.basis += if shared_hole_line {
+                "; the finished inch hole schedule replaces overlapping coordinate dimensions"
+            } else {
+                "; the finished inch ladder triggers a hole schedule; one larger sheet is allowed only with standard-scale enlargement and fewer measured conflicts"
+            };
             *plan = candidate;
             break;
         }
