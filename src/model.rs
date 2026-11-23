@@ -1277,6 +1277,33 @@ pub struct PlannedSheet {
 
 pub type LinePose = ([f64; 2], Vec<[f64; 2]>);
 
+pub(crate) fn isometric_basis(factor: f64) -> String {
+    if factor == 1.0 {
+        "the isometric, centred in the largest space the other views leave".into()
+    } else {
+        format!(
+            "the isometric, centred in the largest space the other views leave and scaled ×{factor} to fill it (not to scale)"
+        )
+    }
+}
+
+fn describe_capped_isometric(iso: &mut PlannedView, sheet_scale: f64) {
+    let factor = (iso.scale / sheet_scale * 10000.0).round() / 10000.0;
+    let suffix = iso.basis.find("; Spec:").map_or("", |i| &iso.basis[i..]);
+    let description = if iso
+        .basis
+        .starts_with("the automatic orientation view, fitted once")
+    {
+        format!(
+            "the automatic orientation view, fitted once around measured row blocks at {:.4} page mm per model mm (not to scale)",
+            iso.scale
+        )
+    } else {
+        isometric_basis(factor)
+    };
+    iso.basis = description + suffix;
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlannedView {
     #[serde(skip)]
@@ -4346,6 +4373,7 @@ fn recover_candidates(
     let mut smallest = None;
     let mut smallest_angle_losses = 0;
     let mut found_all_angles = false;
+    let mut full_size_frame_fit = false;
     let angle_losses = |p: &Plan| {
         if crate::nominal::comparison() {
             0
@@ -4571,6 +4599,7 @@ fn recover_candidates(
                 // Enlargement is for the dimensioned views. On the smallest fit's larger neighbour
                 // the orientation view keeps the smallest fit's paper scale, rather than spending the
                 // extra sheet on decorative growth.
+                let mut orientation_retained = false;
                 if spec.iso_scale_factor.is_none()
                     && !spec.views.contains_key("iso")
                     && let Some((fit, Some(cap))) = smallest.map(|(j, _)| (j, smallest_iso))
@@ -4586,7 +4615,8 @@ fn recover_candidates(
                         iso.at[1] + (iso.scale - cap) * centre[1],
                     ];
                     iso.scale = cap;
-                    iso.basis += "; the smallest fit's orientation scale kept while dimensioned views enlarge";
+                    describe_capped_isometric(iso, p.sheet.scale_factor);
+                    orientation_retained = true;
                 }
                 crate::sheet_fit::correct_estimate(analysis, &mut p);
                 compact_authored_row(analysis, &mut p);
@@ -4603,7 +4633,8 @@ fn recover_candidates(
                         iso.at[k] += (iso.scale - cap) * 0.5 * (b[k] + b[k + 2]);
                     }
                     iso.scale = cap;
-                    iso.basis += "; established orientation scale retained beside the new recess annotations";
+                    describe_capped_isometric(iso, p.sheet.scale_factor);
+                    orientation_retained = true;
                 }
                 crate::iso_caption::refresh(analysis, &mut p);
                 // An estimate's iso budget can refuse a sheet whose finished drawing fits.
@@ -4660,6 +4691,16 @@ fn recover_candidates(
                 let line_crossings =
                     dimension_line_crossings(&p).saturating_sub(dimension_line_crossings(&first));
                 p.sheet.fill = crate::sheet_fit::fill(analysis, &p);
+                if i == 0
+                    && scale == 1.0
+                    && spec.sheet.size.is_none()
+                    && !crate::nominal::comparison()
+                    && p.sheet.fill < FILL_BAND[0]
+                    && sparse_at_full_size(analysis, &p)
+                {
+                    full_size_frame_fit |=
+                        actual_fit || crate::sheet_fit::inside_frames(analysis, &p);
+                }
                 // A declined optional crop leaves an ordinary drawing. Its refusal must
                 // not veto the small-sheet candidates that F1 would otherwise accept.
                 // An invalid seed's refused crop cannot block a complete ordinary drawing;
@@ -4705,6 +4746,11 @@ fn recover_candidates(
                     ink_findings(&p),
                     p.sheet.arrangement
                 ));
+                if orientation_retained {
+                    tried.last_mut().expect("candidate trace").push_str(
+                        "; orientation scale retained while fitting the dimensioned views",
+                    );
+                }
                 let angular_losses = angle_losses(&p);
                 if angular_losses > 0 {
                     tried
@@ -4875,7 +4921,7 @@ fn recover_candidates(
     let prefer_full_size = !crate::nominal::comparison()
         && spec.sheet.size.is_none()
         && smallest.is_some_and(|(i, scale)| i == 0 && scale < 1.0)
-        && sparse_at_full_size(analysis, &first);
+        && full_size_frame_fit;
     let Some((choice, (i, s))) = crate::sheet_fit::choose(
         &keys,
         spec.sheet.size.is_some(),
@@ -8229,13 +8275,7 @@ fn plan_with_presentation(
                     g.iso_centre,
                     g.iso,
                     pick.scale * iso_factor,
-                    if iso_factor == 1.0 {
-                        "the isometric, centred in the largest space the other views leave".into()
-                    } else {
-                        format!(
-                            "the isometric, centred in the largest space the other views leave and scaled ×{iso_factor} to fill it (not to scale)"
-                        )
-                    },
+                    isometric_basis(iso_factor),
                 ),
             };
             PlannedView {

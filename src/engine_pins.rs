@@ -209,10 +209,8 @@ pub(crate) fn views(views: &mut [model::PlannedView]) {
                     let factor = (pin.scale / scale * 10000.).round() / 10000.;
                     v.basis = if pin.measured {
                         format!("the automatic orientation view, fitted once around measured row blocks at {:.4} page mm per model mm (not to scale){suffix}", pin.scale)
-                    } else if factor == 1. {
-                        format!("the isometric, centred in the largest space the other views leave{suffix}")
                     } else {
-                        format!("the isometric, centred in the largest space the other views leave and scaled ×{factor} to fill it (not to scale){suffix}")
+                        model::isometric_basis(factor) + suffix
                     };
                 }
             }
