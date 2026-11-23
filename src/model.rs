@@ -8322,15 +8322,15 @@ fn plan_with_presentation(
             .entry("material".into())
             .or_insert_with(|| m.designation.trim().to_string());
     }
-    let (mut requirements, more) = crate::pmi_lowering::plan_sheet(
+    let (mut requirements, more, tolerance_table) = crate::pmi_lowering::plan_sheet(
         &requirements,
         &spec.sheet.title,
         &mut title,
         g.title_block,
     );
     problems.extend(more);
-    let title_cells = title_block::cells_in(g.title_block, &title, &size, spec.units);
-    problems.extend(title_block::problems(&title_cells, pick.page));
+    let mut title_cells = title_block::cells_in(g.title_block, &title, &size, spec.units);
+    title_block::mark_tolerance_table(&mut title_cells, tolerance_table);
     let mut sheet = PlannedSheet {
         units: spec.units,
         number: 1,
@@ -8364,10 +8364,12 @@ fn plan_with_presentation(
             } else {
                 "; anchor frames and sheet choice kept fixed for placement pins"
             };
-        sheet.title_cells =
-            title_block::cells_in(sheet.title_block, &sheet.title, &sheet.size, spec.units);
+        title_block::rebuild_cells(&mut sheet);
         sheet.projection_symbol = Some(title_block::projection(sheet.title_block, first_angle));
     }
+    let title_problems = title_block::problems(&sheet.title_cells, sheet.page);
+    title_block::tolerance_state(&mut requirements, &sheet.title_cells, &title_problems);
+    problems.extend(title_problems);
     if crate::engine_pins::loading() {
         crate::engine_pins::keep_views(&mut views);
     } else if crate::incremental::active()
@@ -12653,21 +12655,33 @@ fn render_annotations_with_cuts(
     };
     for c in &plan.sheet.title_cells {
         let [x0, y0, x1, y1] = c.cell;
-        sheet.dxf.title_fields.push((
-            c.field.clone(),
-            TextRun {
-                text: c.value.clone().unwrap_or_default(),
+        let mut lines = c.value_lines().unwrap_or_default();
+        if lines.is_empty() {
+            lines.push(title_block::ValueLine {
+                text: String::new(),
                 at: [(x0 + x1) / 2., (y0 + y1) / 2.],
-                size: c
-                    .value
-                    .as_ref()
-                    .map_or(title_block::TEXT, |v| title_block::value_size(v, c.cell)),
-                rotation: 0.,
-                font: title_block::FONT.into(),
-                h_align: HAlign::Center,
-                v_align: VAlign::Middle,
-            },
-        ));
+                size: title_block::TEXT,
+            });
+        }
+        for (i, line) in lines.iter().enumerate() {
+            let field = if i == 0 {
+                c.field.clone()
+            } else {
+                format!("{}_{i}", c.field)
+            };
+            sheet.dxf.title_fields.push((
+                field,
+                TextRun {
+                    text: line.text.clone(),
+                    at: line.at,
+                    size: line.size,
+                    rotation: 0.,
+                    font: title_block::FONT.into(),
+                    h_align: HAlign::Center,
+                    v_align: VAlign::Middle,
+                },
+            ));
+        }
         if x0 > tx0 {
             dims.push(Item::Edge(Curve::Line([x0, y0], [x0, y1])));
         } else if y1 < title_block::top(block) {
@@ -12698,12 +12712,15 @@ fn render_annotations_with_cuts(
             });
         }
         label(laid, at, dims, run);
-        if let Some(v) = &c.value {
-            let centre = [0.5 * (x0 + x1), 0.5 * (y0 + y1)];
-            let size = title_block::value_size(v, c.cell);
-            let run = (v.as_str(), title_block::FONT, size);
-            let from = dims.len();
-            let at = label(title_block::lay(v, size), centre, dims, Some(run));
+        let from = dims.len();
+        for line in lines.iter().filter(|line| !line.text.is_empty()) {
+            let run = (line.text.as_str(), title_block::FONT, line.size);
+            let at = label(
+                title_block::lay(&line.text, line.size),
+                line.at,
+                dims,
+                Some(run),
+            );
             for r in &plan.requirements {
                 if r.carrier == "title_block" && c.field == "general_tolerance" {
                     stated.entry(r.id.clone()).or_default().extend(at);
@@ -12712,20 +12729,20 @@ fn render_annotations_with_cuts(
             // A material cell that says the file's material states its source.
             if c.field == "material"
                 && let Some(m) = &title_material
-                && v.as_str() == m.designation.trim()
+                && line.text == m.designation.trim()
             {
                 stated
                     .entry(format!("pmi:{}", m.census_id()))
                     .or_default()
                     .extend(at);
             }
-            if let Some(ink) = items_bbox(&dims[from..]) {
-                sheet.fields.push(DrawnField {
-                    field: c.field.clone(),
-                    cell: c.cell,
-                    ink,
-                });
-            }
+        }
+        if let Some(ink) = items_bbox(&dims[from..]) {
+            sheet.fields.push(DrawnField {
+                field: c.field.clone(),
+                cell: c.cell,
+                ink,
+            });
         }
     }
     sheet.dxf.title = title_from..dims.len();
