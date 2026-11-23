@@ -90,6 +90,60 @@ fn an_overlong_tolerance_table_is_reported_without_partial_ink() {
             .any(|f| f.field == "general_tolerance")
     );
     assert!(!drawing.text.iter().any(|r| r.text.contains("±")));
+
+    use draftwright::items::State;
+    use draftwright::pmi::{Field, Reading};
+    let (part, mut analysis) =
+        model::analyse_native(&fixture("pmi/general-tolerance/tolerance-metric.step.gz")).unwrap();
+    let Some(Reading::Read(report)) = &mut analysis.pmi else {
+        panic!("unread PMI")
+    };
+    let tolerance = report
+        .records
+        .iter_mut()
+        .find(|r| r.kind == "general_tolerances")
+        .unwrap();
+    let source = tolerance.source_id.clone();
+    let long_note = format!("angles ±0°30' {}", "LONG ".repeat(50).trim_end());
+    let (_, note) = tolerance
+        .fields
+        .iter_mut()
+        .find(|(name, _)| name == "tolerance note")
+        .unwrap();
+    *note = Field::Text(long_note.clone());
+    let same_tolerance = format!("X ±0.5 · X.X ±0.2 · X.XX ±0.05 · {long_note}");
+    let repeated: Spec = serde_json::from_value(json!({
+        "sheet": { "size": "A4", "title": { "tolerance": same_tolerance } }
+    }))
+    .unwrap();
+    let no_override: Spec = serde_json::from_value(json!({ "sheet": { "size": "A4" } })).unwrap();
+    for spec in [no_override, repeated] {
+        let plan = model::plan(&analysis, &spec).unwrap();
+        let requirement = plan
+            .requirements
+            .iter()
+            .find(|r| r.source == source)
+            .expect("the overflowing PMI tolerance must remain in the plan");
+        assert_eq!(
+            requirement.state,
+            State::NotDrawable {
+                reason_code: "title_field_overflow".into()
+            }
+        );
+        let [problem] = overflows(&plan)[..] else {
+            panic!("one PMI overflow expected")
+        };
+        assert_eq!(problem.refs, ["title_block/general_tolerance"]);
+        let drawing = model::render(&part, &analysis, &plan, &font()).unwrap();
+        assert!(
+            !drawing
+                .sheet
+                .fields
+                .iter()
+                .any(|f| f.field == "general_tolerance")
+        );
+        assert!(!drawing.text.iter().any(|r| r.text.contains("±")));
+    }
 }
 
 #[test]

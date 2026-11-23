@@ -269,9 +269,10 @@ pub enum Field {
     Text(String),
     Length(f64),
     ToleranceCells(Vec<pmi::ToleranceCell>),
+    ToleranceUnit { unit: pmi::LengthUnit },
 }
 
-/// Specify writes the table's remaining lines in a semantic text attribute on the same part.
+/// Specify writes standalone tolerance notes and the table's remaining lines as part semantic text.
 fn general_tolerance_note(attribute: &pmi::AttributeSet) -> Option<&str> {
     match attribute.items.as_slice() {
         [(name, AttributeValue::Text(text))]
@@ -285,7 +286,12 @@ fn general_tolerance_note(attribute: &pmi::AttributeSet) -> Option<&str> {
     }
 }
 
-fn set_general_tolerance(record: &mut Record, general: &GeneralTolerance, note: Option<&str>) {
+fn set_general_tolerance(
+    record: &mut Record,
+    general: &GeneralTolerance,
+    note: Option<&str>,
+    file_unit: &pmi::LengthUnit,
+) {
     record.kind = "general_tolerances".into();
     match general {
         GeneralTolerance::Class { text, .. } => {
@@ -293,11 +299,19 @@ fn set_general_tolerance(record: &mut Record, general: &GeneralTolerance, note: 
             record.fields = vec![("tolerance class".into(), Field::Text(text.clone()))];
         }
         GeneralTolerance::Table { cells, .. } => {
-            record.label = crate::pmi_lowering::tolerance_rows(cells, note).join(" · ");
-            record.fields = vec![(
-                "tolerance table".into(),
-                Field::ToleranceCells(cells.clone()),
-            )];
+            record.label = crate::pmi_lowering::tolerance_rows(cells, note, file_unit).join(" · ");
+            record.fields = vec![
+                (
+                    "tolerance table".into(),
+                    Field::ToleranceCells(cells.clone()),
+                ),
+                (
+                    "tolerance file unit".into(),
+                    Field::ToleranceUnit {
+                        unit: file_unit.clone(),
+                    },
+                ),
+            ];
             if let Some(note) = note {
                 record
                     .fields
@@ -1232,7 +1246,14 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
             Support::default(),
             vec![],
         );
-        set_general_tolerance(&mut item, general, None);
+        set_general_tolerance(
+            &mut item,
+            general,
+            None,
+            &part
+                .declared_length_unit()
+                .unwrap_or(pmi::LengthUnit::Millimetre),
+        );
         records.push(item);
     }
     for attribute in &model.attributes {
@@ -3548,6 +3569,10 @@ impl PartReader<'_> {
             r.fields = st.fields.clone();
             out.push(r);
         }
+        let file_unit = self
+            .def
+            .and_then(|d| d.declared_length_unit.as_ref())
+            .unwrap_or(&pmi::LengthUnit::Millimetre);
         let table_count = pmi.general.len() - classes.len();
         let notes: Vec<_> = pmi
             .attributes
@@ -3609,8 +3634,31 @@ impl PartReader<'_> {
                 Support::default(),
                 blockers,
             );
-            set_general_tolerance(&mut r, general, note);
+            set_general_tolerance(&mut r, general, note, file_unit);
             out.push(r);
+        }
+        if table_count == 0 {
+            for (i, text) in notes {
+                if used.attributes[i] {
+                    continue;
+                }
+                let ids = self.prov.attributes.get(i).map_or(&[][..], Vec::as_slice);
+                let Some(root) = self.property(ids) else {
+                    continue;
+                };
+                used.attributes[i] = true;
+                let mut r = self.record(
+                    Category::ManufacturingRequirement,
+                    root,
+                    ids,
+                    Support::default(),
+                    vec![],
+                );
+                r.kind = "general_tolerances".into();
+                r.label = text.into();
+                r.fields = vec![("tolerance note".into(), Field::Text(text.into()))];
+                out.push(r);
+            }
         }
         out
     }

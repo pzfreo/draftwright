@@ -132,3 +132,6 @@ Changes from the upstream geometry: **PMI and material added by Specify main
 -o OUT` at Specify 0.3.0-rc.1, commit `58bb226f54426610726de52dc836ded1e0a7e87e`.
 The edit lists fill `part.general_tolerance` with `.XX ±.01 · .XXX ±.005 · angles ±1°` and
 `X ±0.5 · X.X ±0.2 · X.XX ±0.05 · angles ±0°30′`, respectively.
+
+`general-tolerance/tolerance-angular.step.gz` is the PR #557 reviewer's angles-only regression file, written with Specify 0.3.0-rc.1
+(commit `58bb226f54426610726de52dc836ded1e0a7e87e`) using `angles ±1°`, compressed with `gzip -n`.

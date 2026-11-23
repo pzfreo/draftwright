@@ -264,13 +264,13 @@ fn specify_tolerance_tables_keep_the_stated_measures_and_share_the_title_block_l
             "tolerance-inch",
             LengthUnit::Inch,
             &[(2, 0.01), (3, 0.005)][..],
-            &[".XX ±.01 in", ".XXX ±.005 in", "angles ±1°"][..],
+            &[".XX ±.01", ".XXX ±.005", "angles ±1°"][..],
         ),
         (
             "tolerance-metric",
             LengthUnit::Millimetre,
             &[(0, 0.5), (1, 0.2), (2, 0.05)][..],
-            &["X ±0.5 mm", "X.X ±0.2 mm", "X.XX ±0.05 mm", "angles ±0°30'"][..],
+            &["X ±0.5", "X.X ±0.2", "X.XX ±0.05", "angles ±0°30'"][..],
         ),
     ] {
         let path = root()
@@ -316,6 +316,19 @@ fn specify_tolerance_tables_keep_the_stated_measures_and_share_the_title_block_l
             .iter()
             .find(|q| q.kind == "general_tolerance")
             .unwrap();
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "sheet": { "title": { "tolerance": rows.join(" · ").replace("'", "′") } }
+        }))
+        .unwrap();
+        let repeated = model::plan(&a, &spec).unwrap();
+        assert!(
+            !repeated
+                .problems
+                .iter()
+                .any(|p| { p.code == "step_general_tolerance_disagreement" }),
+            "{stem}: Specify's read-back must match the STEP tolerance"
+        );
+        assert!(repeated.requirements.iter().any(|q| q.id == requirement.id));
         assert_eq!(requirement.text.lines().collect::<Vec<_>>(), rows);
         assert!(!plan.problems.iter().any(|p| matches!(
             p.code.as_str(),
@@ -372,6 +385,116 @@ fn specify_tolerance_tables_keep_the_stated_measures_and_share_the_title_block_l
             bottom = y + ink.min[1];
         }
     }
+}
+
+#[test]
+fn specify_tolerance_notes_supply_the_title_block_without_a_table() {
+    let path = root().join("tests/fixtures/pmi/general-tolerance/tolerance-angular.step.gz");
+    let mut step = String::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path).unwrap())
+        .read_to_string(&mut step)
+        .unwrap();
+    let plain = step.replacen(
+        r"angles \X2\00B1\X0\1\X2\00B0\X0\",
+        r"\X2\00B1\X0\0.3 mm",
+        1,
+    );
+    assert_ne!(step, plain);
+    for (name, source, expected) in [
+        ("angular.step", step, "angles ±1°"),
+        ("plain.step", plain, "±0.3 mm"),
+    ] {
+        let (part, analysis) = model::analyse_native_bytes(name, source.as_bytes()).unwrap();
+        let plan = cache::default_plan(&analysis, true);
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "general_tolerance_missing"),
+            "{name}: a standalone STEP tolerance note states a general tolerance"
+        );
+        let requirement = plan
+            .requirements
+            .iter()
+            .find(|q| q.kind == "general_tolerance")
+            .unwrap();
+        assert_eq!(requirement.text, expected);
+        let drawing = model::render(&part, &analysis, &plan, &font()).unwrap();
+        let annotation = drawing
+            .annotations
+            .iter()
+            .find(|a| a.name == requirement.id)
+            .unwrap();
+        let [run] = annotation.runs.as_slice() else {
+            panic!("{name}: expected one printed tolerance")
+        };
+        assert_eq!(drawing.text[*run].text, expected);
+    }
+}
+
+#[test]
+fn tolerance_table_ranges_and_signed_limits_use_the_stated_values() {
+    use draftwright::haecceity::pmi::{CellValue, Decimal, LengthUnit, ToleranceCell, Value};
+    use draftwright::pmi::{Field, Reading};
+
+    let path = root().join("tests/fixtures/pmi/general-tolerance/tolerance-metric.step.gz");
+    let (_, mut analysis) = model::analyse_native(&path).unwrap();
+    let Some(Reading::Read(report)) = &mut analysis.pmi else {
+        panic!("unread PMI")
+    };
+    let record = report
+        .records
+        .iter_mut()
+        .find(|r| r.kind == "general_tolerances")
+        .unwrap();
+    let length = |key: &str, number, unit| {
+        (
+            key.into(),
+            CellValue::Value(Value::length(Decimal::parse(number).unwrap(), unit)),
+        )
+    };
+    let mm = LengthUnit::Millimetre;
+    record.fields = vec![(
+        "tolerance table".into(),
+        Field::ToleranceCells(vec![
+            ToleranceCell {
+                items: vec![
+                    length("upper limit", "6.", mm.clone()),
+                    length("plus minus tolerance value", "0.1", mm.clone()),
+                    length("lower limit", "0.", mm.clone()),
+                    (
+                        "cell description".into(),
+                        CellValue::Text("first band".into()),
+                    ),
+                ],
+            },
+            ToleranceCell {
+                items: vec![
+                    length("lower tolerance value", "-0.1", mm.clone()),
+                    length("lower limit", "6.", mm.clone()),
+                    length("upper tolerance value", "0.2", mm.clone()),
+                    length("upper limit", "30.", mm),
+                ],
+            },
+            ToleranceCell {
+                items: vec![
+                    length("lower limit", "0.", LengthUnit::Inch),
+                    length("upper limit", "1.", LengthUnit::Inch),
+                    length("plus minus tolerance value", "0.01", LengthUnit::Inch),
+                ],
+            },
+        ]),
+    )];
+    let plan = model::plan(&analysis, &Spec::default()).unwrap();
+    let requirement = plan
+        .requirements
+        .iter()
+        .find(|q| q.kind == "general_tolerance")
+        .unwrap();
+    assert_eq!(
+        requirement.text,
+        "0 to 6 ±0.1\n6 to 30 +0.2/-0.1\n0 in to 1 in ±.01 in"
+    );
 }
 
 /// GRM-03 presents its general tolerance and default finish on the part's own solid (#15, its
