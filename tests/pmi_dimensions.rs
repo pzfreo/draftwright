@@ -3854,7 +3854,7 @@ fn review_counterbored_blind_drill_depth_starts_at_the_counterbore_floor() {
     };
     let corpus = std::env::var_os("DRAFTWRIGHT_CORPUS")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/Users/paul/repos/quiddity/tests/corpus"));
+        .unwrap_or_else(|| PathBuf::from("/Users/paul/repos/quiddity-python/tests/corpus"));
     let raw = std::fs::read(corpus.join("nist/nist_ctc_04_asme1_rd.stp")).unwrap();
     let (part, a) = analysed("ctc04-depth.step", &raw);
     let baseline = model::plan(&a, &Spec::default()).unwrap();

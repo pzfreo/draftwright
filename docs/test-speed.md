@@ -150,7 +150,7 @@ Cache helpers are used by items, wording, PMI dimensions/lowering/drawings/cover
 
 ```sh
 export CARGO_BUILD_JOBS=12
-export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity/tests/corpus
+export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity-python/tests/corpus
 export DRAFTWRIGHT_CORPUS_REQUIRED=1
 cargo nextest run --release --workspace --no-fail-fast
 for k in 1 2 3 4 5; do

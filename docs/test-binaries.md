@@ -30,7 +30,7 @@ Historical before/after measurements below retain their original counts.
 
 ```sh
 export CARGO_BUILD_JOBS=12 RUST_TEST_THREADS=12
-export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity/tests/corpus
+export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity-python/tests/corpus
 export DRAFTWRIGHT_CORPUS_REQUIRED=1
 cargo nextest run --release --test rendering -E 'test(/^oriented_chamfers::/)'
 cargo test --release --test rendering oriented_chamfers::
@@ -183,7 +183,7 @@ and new binary/test paths also change hash-shard membership.
 ## Verification
 
 All runs used `CARGO_BUILD_JOBS=12`, `RUST_TEST_THREADS=12`,
-`DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity/tests/corpus` and
+`DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity-python/tests/corpus` and
 `DRAFTWRIGHT_CORPUS_REQUIRED=1`. Native latency assertions stayed enabled.
 
 | Check | Final result |

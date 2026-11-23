@@ -14,7 +14,7 @@ near miss. Public Specify BOM UDAs state make/buy, different item numbers,
 and different default descriptions/optional flags. The latter must not split
 interchangeable parts. No outside geometry or source code is included. Shared
 under this repository's licence; gzip without a timestamp. Regenerate with
-`/Users/paul/repos/quiddity/.venv/bin/python -I tests/fixtures/assembly/pack-copies.py`.
+`/Users/paul/repos/quiddity-python/.venv/bin/python -I tests/fixtures/assembly/pack-copies.py`.
 
 `assembly.step` and `assembly_pin_pmi.step.gz` are described in `tests/assembly_parts.rs`.
 

@@ -1,6 +1,6 @@
 """Recognise a STEP file's features with Python quiddity, for draftwright's bridge.
 
-    ~/repos/quiddity/.venv/bin/python tools/recognise.py part.step -o recognition.json
+    ~/repos/quiddity-python/.venv/bin/python tools/recognise.py part.step -o recognition.json
     draftwright analyse part.step --features recognition.json
 
 Writes quiddity's recognition document unchanged, wrapped with what the bridge (``src/bridge.rs``)

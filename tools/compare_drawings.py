@@ -10,7 +10,7 @@ Reproduce a branch comparison (build each binary from its corresponding checkout
   RUSTC_WRAPPER= cargo build --locked --release --bin draftwright
   python3 tools/compare_drawings.py --base-binary /tmp/dw-main/target/release/draftwright \
     --head-binary target/release/draftwright --base-ref origin/main \
-    --corpus /Users/paul/repos/quiddity/tests/corpus \
+    --corpus /Users/paul/repos/quiddity-python/tests/corpus \
     --examples /Users/paul/repos/dw-examples --out /tmp/dw-drawing-comparison
 
 The base checkout can be created with git worktree add --detach /tmp/dw-main origin/main.

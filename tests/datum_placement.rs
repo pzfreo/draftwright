@@ -478,7 +478,7 @@ fn stc09_nearby_projected_datums_do_not_touch() {
 fn ctc01_datum_a_is_square_to_the_base_top() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS")
-        .unwrap_or_else(|_| "/Users/paul/repos/quiddity/tests/corpus".into());
+        .unwrap_or_else(|_| "/Users/paul/repos/quiddity-python/tests/corpus".into());
     let rd = Path::new(&corpus).join("nist/nist_ctc_01_asme1_rd.stp");
     for path in [
         rd,

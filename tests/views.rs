@@ -5,7 +5,7 @@
 //! taken off the list.
 //!
 //! The parts are read from the corpus (`DRAFTWRIGHT_CORPUS`, by default
-//! `~/repos/quiddity/tests/corpus`), with their features from Python quiddity's recognition
+//! `~/repos/quiddity-python/tests/corpus`), with their features from Python quiddity's recognition
 //! (`tests/fixtures/recognition/corpus/`), as draftwright reads them.
 //!
 //! Tolerances: a view's centre within 0.01 mm on the page, its scale within 1e-6 relative. Both

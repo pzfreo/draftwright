@@ -15,7 +15,7 @@ are written to `tests/fixtures/sheets/<name>.json.gz`.
   facts:
 
   ```
-  cargo run --release --example facts_compare -- ~/repos/quiddity/tests/corpus [name ...]
+  cargo run --release --example facts_compare -- ~/repos/quiddity-python/tests/corpus [name ...]
   ```
 
   It is a report; `tests/views.rs` is the same comparison as a test (below).
@@ -35,7 +35,7 @@ The port's sheet, scale and view placement (`src/layout.rs`) is draftwright's la
 
   ```
   PYTHONPATH=<draftwright>/src <draftwright>/.venv/bin/python tools/capture_layout.py \
-      <draftwright>/src ~/repos/quiddity/tests/corpus [name ...]
+      <draftwright>/src ~/repos/quiddity-python/tests/corpus [name ...]
   ```
 
 - **The result, against the facts.** `tests/views.rs` plans each sampled part and compares the
@@ -49,7 +49,7 @@ The port's sheet, scale and view placement (`src/layout.rs`) is draftwright's la
   annotation-scheme bands, has no detail views, does not choose draftwright's annotation-demand
   arrangement profile, and cannot repack on measured annotations or re-plan on a finished
   drawing's lint as draftwright does (ADR 2 invariants 3 and 16). The test reads the corpus from
-  `DRAFTWRIGHT_CORPUS` (by default `~/repos/quiddity/tests/corpus`) and says it is skipped when
+  `DRAFTWRIGHT_CORPUS` (by default `~/repos/quiddity-python/tests/corpus`) and says it is skipped when
   that is absent.
 - **The bands, against draftwright's.** `tests/bands.rs` compares the bands the port reserves
   from the features (`src/demand.rs`) and its step count with draftwright's first placement (the
@@ -92,7 +92,7 @@ the differences.
 
 ```
 PYTHONPATH=<draftwright>/src <draftwright>/.venv/bin/python tools/capture_sheet_facts.py \
-    <draftwright>/src ~/repos/quiddity/tests/corpus [name ...]
+    <draftwright>/src ~/repos/quiddity-python/tests/corpus [name ...]
 ```
 
 - With no names, the tool captures every part in its `PARTS` table. A part takes 5 to 60 s.

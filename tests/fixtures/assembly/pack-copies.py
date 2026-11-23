@@ -1,6 +1,6 @@
 """Original synthetic #380 assembly; run from any directory with build123d/OCP.
 
-/Users/paul/repos/quiddity/.venv/bin/python -I tests/fixtures/assembly/pack-copies.py
+/Users/paul/repos/quiddity-python/.venv/bin/python -I tests/fixtures/assembly/pack-copies.py
 No external models. Shared under this repository's licence. XCAF retains two
 placements of one plate PRODUCT, alongside independently built congruent copies.
 Public Specify BOM UDAs deliberately carry distinct item numbers and defaults.

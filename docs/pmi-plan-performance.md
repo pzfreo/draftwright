@@ -113,7 +113,7 @@ improvements.
 
 ```
 export CARGO_BUILD_JOBS=12 RUST_TEST_THREADS=12
-export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity/tests/corpus
+export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity-python/tests/corpus
 export DRAFTWRIGHT_CORPUS_REQUIRED=1 CARGO_PROFILE_RELEASE_DEBUG=true
 cargo build --release --locked
 

@@ -1951,7 +1951,7 @@ fn fixed_inch_geometry(before: &model::Plan, after: &model::Plan) {
 
 fn inch_source(name: &str) -> Vec<u8> {
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS")
-        .unwrap_or_else(|_| "/Users/paul/repos/quiddity/tests/corpus".into());
+        .unwrap_or_else(|_| "/Users/paul/repos/quiddity-python/tests/corpus".into());
     let file = match name {
         "ftc07" => "nist/nist_ftc_07_asme1_rd.stp",
         "ctc05" => "nist/nist_ctc_05_asme1_rd.stp",

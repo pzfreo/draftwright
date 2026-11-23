@@ -20,7 +20,7 @@
 //! reason, in `tests/fixtures/known_lint.json` (`python_sheets`); a listed difference that has
 //! gone away must be taken off the list. What lint finds on the port's own drawings is listed
 //! there too (`own_drawings`), by part and code. The parts are read from the corpus
-//! (`DRAFTWRIGHT_CORPUS`, by default `~/repos/quiddity/tests/corpus`).
+//! (`DRAFTWRIGHT_CORPUS`, by default `~/repos/quiddity-python/tests/corpus`).
 
 #[path = "common/corpus.rs"]
 mod corpus;

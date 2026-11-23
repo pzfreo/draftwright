@@ -918,7 +918,7 @@ mod tests {
             .map(std::path::PathBuf::from)
             .or_else(|| {
                 std::env::var_os("HOME")
-                    .map(|p| std::path::PathBuf::from(p).join("repos/quiddity/tests/corpus"))
+                    .map(|p| std::path::PathBuf::from(p).join("repos/quiddity-python/tests/corpus"))
             })
             .filter(|p| p.is_dir());
         let Some(corpus) = corpus else {

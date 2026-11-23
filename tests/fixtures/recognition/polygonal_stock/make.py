@@ -9,7 +9,7 @@ directory with draftwright's venv, then record quiddity's recognition and draftw
 facts for each part:
 
     ~/repos/draftwright/.venv/bin/python make.py .
-    ~/repos/quiddity/.venv/bin/python ../../../../tools/recognise.py plain.step -o plain.json
+    ~/repos/quiddity-python/.venv/bin/python ../../../../tools/recognise.py plain.step -o plain.json
     gzip -9 -n plain.json                 # and the same for x, y, roll17 and translated
     PYTHONPATH=<draftwright>/src ~/repos/draftwright/.venv/bin/python ../slot_patterns/capture.py \\
         ../../../../tools/capture_sheet_facts.py <draftwright>/src . . plain x y roll17 translated

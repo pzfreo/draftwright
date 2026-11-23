@@ -625,7 +625,7 @@ fn fix_descriptions_use_drawing_language_across_fixtures_and_corpus() {
     assert!(fixture_count > 0);
     let corpus = std::env::var_os("DRAFTWRIGHT_CORPUS")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/Users/paul/repos/quiddity/tests/corpus"));
+        .unwrap_or_else(|| PathBuf::from("/Users/paul/repos/quiddity-python/tests/corpus"));
     if !corpus.is_dir() {
         assert_ne!(
             std::env::var("DRAFTWRIGHT_CORPUS_REQUIRED").as_deref(),

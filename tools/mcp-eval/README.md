@@ -95,7 +95,7 @@ python3 -I tools/test_quality.py
 Random-pin go/no-go measurement (all 30 parts, seed 1, N=3):
 
 ```sh
-C=/Users/paul/repos/quiddity/tests/corpus
+C=/Users/paul/repos/quiddity-python/tests/corpus
 sed "s#^#$C/#" tools/quality_parts.txt | tr '\n' '\0' | xargs -0 python3 -I tools/quality.py --seed 1 --pins 3 target/release/draftwright target/pins-1-3
 ```
 

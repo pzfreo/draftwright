@@ -3239,7 +3239,7 @@ mod tests {
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
                 std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
-                    .join("repos/quiddity/tests/corpus")
+                    .join("repos/quiddity-python/tests/corpus")
             });
         if !root.is_dir() {
             assert_ne!(
@@ -5400,7 +5400,8 @@ mod compact_sheet_regressions {
         let root = std::env::var_os("DRAFTWRIGHT_CORPUS")
             .map(std::path::PathBuf::from)
             .or_else(|| {
-                std::env::var_os("HOME").map(|h| Path::new(&h).join("repos/quiddity/tests/corpus"))
+                std::env::var_os("HOME")
+                    .map(|h| Path::new(&h).join("repos/quiddity-python/tests/corpus"))
             });
         let Some(root) = root.filter(|p| p.is_dir()) else {
             assert!(

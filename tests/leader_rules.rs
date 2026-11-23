@@ -732,7 +732,7 @@ fn drawing_10000() -> Option<(Analysis, model::Plan, Drawing)> {
 
 fn native_drawing(file: &str, recovered: bool) -> Option<(Analysis, model::Plan, Drawing)> {
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS")
-        .unwrap_or_else(|_| "/Users/paul/repos/quiddity/tests/corpus".into());
+        .unwrap_or_else(|_| "/Users/paul/repos/quiddity-python/tests/corpus".into());
     let path = Path::new(&corpus).join(file);
     if !path.is_file() {
         assert!(std::env::var("DRAFTWRIGHT_CORPUS_REQUIRED").is_err());
@@ -850,7 +850,7 @@ fn hole_location_uses_perpendicular_witnesses_and_rejects_oblique_crossings_1000
 #[test]
 fn rounded_slot_radii_keep_their_exact_arcs_on_nist_parts() {
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS")
-        .unwrap_or_else(|_| "/Users/paul/repos/quiddity/tests/corpus".into());
+        .unwrap_or_else(|_| "/Users/paul/repos/quiddity-python/tests/corpus".into());
     for name in ["nist_ctc_03_asme1_rc", "nist_ftc_09_asme1_rd"] {
         let path = Path::new(&corpus).join(format!("nist/{name}.stp"));
         if !path.is_file() {
@@ -986,7 +986,7 @@ fn recovered_ctc02_keeps_counted_radius_leaders_on_trimmed_arcs() {
 #[test]
 fn recovered_ftc09_keeps_a1_and_perpendicular_witnesses() {
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS")
-        .unwrap_or_else(|_| "/Users/paul/repos/quiddity/tests/corpus".into());
+        .unwrap_or_else(|_| "/Users/paul/repos/quiddity-python/tests/corpus".into());
     let path = Path::new(&corpus).join("nist/nist_ftc_09_asme1_rd.stp");
     if !path.is_file() {
         assert!(std::env::var("DRAFTWRIGHT_CORPUS_REQUIRED").is_err());
@@ -1062,7 +1062,7 @@ fn recovered_ftc09_keeps_a1_and_perpendicular_witnesses() {
 #[test]
 fn ctc01_r5_meets_the_fillet_from_the_open_centre_side() {
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS")
-        .unwrap_or_else(|_| "/Users/paul/repos/quiddity/tests/corpus".into());
+        .unwrap_or_else(|_| "/Users/paul/repos/quiddity-python/tests/corpus".into());
     let path = Path::new(&corpus).join("nist/nist_ctc_01_asme1_rd.stp");
     if !path.is_file() {
         assert!(std::env::var("DRAFTWRIGHT_CORPUS_REQUIRED").is_err());

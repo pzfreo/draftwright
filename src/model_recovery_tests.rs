@@ -85,7 +85,7 @@ fn a_valid_candidate_crossing_two_views_is_rejected_even_when_the_planner_return
         .map(std::path::PathBuf::from)
         .or_else(|| {
             std::env::var_os("HOME")
-                .map(|h| std::path::PathBuf::from(h).join("repos/quiddity/tests/corpus"))
+                .map(|h| std::path::PathBuf::from(h).join("repos/quiddity-python/tests/corpus"))
         })
         .filter(|d| d.is_dir());
     let Some(dir) = dir else {
@@ -413,7 +413,7 @@ fn clear_fixed_sheet_finish_preserves_inventory_and_passes_fresh_audit() {
         .map(std::path::PathBuf::from)
         .or_else(|| {
             std::env::var_os("HOME")
-                .map(|h| std::path::PathBuf::from(h).join("repos/quiddity/tests/corpus"))
+                .map(|h| std::path::PathBuf::from(h).join("repos/quiddity-python/tests/corpus"))
         })
         .filter(|p| p.is_dir());
     let Some(dir) = dir else {

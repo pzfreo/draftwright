@@ -302,7 +302,8 @@ fn spec_entries_on_a_pockets_floor_rounds_each_carry_to_their_own_round() {
     let Some(corpus) = std::env::var_os("DRAFTWRIGHT_CORPUS")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join("repos/quiddity/tests/corpus"))
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join("repos/quiddity-python/tests/corpus"))
         })
         .filter(|d| d.is_dir())
     else {

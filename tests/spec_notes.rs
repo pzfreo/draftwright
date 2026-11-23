@@ -1023,7 +1023,8 @@ fn string_post_finishes_do_not_add_location_requirements() {
     let Some(corpus) = std::env::var_os("DRAFTWRIGHT_CORPUS")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME").map(|p| PathBuf::from(p).join("repos/quiddity/tests/corpus"))
+            std::env::var_os("HOME")
+                .map(|p| PathBuf::from(p).join("repos/quiddity-python/tests/corpus"))
         })
         .filter(|p| p.is_dir())
     else {
@@ -1069,7 +1070,8 @@ fn string_post_face_finishes_stay_on_a4_and_reach_a_trimmed_cylinder_head_on() {
     let Some(corpus) = std::env::var_os("DRAFTWRIGHT_CORPUS")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME").map(|p| PathBuf::from(p).join("repos/quiddity/tests/corpus"))
+            std::env::var_os("HOME")
+                .map(|p| PathBuf::from(p).join("repos/quiddity-python/tests/corpus"))
         })
         .filter(|p| p.is_dir())
     else {

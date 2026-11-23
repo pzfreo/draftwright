@@ -1,5 +1,5 @@
 //! The sampled corpus parts (`tests/fixtures/sheets/`) read as the port reads them: from the
-//! corpus (`DRAFTWRIGHT_CORPUS`, by default `~/repos/quiddity/tests/corpus`), with Python
+//! corpus (`DRAFTWRIGHT_CORPUS`, by default `~/repos/quiddity-python/tests/corpus`), with Python
 //! quiddity's recognition for each (`tests/fixtures/recognition/corpus/<name>.json.gz`, written
 //! by `tools/recognise.py`) when there is one.
 //!
@@ -20,13 +20,14 @@ pub fn dir() -> Option<PathBuf> {
     let dir = std::env::var_os("DRAFTWRIGHT_CORPUS")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join("repos/quiddity/tests/corpus"))
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join("repos/quiddity-python/tests/corpus"))
         })
         .filter(|d| d.is_dir());
     if dir.is_none() && std::env::var_os("DRAFTWRIGHT_CORPUS_REQUIRED").is_some_and(|v| v == "1") {
         panic!(
             "DRAFTWRIGHT_CORPUS_REQUIRED=1 but the corpus is not found: set DRAFTWRIGHT_CORPUS to \
-             quiddity's tests/corpus (default ~/repos/quiddity/tests/corpus)"
+             quiddity's tests/corpus (default ~/repos/quiddity-python/tests/corpus)"
         );
     }
     dir

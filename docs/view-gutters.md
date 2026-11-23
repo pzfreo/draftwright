@@ -123,7 +123,7 @@ All Rust checks use:
 
 ```sh
 export CARGO_BUILD_JOBS=8 RUST_TEST_THREADS=8
-export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity/tests/corpus
+export DRAFTWRIGHT_CORPUS=/Users/paul/repos/quiddity-python/tests/corpus
 export DRAFTWRIGHT_CORPUS_REQUIRED=1
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --release -- -D warnings

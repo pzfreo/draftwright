@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-const corpus = process.env.DRAFTWRIGHT_CORPUS ?? '/Users/paul/repos/quiddity/tests/corpus';
+const corpus = process.env.DRAFTWRIGHT_CORPUS ?? '/Users/paul/repos/quiddity-python/tests/corpus';
 export const localParts = {
   plate: resolve('tests/fixtures/parts/mounting_plate.step'),
   m10127: resolve(corpus, 'mfcadpp/10127.step'),

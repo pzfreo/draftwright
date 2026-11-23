@@ -70,7 +70,7 @@ draftwright diff old.step new.step --spec part.drawing.json -o changes
                                                        # the Spec carried to a new revision of the
                                                        # part (ADR R3), its drawing, and what changed
 
-~/repos/quiddity/.venv/bin/python tools/recognise.py part.step -o part.features.json
+~/repos/quiddity-python/.venv/bin/python tools/recognise.py part.step -o part.features.json
 draftwright render part.step --features part.features.json -o out
                                                        # features from Python quiddity instead
 draftwright spec out.pdf                               # the Spec a drawing (SVG, DXF, PDF, PNG) was made from
@@ -311,7 +311,7 @@ and status files are in `docs/`.
 
 ## Checking a change
 
-`DRAFTWRIGHT_CORPUS=~/repos/quiddity/tests/corpus DRAFTWRIGHT_CORPUS_REQUIRED=1 cargo test
+`DRAFTWRIGHT_CORPUS=~/repos/quiddity-python/tests/corpus DRAFTWRIGHT_CORPUS_REQUIRED=1 cargo test
 --release`, `cargo fmt --check` and `cargo clippy --all-targets --release -- -D warnings` (as CI
 does, `.github/workflows/ci.yml`). With `DRAFTWRIGHT_CORPUS_REQUIRED=1` a missing corpus fails
 every corpus-backed test; without it they are skipped.
