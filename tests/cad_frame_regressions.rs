@@ -54,9 +54,11 @@ fn accepted_cad_frame_layout(file: &str) {
         // that pair no longer contributes a false label_crowded notice.
         // 2026-11-14: repair preserving shared rows clears 21 crossings and 19 feature contacts.
         "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [33, 0, 6, 1, 1, 0], [1, 5, 26]),
-        "assembly_plate_pin.step" => ("A3", "1:1", [2, 2, 0, 1, 2, 0], [0, 0, 2]),
-        "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [4, 1, 0, 0, 3, 0], [2, 0, 2]),
-        "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
+        // Inclined pin and bore projections, including the labels and leaders
+        // introduced on the new carriers.
+        "assembly_plate_pin.step" => ("A3", "1:1", [1, 1, 0, 0, 3, 0], [0, 0, 1]),
+        "hw_assembly_plate_pin_intent.step" => ("A4", "1:5", [5, 1, 0, 0, 1, 0], [2, 0, 3]),
+        "specify-main-angle-bracket.step" => ("A4", "1:2", [2, 0, 0, 0, 0, 0], [0, 2, 0]),
         _ => unreachable!(),
     };
     let metric = file.ends_with(":mm");

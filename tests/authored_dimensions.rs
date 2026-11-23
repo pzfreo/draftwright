@@ -1865,6 +1865,7 @@ fn inclined_authored_dimensions_locate_the_piercing_point() {
         refs.reverse();
     }
     let aliased = model::plan_recovered(&a, &aliases).unwrap();
+    assert!(aliased.views.iter().all(|v| v.auxiliary.is_none()));
     let aliased = model::render(&part, &a, &aliased, &font).unwrap();
     assert!(!bracket_missing(&a, &draftwright::lint::marks(&aliased)));
 
@@ -1919,10 +1920,15 @@ fn suggested_inclined_dimensions(fix: &str) -> serde_json::Map<String, serde_jso
     dimensions
 }
 
+fn with_auxiliary_omitted(mut spec: Spec) -> Spec {
+    spec.views.entry("aux:f:hole:f9".into()).or_default().omit = true;
+    spec
+}
+
 #[test]
 fn inclined_location_finding_names_reachable_authored_dimensions() {
     let (part, a, _) = inclined_bracket();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = model::plan_recovered(&a, &with_auxiliary_omitted(Spec::default())).unwrap();
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let marks = draftwright::lint::marks(&drawing);
@@ -1950,7 +1956,11 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
 
     // The references and routes named in the finding are executable today.
     let dimensions = suggested_inclined_dimensions(fix);
-    let suggested = model::plan_recovered(&a, &parse(json!({"dimensions": dimensions}))).unwrap();
+    let suggested = model::plan_recovered(
+        &a,
+        &with_auxiliary_omitted(parse(json!({"dimensions": dimensions}))),
+    )
+    .unwrap();
     assert!(
         !suggested
             .problems
@@ -1969,6 +1979,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
     let (_, _, mut base) = inclined_bracket();
     base.dimensions
         .retain(|id, _| id == "d:authored:base_length");
+    let mut base = with_auxiliary_omitted(base);
     let base_plan = model::plan_recovered(&a, &base).unwrap();
     let base_drawing = model::render(&part, &a, &base_plan, &font).unwrap();
     let issues = draftwright::lint::lint(&a, &base_drawing);
@@ -2015,7 +2026,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
     let s = parse(
         json!({"features":{"f:hole:f9":{"note":"25 from base", "note_satisfies":["location.length.z"]}}}),
     );
-    let noted = model::plan_recovered(&a, &s).unwrap();
+    let noted = model::plan_recovered(&a, &with_auxiliary_omitted(s)).unwrap();
     assert!(noted.problems.iter().any(
         |p| p.code == "pmi_not_lowered" && p.message.contains("no proven site for its leader")
     ));
@@ -2036,7 +2047,7 @@ fn inclined_location_finding_names_reachable_authored_dimensions() {
 fn inclined_location_requires_the_printed_route_to_its_anchor() {
     let (part, a, mut s) = inclined_bracket();
     s.dimensions.remove("d:authored:base_length");
-    let p = model::plan_recovered(&a, &s).unwrap();
+    let p = model::plan_recovered(&a, &with_auxiliary_omitted(s)).unwrap();
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let issues = draftwright::lint::lint(&a, &drawing);
@@ -2068,7 +2079,7 @@ fn inclined_location_requires_the_printed_route_to_its_anchor() {
 #[test]
 fn inclined_planner_warning_offers_the_drawings_authored_route() {
     let (part, a, _) = inclined_bracket();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = model::plan_recovered(&a, &with_auxiliary_omitted(Spec::default())).unwrap();
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let issues = draftwright::lint::lint(&a, &drawing);
@@ -2102,14 +2113,22 @@ fn cgb217() -> Option<(std::sync::Arc<draftwright::haecceity::Part>, Analysis)> 
     Some(crate::cache::native(&path))
 }
 
+fn cgb217_inclined_finding_plan(a: &Analysis) -> &model::Plan {
+    static PLAN: std::sync::OnceLock<model::Plan> = std::sync::OnceLock::new();
+    PLAN.get_or_init(|| {
+        // Exercise the authored fix with the inclined feature still unlocated.
+        model::plan_recovered(a, &parse(json!({"purpose":{"kind":"outline"}}))).unwrap()
+    })
+}
+
 const COMPOUND_HOLES: [&str; 3] = ["f:hole:f26", "f:hole:f28", "f:hole:f41"];
 
 #[test]
 fn inclined_planner_warning_names_each_holes_anchors() {
     let Some((part, a)) = cgb217() else { return };
-    let p = crate::cache::default_plan(&a, true);
+    let p = cgb217_inclined_finding_plan(&a);
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
-    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let drawing = model::render(&part, &a, p, &font).unwrap();
     let lint = draftwright::lint::lint(&a, &drawing);
     for id in COMPOUND_HOLES {
         let issue = lint
@@ -2142,9 +2161,9 @@ fn inclined_suggestions_exclude_tangent_and_silhouette_edges() {
     use draftwright::haecceity::brep::Arc;
 
     let Some((part, a)) = cgb217() else { return };
-    let p = crate::cache::default_plan(&a, true);
+    let p = cgb217_inclined_finding_plan(&a);
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
-    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let drawing = model::render(&part, &a, p, &font).unwrap();
     let lint = draftwright::lint::lint(&a, &drawing);
     for id in COMPOUND_HOLES {
         let fix = lint

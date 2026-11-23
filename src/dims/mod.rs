@@ -929,8 +929,16 @@ pub(crate) fn auxiliary_needs(analysis: &Analysis, spec: &Spec) -> BTreeSet<Stri
             !d.omit
                 && d.between.as_ref().is_some_and(|ends| {
                     ends.iter().any(|end| {
-                        end.strip_prefix("axis:")
-                            .is_some_and(|id| needs.contains(id))
+                        end.strip_prefix("axis:").is_some_and(|id| {
+                            needs.contains(id)
+                                || analysis
+                                    .dimension_reference_axis_face(end)
+                                    .is_some_and(|face| {
+                                        analysis.features.iter().any(|f| {
+                                            f.faces.contains(&face) && needs.contains(&f.id)
+                                        })
+                                    })
+                        })
                     })
                 })
         })

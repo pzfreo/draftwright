@@ -1119,8 +1119,8 @@ fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
         .filter(|(code, _)| code.starts_with("angular_") || *code == "profile_corner_unlocated")
         .collect();
     assert!(issues.is_empty(), "{issues:?}");
-    // Nothing about the corners or their angles needs fixing before printing: only the bore's
-    // location (#521) and the blank tolerance remain.
+    // The principal views state the cuts and the auxiliary locates the bore. The
+    // only remaining item to fix before printing is the blank general tolerance.
     let json = serde_json::to_value(&r).unwrap();
     let mut fixes: Vec<String> = ["problems", "lint", "structural"]
         .iter()
@@ -1129,15 +1129,7 @@ fn jerns_corner_cut_is_a_start_point_and_acute_angles() {
         .map(|f| f["code"].as_str().unwrap().to_string())
         .collect();
     fixes.sort();
-    assert_eq!(
-        fixes,
-        [
-            "feature_not_dimensioned",
-            "feature_not_located",
-            "general_tolerance_missing"
-        ],
-        "{fixes:?}"
-    );
+    assert_eq!(fixes, ["general_tolerance_missing"], "{fixes:?}");
     // In inches the start is `.500`.
     let p = plan(&a, json!({"units": "in"}));
     let labels: Vec<&str> = p.dimensions.iter().map(|d| d.label.as_str()).collect();
