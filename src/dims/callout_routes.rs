@@ -726,38 +726,6 @@ pub(crate) fn finish_inch_contacts(analysis: &Analysis, plan: &mut Plan) {
 
 pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
     finish_with(analysis, spec, plan, false, None, false);
-    if spec.units.is_mm()
-        && plan.sheet.scale_factor > 1.0
-        && plan.dimensions.iter().any(placed_angle)
-    {
-        let ids = plan
-            .dimensions
-            .iter()
-            .filter(|d| wrapped_recess(d))
-            .map(|d| d.id.clone())
-            .collect::<BTreeSet<_>>();
-        if !ids.is_empty() {
-            let reference = plan.clone();
-            finish_with(analysis, spec, plan, false, Some((&ids, &reference)), false);
-        }
-    }
-}
-
-pub(super) fn placed_angle(d: &PlannedDimension) -> bool {
-    d.placed.is_some()
-        && !d.reference
-        && d.measurements
-            .iter()
-            .any(|m| m.parameter == super::PROFILE_ANGLE)
-}
-
-pub(super) fn wrapped_recess(d: &PlannedDimension) -> bool {
-    d.kind == "callout"
-        && d.placed.is_some()
-        && d.terms.iter().any(|t| crate::callouts::is_break(t))
-        && d.measurements
-            .iter()
-            .any(|m| m.feature.starts_with("f:section_recess:"))
 }
 
 /// Repair independent frames after their neighbours have attached as units.
@@ -885,11 +853,7 @@ fn finish_with(
     preserve_contacts: bool,
 ) {
     let pmi_retry = placement::pmi_witness_retry(analysis);
-    let metric_profile = new_contacts.is_some()
-        && spec.units.is_mm()
-        && plan.sheet.scale_factor > 1.0
-        && plan.dimensions.iter().any(placed_angle);
-    let shorten_inch = new_contacts.is_some()
+    let shorten = new_contacts.is_some()
         && spec.units == crate::units::Units::In
         && !crate::nominal::authored_pmi(analysis);
     let openings = plan.dimensions.iter().any(|d| {
@@ -993,14 +957,7 @@ fn finish_with(
     if crate::nominal::comparison()
         || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
             .unwrap_or(false)
-        || (!shorten_inch
-            && new_contacts.is_none_or(|(ids, _)| {
-                !metric_profile
-                    || !plan
-                        .dimensions
-                        .iter()
-                        .any(|d| ids.contains(&d.id) && wrapped_recess(d))
-            })
+        || (!shorten
             && !plan
                 .problems
                 .iter()
@@ -1018,19 +975,11 @@ fn finish_with(
         .filter(|p| repair_issue(&p.code))
         .flat_map(|p| p.subjects.iter().cloned())
         .collect();
-    if shorten_inch {
+    if shorten {
         affected_ids.extend(
             plan.dimensions
                 .iter()
                 .filter(|d| d.kind == "callout")
-                .map(|d| d.id.clone()),
-        );
-    }
-    if metric_profile && let Some((ids, _)) = new_contacts {
-        affected_ids.extend(
-            plan.dimensions
-                .iter()
-                .filter(|d| ids.contains(&d.id) && wrapped_recess(d))
                 .map(|d| d.id.clone()),
         );
     }
@@ -1171,14 +1120,6 @@ fn finish_with(
                     })
                 };
                 let before_extension = extension_budget(d.placed.as_ref().expect("placed callout"));
-                let wrapped_repair = metric_profile && wrapped_recess(d);
-                let shorten = shorten_inch || wrapped_repair;
-                let elbow_on_outline = wrapped_repair
-                    && leaders::elbow_near_outline(
-                        analysis,
-                        view,
-                        d.placed.as_ref().expect("placed callout"),
-                    );
                 if !shorten
                     && !before.iter().any(|p| repair_issue(&p.code))
                     && before_extension.0 == 0
@@ -1297,58 +1238,13 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
-                if wrapped_repair
-                    && let Some(want) = &want
-                    && let Some(frame) = frames.get(view.id.trim_start_matches("v:"))
-                    && let Some(placed) = &old
-                {
-                    candidates.extend(leaders::nearby_recess_bends(frame, want, d, placed));
-                }
-                if spec.units.is_mm()
-                    && across_ids.contains(&id)
-                    && plan
-                        .dimensions
-                        .iter()
-                        .any(|d| d.kind == "callout" && placed_angle(d))
-                    && let Some(want) = &want
-                    && let Some(frame) = frames.get(view.id.trim_start_matches("v:"))
-                {
-                    // The absolute sweep starts at proven sites. Also try short
-                    // bends relative to the held tip, as an offset edit does,
-                    // and validate the resulting radial attachment below.
-                    let held = old.as_ref().map(|p| (p, d.terms.as_slice()));
-                    for direction in 0..16 {
-                        let angle = f64::from(direction) * std::f64::consts::TAU / 16.0;
-                        let (sin, cos) = angle.sin_cos();
-                        for reach in [8.0, 11.0] {
-                            if let Some(route) = leaders::offset_intent(
-                                frame,
-                                want,
-                                [reach * cos, reach * sin],
-                                held,
-                            ) {
-                                candidates.push(route);
-                            }
-                        }
-                    }
-                }
-                if wrapped_repair
-                    || (spec.units.is_mm() && across_ids.contains(&id) && new_contacts.is_none())
-                {
-                    // Prefer a short exit from the bore. The inventory score puts ink
-                    // inside its estimated annotation band first, but the settled
-                    // repair below can grow that band into clear paper.
-                    candidates.sort_by(|a, b| route_length(a).total_cmp(&route_length(b)));
-                } else if shorten {
+                if shorten {
                     // Keep the held corridor's local refinements ahead of the
                     // broad sweep: its shortest rays may all fail a later audit.
                     let local = candidates.len().min(20);
                     candidates[local..].sort_by(|a, b| route_length(a).total_cmp(&route_length(b)));
                 }
                 let eligible = |next: &mut Placed| {
-                    if wrapped_repair && leaders::recess_route_near_outline(analysis, view, next) {
-                        return false;
-                    }
                     if let Some(g) = &glyph
                         && !meet_frame(g, next, spec.units == crate::units::Units::In)
                     {
@@ -1361,8 +1257,7 @@ fn finish_with(
                         && before_extension.0 == 0
                         && before_extension.2 == 0
                         && !before.iter().any(|p| repair_issue(&p.code))
-                        && route_length(next)
-                            > longest - if elbow_on_outline { 0.0 } else { 2.0 } + 1e-6
+                        && route_length(next) > longest - 2.0 + 1e-6
                     {
                         return false;
                     }
@@ -1549,15 +1444,12 @@ fn finish_with(
                     let fewer_contacts = next_extension.0 < before_extension.0
                         || next_extension.2 < before_extension.2;
                     let shorter = shorten && route_length(&next) + 1e-6 < longest - 2.0;
-                    let clears_outline =
-                        elbow_on_outline && !leaders::elbow_near_outline(analysis, view, &next);
                     if next_extension.0 <= before_extension.0
                         && next_extension.1 <= before_extension.1
                         && next_extension.2 <= before_extension.2
                         && (improved
-                            || ((fewer_contacts || shorter || clears_outline)
-                                && no_regression(&before, &after))
-                            || (shorten_inch
+                            || ((fewer_contacts || shorter) && no_regression(&before, &after))
+                            || (shorten
                                 && clears_witness_text(
                                     &before,
                                     &after,
