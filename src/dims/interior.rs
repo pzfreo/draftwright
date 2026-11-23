@@ -2591,6 +2591,7 @@ fn finish_openings_with(
     }
     let angle_proofs = super::interior::proofs(analysis, &plan.views);
     super::angular::place_profile(
+        analysis,
         &frames,
         &items,
         &angle_views,

@@ -265,6 +265,14 @@ struct Ink {
     /// Whether its radius is bounded by [`Ink::fits`] (a profile corner's) rather than by
     /// [`Ink::arrows_clear`].
     compact: bool,
+    /// Which side of a virtual sharp carries the arc. Its witnesses end at the blend.
+    virtual_sharp: Option<VirtualSharpArc>,
+}
+
+#[derive(Clone, Copy)]
+enum VirtualSharpArc {
+    Inside,
+    Outside,
 }
 
 impl Ink {
@@ -317,6 +325,7 @@ impl Ink {
             tangent_half: width / 2.0,
             minimum: 0.0,
             compact: false,
+            virtual_sharp: None,
         };
         Some(ink.along(0.5).least())
     }
@@ -432,8 +441,14 @@ impl Ink {
     /// Keep the measured sector and its arrows; the continuation reaches the label's
     /// station so collision avoidance cannot leave text detached from its dimension.
     fn extended_label(&self, radius: f64, ink: &LabelInk, after: bool) -> Option<Placed> {
-        self.placed(radius, ink)?;
         let arc_radius = radius.max(ARROW + LIFT + self.radial_half) - LIFT - self.radial_half;
+        if self.virtual_sharp.is_some() {
+            if self.sweep * arc_radius < 2.0 * ARROW + GAP {
+                return None;
+            }
+        } else {
+            self.placed(radius, ink)?;
+        }
         let beyond = (ARROW + GAP + self.tangent_half) / arc_radius;
         // A continuation must stay in the complementary sector. Reserve the
         // label's full angular extent and GAP from the other witness, rather
@@ -475,10 +490,18 @@ impl Ink {
         let end = self.start + self.sweep;
         let mut lines = Vec::new();
         for (length, angle) in self.lengths.iter().zip([self.start, end]) {
-            lines.push([
-                self.point(length.min(radius - GAP - OVERSHOOT) + GAP, angle),
-                self.point(radius + OVERSHOOT, angle),
-            ]);
+            let (start, finish) = match self.virtual_sharp {
+                Some(VirtualSharpArc::Outside) => ((GAP - length).min(0.0), radius + OVERSHOOT),
+                Some(VirtualSharpArc::Inside) if radius + OVERSHOOT <= length - GAP => {
+                    (0.0, length - GAP)
+                }
+                Some(VirtualSharpArc::Inside) => return None,
+                None => (
+                    length.min(radius - GAP - OVERSHOOT) + GAP,
+                    radius + OVERSHOOT,
+                ),
+            };
+            lines.push([self.point(start, angle), self.point(finish, angle)]);
         }
         let count = (self.sweep * (radius / SAMPLING).sqrt()).ceil().max(1.0) as usize;
         let at = |i: usize| self.point(radius, self.start + self.sweep * i as f64 / count as f64);
@@ -914,6 +937,7 @@ fn reach(p: &Placed, margin: f64) -> [f64; 4] {
 /// One already placed by its authored placement intent is kept.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn place_profile(
+    analysis: &crate::model::Analysis,
     frames: &std::collections::BTreeMap<&str, Frame>,
     items: &[Want],
     views_of: &[Option<&'static str>],
@@ -923,6 +947,14 @@ pub(super) fn place_profile(
     views: &[crate::model::PlannedView],
     proofs: &std::collections::BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
 ) {
+    let virtual_sharps =
+        crate::planning::memo(analysis, "profile-virtual-sharps", Vec::new(), || {
+            crate::lint::profile_angles::requirements(analysis)
+                .into_iter()
+                .filter(|c| c.virtual_vertex)
+                .map(|c| (c.axis, c.vertex))
+                .collect::<Vec<_>>()
+        });
     let openings = items.iter().any(super::interior::through_notch);
     // Give every corner (and every equivalent corner) its midpoint first.
     // An earlier item's outside fallback must not occupy a later item's
@@ -1025,7 +1057,22 @@ pub(super) fn place_profile(
             })
             .collect();
         let area = page.area(view);
-        let clear = |c: &Placed, stubs: usize, straight_ok: bool, vertex: P2| {
+        let outline = frame.outline();
+        // The virtual sharp can need paper beyond the estimated band. These
+        // placements still have to clear the actual page, views and ink.
+        let extended_band = !crate::nominal::comparison()
+            && super::profile_angles::is_profile_angle(&items[i])
+            && angle.principal().is_some_and(|axis| {
+                virtual_sharps.iter().any(|&(k, vertex)| {
+                    let [x, y] = frame.page(vertex);
+                    k == axis
+                        && (x < outline[0] - 1e-6
+                            || x > outline[2] + 1e-6
+                            || y < outline[1] - 1e-6
+                            || y > outline[3] + 1e-6)
+                })
+            });
+        let clear = |c: &Placed, stubs: usize, straight_ok: bool, vertex: P2, limit: f64| {
             let ink = reach(c, 0.0);
             // The label within the same reach of its corner as the arc.
             let b = c.label_box;
@@ -1033,11 +1080,10 @@ pub(super) fn place_profile(
                 .into_iter()
                 .flat_map(|x| [b[1], b[3]].map(|y| (x - vertex[0]).hypot(y - vertex[1])))
                 .fold(0.0, f64::max);
-            far <= local_radius(size[1]) &&
-            // Within the view's reserved area: never paper the layout did not give the view.
-            area.is_none_or(|b| {
+            far <= limit &&
+            (extended_band || area.is_none_or(|b| {
                 ink_points(c).all(|q| q[0] >= b[0] && q[0] <= b[2] && q[1] >= b[1] && q[1] <= b[3])
-            }) && page.fits_interior(c, view)
+            })) && page.fits_interior(c, view)
                 && callouts
                     .iter()
                     .all(|q| !super::leaders::meets_extensions(&c.lines[..2], &q.lines, q.label_box))
@@ -1081,7 +1127,9 @@ pub(super) fn place_profile(
             })
         };
         let chosen = std::iter::once(angle).chain(alternates).find_map(|angle| {
-            let physical = Ink::new(frame, angle, size)?.compact();
+            let virtual_sharp = !crate::nominal::comparison()
+                && virtual_sharps.iter().any(|&(_, at)| at == angle.vertex);
+            let mut physical = Ink::new(frame, angle, size)?.compact();
             let mut extended = Ink::new(
                 frame,
                 &Angle {
@@ -1092,13 +1140,33 @@ pub(super) fn place_profile(
                 size,
             )?
             .compact();
-            extended.lengths = [0.0; 2];
-            let reach = local_radius(size[1]);
+            if virtual_sharp {
+                physical.virtual_sharp = Some(VirtualSharpArc::Inside);
+                extended.virtual_sharp = Some(VirtualSharpArc::Outside);
+            } else {
+                extended.lengths = [0.0; 2];
+            }
+            let mut reach = local_radius(size[1]);
+            if virtual_sharp {
+                // At an acute virtual sharp the measured sector can need a
+                // larger radius just to fit its label between both witnesses.
+                reach = reach.max(physical.label_reach(physical.minimum) + 4.0 * STEP);
+            }
             // The label belongs at the sector's midpoint. If that station cannot
             // fit, try beyond an arrowhead on a drawn continuation of the arc.
             // Searching arbitrary interior fractions made a crowded corner's text
             // read as a free label rather than the midpoint of its dimension.
-            let inks = [(&physical, 2), (&extended, 0)];
+            let inks = [
+                (&physical, if virtual_sharp { 0 } else { 2 }),
+                (&extended, 0),
+            ];
+            let minimum = |g: &Ink| {
+                if virtual_sharp && extensions {
+                    (2.0 * ARROW + GAP) / g.sweep + LIFT + g.radial_half + 1e-6
+                } else {
+                    g.minimum
+                }
+            };
             // First an arc that crosses nothing; then one whose arc and witnesses may cross the
             // part's edges, blend silhouettes included, but never a hole or boss seen end-on.
             // Each the nearest roomy place, else the nearest crowded one (still stated).
@@ -1114,11 +1182,11 @@ pub(super) fn place_profile(
                         .map(|n| n as f64 * STEP)
                         .take_while(|d| {
                             inks.iter()
-                                .any(|(g, _)| g.label_reach(g.minimum + d) <= reach)
+                                .any(|(g, _)| g.label_reach(minimum(g) + d) <= reach)
                         })
                         .find_map(|d| {
                             inks.iter().find_map(|(g, stubs)| {
-                                let radius = g.minimum + d;
+                                let radius = minimum(g) + d;
                                 (g.label_reach(radius) <= reach)
                                     .then(|| match extension {
                                         None => g.placed(radius, &ink),
@@ -1130,9 +1198,9 @@ pub(super) fn place_profile(
                                         // the full check.
                                         if crowded.is_some() {
                                             return roomy(c)
-                                                && clear(c, *stubs, straight_ok, g.vertex);
+                                                && clear(c, *stubs, straight_ok, g.vertex, reach);
                                         }
-                                        clear(c, *stubs, straight_ok, g.vertex)
+                                        clear(c, *stubs, straight_ok, g.vertex, reach)
                                             && (roomy(c) || {
                                                 crowded = Some(c.clone());
                                                 false

@@ -4790,6 +4790,9 @@ fn recover_candidates(
                     },
                     p,
                 ));
+                if smallest_angle_losses > 0 && found_all_angles {
+                    break;
+                }
             }
         }
         if cut && candidates.is_empty() {

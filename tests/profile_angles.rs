@@ -65,33 +65,6 @@ fn angles(p: &Plan) -> Vec<&PlannedDimension> {
         .collect()
 }
 
-#[test]
-fn shf08_hole_leaves_the_near_side_on_a4_at_two_to_one() {
-    // Automatic paper can grow to retain required profile angles. Keep checking
-    // the original hole leader when the A4 drawing is requested explicitly.
-    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/sheet-policy/shf08.step.gz");
-    let spec = serde_json::from_value(json!({
-        "schema": model::SPEC_SCHEMA,
-        "units": "mm",
-        "sheet": {"size": "A4", "scale": "2:1"}
-    }))
-    .unwrap();
-    let p = api::plan_from(&file, api::Features::Native, &spec).unwrap();
-    assert_eq!(
-        (p.sheet.size.as_str(), p.sheet.scale.as_str()),
-        ("A4", "2:1")
-    );
-    let id = "d:f:hole:f28/bore.diameter";
-    assert!(!p.problems.iter().any(|q| matches!(
-        q.code.as_str(),
-        "leader_across_view" | "leader_through_feature"
-    ) && q.subjects.iter().any(|s| s == id)));
-    let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
-    let shaft = d.placed.as_ref().unwrap().lines[0];
-    assert!((shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) < 20.0);
-}
-
 /// A profile chamfer callout's ID prefix.
 const CHAMFER: &str = "d:envelope/profile_chamfer.length.";
 

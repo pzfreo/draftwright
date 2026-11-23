@@ -1572,6 +1572,23 @@ pub(crate) fn reserve_nominal_bounds(
     inventory: &[crate::dims::PlannedDimension],
     gdt: &[crate::dims::gdt::PlannedGdt],
 ) {
+    let angles: std::collections::BTreeSet<_> = inventory
+        .iter()
+        .filter(|d| {
+            d.kind == "angular"
+                && d.measurements
+                    .iter()
+                    .any(|m| m.parameter == crate::dims::PROFILE_ANGLE)
+        })
+        .filter_map(|d| {
+            let b = crate::dims::ink_box(d)?;
+            let a = views.iter().find(|v| v.id == d.view)?.area;
+            (b[0] < a[0] || b[1] < a[1] || b[2] > a[2] || b[3] > a[3]).then(|| d.id.clone())
+        })
+        .collect();
+    if !angles.is_empty() && !crate::nominal::comparison() {
+        reserve_bounds(analysis, sheet, views, inventory, gdt, Some(&angles));
+    }
     if !crate::nominal::geometry_eligible(analysis) {
         let grown: std::collections::BTreeSet<_> = inventory
             .iter()

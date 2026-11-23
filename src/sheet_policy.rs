@@ -5417,13 +5417,37 @@ mod compact_sheet_regressions {
     }
 
     #[test]
-    fn shf08_keeps_required_angles_and_the_near_side_hole_leader() {
+    fn shf08_hole_leaves_the_near_side_on_a4_at_two_to_one() {
         let path = fixture("sheet-policy/shf08.step.gz");
-        let (part, a) = model::analyse_native(&path).unwrap();
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
-        assert!(model::findings(&p).clean());
+        let (_, a) = model::analyse_native(&path).unwrap();
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": model::SPEC_SCHEMA,
+            "units": "mm",
+            "sheet": {"size": "A4", "scale": "2:1"}
+        }))
+        .unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A4", "2:1")
+        );
+        assert!(
+            model::findings(&p).clean(),
+            "{:?}",
+            model::hard_layout_codes(&p)
+        );
         assert!(model::finished_sheets_fit(&a, &p));
         assert_eq!(model::undrawn_gdt(&p), 0);
+        assert_near_side_hole(&p);
+        assert!(!p.dimensions.iter().any(|d| {
+            d.kind == "callout"
+                && d.measurements
+                    .iter()
+                    .any(|m| m.parameter == crate::dims::PROFILE_ANGLE)
+        }));
+    }
+
+    fn assert_near_side_hole(p: &Plan) {
         let id = "d:f:hole:f28/bore.diameter";
         assert!(!p.problems.iter().any(|q| matches!(
             q.code.as_str(),
@@ -5432,6 +5456,70 @@ mod compact_sheet_regressions {
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
         let shaft = d.placed.as_ref().unwrap().lines[0];
         assert!((shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) < 20.0);
+    }
+
+    #[test]
+    fn shf08_states_located_profile_angles_to_the_virtual_sharp() {
+        let path = fixture("sheet-policy/shf08.step.gz");
+        let (part, a) = model::analyse_native(&path).unwrap();
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": model::SPEC_SCHEMA,
+            "units": "mm",
+            "sheet": {"size": "A3", "scale": "2:1"}
+        }))
+        .unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A3", "2:1")
+        );
+        assert!(
+            model::findings(&p).clean(),
+            "{:?}",
+            model::hard_layout_codes(&p)
+        );
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert_eq!(model::undrawn_gdt(&p), 0);
+        assert_near_side_hole(&p);
+        let measured: Vec<_> = p
+            .dimensions
+            .iter()
+            .filter(|d| {
+                d.measurements
+                    .iter()
+                    .any(|m| m.parameter == crate::dims::PROFILE_ANGLE)
+            })
+            .collect();
+        assert_eq!(measured.len(), 2);
+        assert!(
+            measured
+                .iter()
+                .all(|d| d.kind == "angular" && d.placed.is_some()),
+            "{measured:?}"
+        );
+        let rounded = measured
+            .iter()
+            .find(|d| d.label.contains("39.180°"))
+            .unwrap();
+        let view = p.views.iter().find(|v| v.id == rounded.view).unwrap();
+        let camera = crate::haecceity::hlr::View::new(view.direction, view.up).unwrap();
+        let (_, centre) = model::extent(&a, &camera);
+        let page = |point| {
+            let projected = camera.map(point);
+            [0, 1].map(|k| view.at[k] + view.scale * (projected[k] - centre[k]))
+        };
+        let witnesses = &rounded.placed.as_ref().unwrap().lines[..2];
+        let reaches = |[m, n]: [[f64; 2]; 2], q: [f64; 2]| {
+            let [dx, dy] = [n[0] - m[0], n[1] - m[1]];
+            let [x, y] = [q[0] - m[0], q[1] - m[1]];
+            (dx * y - dy * x).abs() < 1e-5
+                && x * dx + y * dy >= -1e-6
+                && (x - dx) * dx + (y - dy) * dy <= 1e-6
+        };
+        let corners = crate::lint::profile_angles::requirements(&a);
+        assert!(corners.iter().any(|c| c.virtual_vertex
+            && rounded.measurements.iter().any(|m| m.feature == c.feature)
+            && witnesses.iter().all(|w| reaches(*w, page(c.vertex)))));
         let font =
             crate::text::Font::new(include_bytes!("../fonts/IBMPlexMono-Regular.ttf").to_vec())
                 .unwrap();
@@ -5449,7 +5537,10 @@ mod compact_sheet_regressions {
         assert!(
             !crate::lint::lint_sheets(&a, &drawings)
                 .iter()
-                .any(|i| i.code == "angular_requirement_missing")
+                .any(|i| matches!(
+                    i.code.as_str(),
+                    "angular_requirement_missing" | "profile_corner_unlocated"
+                ))
         );
     }
 

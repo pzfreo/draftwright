@@ -128,10 +128,45 @@ fn located(
 }
 
 fn corner_angle(c: &Corner) -> super::angular::Angle {
+    if c.virtual_vertex && !crate::nominal::comparison() {
+        return super::angular::Angle::from(c);
+    }
     super::angular::Angle {
         vertex: c.vertex,
         first: c.ends[0],
         second: c.ends[1],
+    }
+}
+
+/// An angle extended beyond the part still needs a real station on each supporting edge.
+/// Prefer the in-envelope end that already has the most located coordinates.
+fn rounded_profile_stations(
+    c: &Corner,
+    envelope: [[f64; 3]; 2],
+    located: &dyn Fn(usize, f64) -> bool,
+    mut station: impl FnMut(usize, f64, [f64; 3], usize),
+) {
+    let in_profile = |p: [f64; 3]| {
+        (0..3)
+            .filter(|&k| k != c.axis)
+            .all(|k| p[k] >= envelope[0][k] - 1e-6 && p[k] <= envelope[1][k] + 1e-6)
+    };
+    let plane: Vec<_> = (0..3).filter(|&k| k != c.axis).collect();
+    for (end, principal) in c.ends.into_iter().zip(c.principal_edges()) {
+        let needed: Vec<_> = plane
+            .iter()
+            .copied()
+            .filter(|&k| !principal || (end[k] - c.vertex[k]).abs() < 1e-6)
+            .collect();
+        if let Some(at) = [end, c.vertex]
+            .into_iter()
+            .filter(|&p| in_profile(p))
+            .min_by_key(|p| needed.iter().filter(|&&k| !located(k, p[k])).count())
+        {
+            for k in needed.into_iter().filter(|&k| !located(k, at[k])) {
+                station(k, at[k], at, c.axis);
+            }
+        }
     }
 }
 
@@ -225,12 +260,7 @@ fn lean_angle(c: &Corner, reference: [f64; 3], toward: [f64; 3]) -> super::angul
     }
 }
 
-fn angle_want(
-    id: String,
-    corners: &[&Corner],
-    reference: bool,
-    basis: &str,
-) -> Want {
+fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> Want {
     let c = corners[0];
     // atan2 differs in its last bits between native and WASM libm; the plan's value must not.
     let value = (c.degrees() * 1e9).round() / 1e9;
@@ -679,6 +709,20 @@ fn build(
                     defined,
                     "a non-right convex outer-profile corner its linear dimensions do not fix, in the view that shows it true",
                 ));
+            }
+        }
+        if mode == CornerMode::Auto
+            && !crate::nominal::comparison()
+            && mine.iter().any(|c| {
+                c.virtual_vertex
+                    && (0..3).filter(|&k| k != c.axis).any(|k| {
+                        c.vertex[k] < analysis.envelope[0][k] - 1e-6
+                            || c.vertex[k] > analysis.envelope[1][k] + 1e-6
+                    })
+            })
+        {
+            for c in &mine {
+                rounded_profile_stations(c, analysis.envelope, &located, &mut station);
             }
         }
         stations.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
