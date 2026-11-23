@@ -1297,6 +1297,13 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
+                if wrapped_repair
+                    && let Some(want) = &want
+                    && let Some(frame) = frames.get(view.id.trim_start_matches("v:"))
+                    && let Some(placed) = &old
+                {
+                    candidates.extend(leaders::nearby_recess_bends(frame, want, d, placed));
+                }
                 if spec.units.is_mm()
                     && across_ids.contains(&id)
                     && plan
@@ -1339,6 +1346,9 @@ fn finish_with(
                     candidates[local..].sort_by(|a, b| route_length(a).total_cmp(&route_length(b)));
                 }
                 let eligible = |next: &mut Placed| {
+                    if wrapped_repair && leaders::recess_route_near_outline(analysis, view, next) {
+                        return false;
+                    }
                     if let Some(g) = &glyph
                         && !meet_frame(g, next, spec.units == crate::units::Units::In)
                     {

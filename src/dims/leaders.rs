@@ -7644,6 +7644,51 @@ pub(super) fn elbow_near_outline(
     })
 }
 
+pub(super) fn recess_route_near_outline(
+    analysis: &crate::model::Analysis,
+    view: &crate::model::PlannedView,
+    placed: &Placed,
+) -> bool {
+    recess_outline(analysis, view).is_some_and(|outline| {
+        outline.crosses_box(elbow_box(placed.lines[0][1]))
+            || outline.crosses_box(grow(placed.label_box, 1.0))
+    })
+}
+
+/// Try nearby bends on the settled recess rim, with the settled shoulder and printed label.
+pub(super) fn nearby_recess_bends(
+    frame: &Frame,
+    want: &Want,
+    d: &PlannedDimension,
+    placed: &Placed,
+) -> Vec<Placed> {
+    let ([tip, elbow], [_, end]) = (placed.lines[0], placed.lines[1]);
+    let shoulder = (end[0] - elbow[0]).abs();
+    let [x, y] = [elbow[0] - tip[0], elbow[1] - tip[1]];
+    let mut want = want.clone();
+    want.terms.clone_from(&d.terms);
+    let mut bends = Vec::new();
+    for step in -16..=8 {
+        for dy in [-0.75, 0.0, 0.75] {
+            if let Some(mut route) = offset_intent(
+                frame,
+                &want,
+                [x + f64::from(step) * 0.25, y + dy],
+                Some((placed, &d.terms)),
+            ) {
+                let current = route.lines[1][1][0] - route.lines[1][0][0];
+                let delta = shoulder.copysign(current) - current;
+                route.lines[1][1][0] += delta;
+                route.label_at[0] += delta;
+                route.label_box[0] += delta;
+                route.label_box[2] += delta;
+                bends.push(route);
+            }
+        }
+    }
+    bends
+}
+
 /// Final repair over the clear-route sweep, with no-regression budgets.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn settled_routes(
