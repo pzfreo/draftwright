@@ -231,6 +231,43 @@ fn omitting_the_true_shape_restores_the_bores_location_finding() {
 }
 
 #[test]
+fn unavailable_parents_report_why_the_request_cannot_draw_and_offer_a_fix() {
+    let (_, a) = part("parts/corner-cuts.step.gz");
+    for (edit, child, reason) in [
+        (json!({"omit":true}), "plan", "hidden"),
+        (json!({"omit":true}), "aux:face:4", "omitted"),
+        (
+            json!("aux:face:999/edge"),
+            "aux:f:hole:f10",
+            "does not exist",
+        ),
+    ] {
+        let mut spec = jern();
+        if edit.is_object() {
+            spec["views"][child]["omit"] = edit["omit"].clone();
+        } else {
+            spec["views"][child]["auxiliary"]["from"] = edit;
+        }
+        let p = plan(&a, spec);
+        let request = if child == "plan" {
+            "aux:face:4"
+        } else {
+            "aux:f:hole:f10"
+        };
+        let problem = p
+            .problems
+            .iter()
+            .find(|problem| {
+                problem.code == "auxiliary_parent_unapplied"
+                    && problem.refs.first().is_some_and(|name| name == request)
+            })
+            .expect("unavailable parent must be reported");
+        assert!(problem.message.contains(reason), "{}", problem.message);
+        assert_eq!(problem.fix[0].path, format!("views/{request}/omit"));
+    }
+}
+
+#[test]
 fn plate_pin_primary_shows_true_height_and_inclination() {
     let (part, a) = part("pmi/step/assembly_plate_pin.step.gz");
     let p = plan(

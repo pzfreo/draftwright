@@ -139,6 +139,7 @@ catalogue! {
     authored_dimension_invalid => Decision, FixBeforePrinting, Code, "The authored dimension needs a valid user definition.";
     automatic_scale_limited => Advisory, Information, Code, "Larger automatic scales were refused for the reported fit or readability reasons.";
     auxiliary_anchor_unapplied => Decision, Tidy, Code, "The requested auxiliary view needs a current planar face or feature axis.";
+    auxiliary_parent_unapplied => Decision, Tidy, Code, "The requested auxiliary view needs a visible parent view.";
     auxiliary_unplaceable => Readability, Tidy, Code, "A requested auxiliary view has no room in the drawing.";
     axial_length_missing => Incomplete, Requirement, Code, "The drawing does not state the axial length.";
     balloon_dropped => Incomplete, Requirement, Code, "A required drawing item was dropped before it could be stated.";

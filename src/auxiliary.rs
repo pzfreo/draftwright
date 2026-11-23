@@ -116,6 +116,23 @@ fn invalid(name: &str, why: &str) -> Invalid {
     crate::model::invalid(format!("Auxiliary view {name} {why}."), &[]).at("views", name)
 }
 
+fn unavailable_parent(name: &str, parent: &str, why: &str) -> Problem {
+    Problem {
+        id: format!("p:auxiliary_parent_unapplied:{name}"),
+        code: "auxiliary_parent_unapplied".into(),
+        severity: "warning".into(),
+        message: format!(
+            "Cannot draw {name}: parent view {parent} {why}. Restore or change the parent to draw this view, or omit the auxiliary request."
+        ),
+        refs: vec![name.into(), parent.into()],
+        fix: vec![crate::items::Op::set(
+            format!("views/{}/omit", crate::items::key(name)),
+            serde_json::Value::Bool(true),
+        )],
+        ..Default::default()
+    }
+}
+
 fn anchor_references(a: &Analysis, anchor: &str, camera: Point, edge_on: bool) -> Vec<Reference> {
     if let Some(face) = face(a, anchor) {
         return coplanar_patches(a, &face, &[]);
@@ -271,9 +288,14 @@ pub(crate) fn requests(
                     .find(|r| r.name == p || r.id.strip_prefix("v:") == Some(p))
             });
             if let Some(p) = parent.filter(|p| is_name(p)) {
-                if unavailable.contains(spec_name(spec, p))
-                    || spec.views.get(spec_name(spec, p)).is_some_and(|v| v.omit)
-                {
+                let reason = match spec.views.get(spec_name(spec, p)) {
+                    Some(v) if v.omit => Some("is omitted"),
+                    _ if unavailable.contains(spec_name(spec, p)) => Some("could not be drawn"),
+                    Some(v) if v.auxiliary.is_some() => None,
+                    _ => Some("does not exist"),
+                };
+                if let Some(reason) = reason {
+                    problems.push(unavailable_parent(name, p, reason));
                     unavailable.insert(name.as_str());
                     continue;
                 }
@@ -325,12 +347,16 @@ pub(crate) fn requests(
                 (_, Some(r)) => direction(&r.camera).map(|d| (r.id.clone(), d)),
                 (Some(p), None) => {
                     if !VIEWS[..3].iter().any(|(n, ..)| *n == p) {
-                        return Err(invalid(
+                        problems.push(unavailable_parent(
                             name,
-                            "needs a principal or primary auxiliary parent",
+                            p,
+                            "is not a principal or a requested primary auxiliary view",
                         ));
+                        unavailable.insert(name.as_str());
+                        continue;
                     }
                     if !shown(p) {
+                        problems.push(unavailable_parent(name, p, "is hidden from the drawing"));
                         unavailable.insert(name.as_str());
                         continue;
                     }
@@ -427,13 +453,19 @@ pub(crate) fn place(
     problems: &mut Vec<Problem>,
 ) {
     for r in requests {
+        if !views.iter().any(|v| v.id == r.meta.parent) {
+            problems.push(unavailable_parent(
+                &r.name,
+                &r.meta.parent,
+                "could not be placed",
+            ));
+            continue;
+        }
         let area = boxes
             .iter()
             .find(|(name, _)| *name == r.name)
             .map(|(_, area)| *area);
-        if let Some(area) = area
-            && views.iter().any(|v| v.id == r.meta.parent)
-        {
+        if let Some(area) = area {
             views.push(PlannedView {
                 auxiliary: Some(r.meta),
                 detail: None,
@@ -465,8 +497,7 @@ pub(crate) fn place(
                 id: format!("p:auxiliary_unplaceable:{}", r.id),
                 code: "auxiliary_unplaceable".into(),
                 severity: "warning".into(),
-                message: "The layout has insufficient room for the auxiliary view or its parent."
-                    .into(),
+                message: "The layout has insufficient room for the auxiliary view.".into(),
                 refs: vec![r.id],
                 ..Default::default()
             });
