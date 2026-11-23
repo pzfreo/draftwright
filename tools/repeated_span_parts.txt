@@ -20,6 +20,7 @@ mfcadpp/10060.step
 mfcadpp/10063.step
 mfcadpp/1007.step
 mfcadpp/10092.step
+mfcadpp/10096.step
 mfcadpp/10127.step
 mfcadpp/10245.step
 mfcadpp/10255.step
