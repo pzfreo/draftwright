@@ -118,6 +118,8 @@ pub(super) struct Proof {
     boxes: Vec<[f64; 4]>,
     /// The covers of cylinders seen end-on: holes and bosses, drawn as circles.
     holes: Vec<[f64; 4]>,
+    /// The same cylinders' exact projected circles, for tangent witnesses.
+    end_on_circles: Vec<(P2, f64)>,
     /// Planar faces square to the view: their box and their chords.
     faces: Vec<Face>,
     /// All planar projections and full curved-face covers, for proving exterior voids.
@@ -420,6 +422,7 @@ fn build_camera_with_exterior(
     }
     let mut boxes = Vec::new();
     let mut holes = Vec::new();
+    let mut end_on_circles = Vec::new();
     let mut curved_cover = Vec::new();
     for f in &ink.curved {
         let [lo, hi] = f.bounds;
@@ -433,6 +436,7 @@ fn build_camera_with_exterior(
             if along > 1.0 - 1e-9 {
                 // Seen end-on: its outline is its rims, which are edges.
                 holes.push(bounds_of(corners.clone().map(|p| view.map(p))));
+                end_on_circles.push((view.map(c.origin), c.radius));
                 continue;
             }
             if along < 1e-9 {
@@ -470,6 +474,7 @@ fn build_camera_with_exterior(
         memo: ProofMemo::default(),
         boxes,
         holes,
+        end_on_circles,
         faces,
         exterior_faces,
         curved_cover,
@@ -781,6 +786,18 @@ impl Proof {
             let e = self.segments[i];
             (on_line(e[0]) && on_line(e[1])) || segment_distance(s, e) > c
         }) && self.boxes.iter().all(|x| !near_box(s, *x, c))
+    }
+
+    /// A witness to the virtual sharp leaves a rounded edge along its tangent.
+    /// Test the exact end-on circles: the tangent can lie inside the blend's
+    /// rectangular cover while staying outside the circle.
+    pub(super) fn virtual_witnesses_clear(&self, v: &PlannedView, lines: &[[P2; 2]]) -> bool {
+        lines.iter().all(|line| {
+            let span = line.map(|p| self.model_point(v, p));
+            self.end_on_circles
+                .iter()
+                .all(|&(centre, radius)| distance(centre, span) + 1e-6 >= radius)
+        })
     }
 
     pub(super) fn annotation_clear(&self, v: &PlannedView, p: &Placed, callout: bool) -> bool {
@@ -2591,6 +2608,7 @@ fn finish_openings_with(
     }
     let angle_proofs = super::interior::proofs(analysis, &plan.views);
     super::angular::place_profile(
+        analysis,
         &frames,
         &items,
         &angle_views,

@@ -606,6 +606,7 @@ fn a_larger_sheet_is_refused_for_a_doubled_leader_and_the_trace_says_so() {
         scale,
         width: spec.pages()[sheet].1,
         fill: 0.5,
+        angular_losses: 0,
         extra_crossings: 0,
     };
     let reference = with_leader(12.0, "A4", 1.0);

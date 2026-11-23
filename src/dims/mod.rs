@@ -4209,6 +4209,7 @@ fn plan_inventory_ordered(
     // already placed.
     if profile_first {
         angular::place_profile(
+            analysis,
             &frames,
             &all,
             &chosen,
@@ -4576,6 +4577,7 @@ fn plan_inventory_ordered(
         Vec::new()
     };
     angular::place_profile(
+        analysis,
         &frames,
         &all,
         &chosen,

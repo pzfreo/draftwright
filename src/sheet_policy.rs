@@ -811,6 +811,10 @@ fn usable_prepared(
         > sheet_fit::illegible_steps(analysis, reference)
     {
         Some("more illegible steps")
+    } else if !crate::nominal::comparison()
+        && model::angular_losses(plan) > model::angular_losses(reference)
+    {
+        Some("required profile angles not carried")
     } else if !model::carries_required(reference, plan) {
         Some("required items not carried")
     } else if !drops(plan).is_subset(&drops(reference)) {
@@ -1360,6 +1364,10 @@ fn select_scales_from(
         .as_ref()
         .and_then(|s| s.max)
         .unwrap_or(if automatic_auxiliary { 1 } else { 9 });
+    let reference_angles =
+        (!crate::nominal::comparison()).then(|| model::angular_losses(&reference));
+    let reference_fits = std::cell::OnceCell::new();
+    let same_scale_angle_neighbour = std::cell::Cell::new(false);
     let mut candidates = Vec::new();
     let mut search_trace = Vec::new();
     let mut best = sheet_fit::inside_frames(fit, &baseline).then(|| baseline.clone());
@@ -1433,6 +1441,36 @@ fn select_scales_from(
             let scale = plan.sheet.scale.clone();
             let spacing = plan.sheet.dimension_spacing;
             let result = (|| {
+                if !scales.contains(&scale) {
+                    scales.push(scale.clone());
+                }
+                // Witness and contact finishing cannot add a missing profile angle.
+                // Leave space drops to the schedule retry, which can replan those views.
+                if reference_angles.is_some_and(|n| model::angular_losses(&plan) > n)
+                    && *reference_fits.get_or_init(|| {
+                        model::findings(&reference).clean()
+                            && sheet_fit::inside_frames(fit, &reference)
+                    })
+                    && actual_space_drops(&plan) == 0
+                {
+                    if reference_angles == Some(0)
+                        && automatic(spec)
+                        && max == 1
+                        && plan.sheets.is_empty()
+                        && baseline.sheets.is_empty()
+                        && plan.sheet.scale_factor == baseline.sheet.scale_factor
+                        && model::findings(&plan).clean()
+                        && sheet_fit::inside_frames(fit, &plan)
+                        && spec
+                            .pages()
+                            .windows(2)
+                            .any(|pair| pair[0].0 == size && pair[1].0 == baseline.sheet.size)
+                    {
+                        same_scale_angle_neighbour.set(true);
+                    }
+                    *outcome = format!("refused at {scale}: required profile angles not carried");
+                    return None;
+                }
                 crate::dims::finish_pmi_witness_routes(fit, &mut plan);
                 if !maximise && plan.sheet.dimension_spacing == model::DimensionSpacing::Compact {
                     let ids = plan
@@ -1457,9 +1495,6 @@ fn select_scales_from(
                             fit, spec, &mut plan, &ids, &reference,
                         );
                     }
-                }
-                if !scales.contains(&plan.sheet.scale) {
-                    scales.push(plan.sheet.scale.clone());
                 }
                 if maximise && let Err(reason) = minimum_reduction_opening(fit, &plan, &reference) {
                     *outcome = reason;
@@ -1730,6 +1765,16 @@ fn select_scales_from(
                     .filter(move |s| *s <= largest && *s + 1e-9 >= floor)
             })
             .collect();
+        // The next sheet already proves this small part reads at full size or
+        // larger. Keep looking for full-size ink on the smaller sheet when
+        // its annotation bands also fit there at 1:1.
+        let full_size_neighbour = !crate::nominal::comparison()
+            && size == spec.pages()[0].0
+            && baseline.sheet.size == spec.pages()[1].0
+            && baseline.sheet.scale_factor >= 1.0
+            && baseline.sheets.is_empty()
+            && estimate.shortfall(size, max, 1.0).is_none()
+            && model::sparse_at_full_size(fit, &baseline);
         // A conservative band estimate cannot discard the drawing already
         // proved by the inner planner. Recheck its finished ink at this pair.
         if maximise
@@ -1785,6 +1830,14 @@ fn select_scales_from(
                     .into_iter()
                     .collect();
             }
+        }
+        if full_size_neighbour {
+            steps.retain(|&scale| scale >= 1.0);
+        }
+        // This paper already carries all angles at the scale at which the
+        // immediately smaller fitting sheet lost them.
+        if same_scale_angle_neighbour.get() && size == baseline.sheet.size {
+            steps.retain(|&scale| scale == baseline.sheet.scale_factor);
         }
         // The compact fallback keeps a drawing on one sheet of this paper; a split keeps
         // normal lanes (pinned replay across whole-view sheets is not yet reliable).
@@ -5580,11 +5633,14 @@ mod compact_sheet_regressions {
     use crate::model::{self, Plan, Spec};
     use std::path::Path;
 
-    fn selected(file: &str, size: &str, scale: &str) -> Plan {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+    fn fixture(file: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
-            .join(file);
-        let a = model::analyse_native(&path).unwrap().1;
+            .join(file)
+    }
+
+    fn selected(file: &str, size: &str, scale: &str) -> Plan {
+        let a = model::analyse_native(&fixture(file)).unwrap().1;
         // These regressions pin ISO sheets and metric scale/label recipes.
         let spec = Spec {
             units: crate::units::Units::Mm,
@@ -5638,7 +5694,36 @@ mod compact_sheet_regressions {
 
     #[test]
     fn shf08_hole_leaves_the_near_side_on_a4_at_two_to_one() {
-        let p = selected("sheet-policy/shf08.step.gz", "A4", "2:1");
+        let path = fixture("sheet-policy/shf08.step.gz");
+        let (_, a) = model::analyse_native(&path).unwrap();
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": model::SPEC_SCHEMA,
+            "units": "mm",
+            "sheet": {"size": "A4", "scale": "2:1"}
+        }))
+        .unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A4", "2:1")
+        );
+        assert!(
+            model::findings(&p).clean(),
+            "{:?}",
+            model::hard_layout_codes(&p)
+        );
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert_eq!(model::undrawn_gdt(&p), 0);
+        assert_near_side_hole(&p);
+        assert!(!p.dimensions.iter().any(|d| {
+            d.kind == "callout"
+                && d.measurements
+                    .iter()
+                    .any(|m| m.parameter == crate::dims::PROFILE_ANGLE)
+        }));
+    }
+
+    fn assert_near_side_hole(p: &Plan) {
         let id = "d:f:hole:f28/bore.diameter";
         assert!(!p.problems.iter().any(|q| matches!(
             q.code.as_str(),
@@ -5647,6 +5732,201 @@ mod compact_sheet_regressions {
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
         let shaft = d.placed.as_ref().unwrap().lines[0];
         assert!((shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) < 20.0);
+    }
+
+    #[test]
+    fn shf08_states_located_profile_angles_to_the_virtual_sharp() {
+        let path = fixture("sheet-policy/shf08.step.gz");
+        let (part, a) = model::analyse_native(&path).unwrap();
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": model::SPEC_SCHEMA,
+            "units": "mm",
+            "sheet": {"size": "A3", "scale": "2:1"}
+        }))
+        .unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A3", "2:1")
+        );
+        assert!(
+            model::findings(&p).clean(),
+            "{:?}",
+            model::hard_layout_codes(&p)
+        );
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert_eq!(model::undrawn_gdt(&p), 0);
+        assert_near_side_hole(&p);
+        let measured: Vec<_> = p
+            .dimensions
+            .iter()
+            .filter(|d| {
+                d.measurements
+                    .iter()
+                    .any(|m| m.parameter == crate::dims::PROFILE_ANGLE)
+            })
+            .collect();
+        assert_eq!(measured.len(), 2);
+        assert!(
+            measured
+                .iter()
+                .all(|d| d.kind == "angular" && d.placed.is_some()),
+            "{measured:?}"
+        );
+        let rounded = measured
+            .iter()
+            .find(|d| d.label.contains("39.180°"))
+            .unwrap();
+        let view = p.views.iter().find(|v| v.id == rounded.view).unwrap();
+        let camera = crate::haecceity::hlr::View::new(view.direction, view.up).unwrap();
+        let (_, centre) = model::extent(&a, &camera);
+        let page = |point| {
+            let projected = camera.map(point);
+            [0, 1].map(|k| view.at[k] + view.scale * (projected[k] - centre[k]))
+        };
+        let witnesses = &rounded.placed.as_ref().unwrap().lines[..2];
+        let reaches = |[m, n]: [[f64; 2]; 2], q: [f64; 2]| {
+            let [dx, dy] = [n[0] - m[0], n[1] - m[1]];
+            let [x, y] = [q[0] - m[0], q[1] - m[1]];
+            (dx * y - dy * x).abs() < 1e-5
+                && x * dx + y * dy >= -1e-6
+                && (x - dx) * dx + (y - dy) * dy <= 1e-6
+        };
+        let corners = crate::lint::profile_angles::requirements(&a);
+        assert!(corners.iter().any(|c| c.virtual_vertex
+            && rounded.measurements.iter().any(|m| m.feature == c.feature)
+            && witnesses.iter().all(|w| reaches(*w, page(c.vertex)))));
+        let font =
+            crate::text::Font::new(include_bytes!("../fonts/IBMPlexMono-Regular.ttf").to_vec())
+                .unwrap();
+        let drawings = model::render_sheets(&part, &a, &p, &font).unwrap();
+        let marks: Vec<_> = drawings.iter().flat_map(crate::lint::marks).collect();
+        let angles = marks
+            .iter()
+            .filter(|m| m.text.contains("161.681°"))
+            .flat_map(|m| &m.claims)
+            .filter(|c| c.parameter == crate::dims::PROFILE_ANGLE)
+            .map(|c| &c.feature)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(angles.len(), 2);
+        assert_eq!(model::angular_losses(&p), 0, "{}", p.sheet.basis);
+        assert!(
+            !crate::lint::lint_sheets(&a, &drawings)
+                .iter()
+                .any(|i| matches!(
+                    i.code.as_str(),
+                    "angular_requirement_missing" | "profile_corner_unlocated"
+                ))
+        );
+
+        let mut automatic = spec.clone();
+        automatic.sheet.size = None;
+        automatic.sheet.scale = None;
+        let recovered = super::select(&a, &automatic).unwrap();
+        assert_eq!(
+            (
+                recovered.sheet.size.as_str(),
+                recovered.sheet.scale.as_str()
+            ),
+            ("A3", "2:1")
+        );
+        let neighbour = recovered
+            .sheet_candidates
+            .iter()
+            .find(|candidate| candidate.size == "A3")
+            .unwrap();
+        assert_eq!(neighbour.scales, ["2:1"], "{}", recovered.sheet.basis);
+    }
+
+    #[test]
+    fn gantry_plate_uses_two_to_one_without_new_layout_warnings() {
+        let file = fixture("sheet-policy/gantry-plate.step.gz");
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": "draftwright.spec/2",
+            "sheet": {"title": {"title": "Gantry plate 20 mm V-slot", "number": "FC-GANTRY-PLATE"}}
+        }))
+        .unwrap();
+        let features = crate::api::Features::Native;
+        let plan = crate::api::plan_from(&file, features, &spec).unwrap();
+        assert_eq!(plan.sheet.scale, "2:1", "{}", plan.sheet.basis);
+        assert!(matches!(plan.sheet.size.as_str(), "A4" | "A3"));
+        let review = crate::api::review_from(&file, features, &spec).unwrap();
+        // The alpha.2 drawing had ten extension-through-feature warnings.
+        let warnings: Vec<_> = review
+            .problems
+            .iter()
+            .filter(|q| {
+                q.severity == "warning"
+                    && (super::layout_problem(q) || q.code == "extension_through_feature")
+            })
+            .collect();
+        assert!(warnings.len() <= 10, "{warnings:?}");
+        assert!(
+            warnings
+                .iter()
+                .all(|q| q.code == "extension_through_feature"),
+            "{warnings:?}"
+        );
+        assert!(
+            !review
+                .structural
+                .iter()
+                .any(|q| q.code == "annotation_ink_overlap")
+        );
+    }
+
+    #[test]
+    fn ftc08_keeps_its_inch_hole_table_and_avoids_shared_dimension_lines() {
+        let file = fixture("sheet-policy/nist_ftc_08_asme1_ap242-e2.stp.gz");
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": "draftwright.spec/2",
+            "sheet": {"title": {"title": "NIST FTC-08", "number": "NIST-FTC-08"}}
+        }))
+        .unwrap();
+        let (part, analysis) = model::analyse_native(&file).unwrap();
+        let plan = model::plan_recovered(&analysis, &spec).unwrap();
+        assert_eq!(plan.sheet.units, crate::units::Units::In);
+        assert!(matches!(
+            plan.sheet.size.as_str(),
+            "ANSI C" | "ANSI D" | "ANSI E"
+        ));
+        let table = plan
+            .hole_tables
+            .iter()
+            .chain(&plan.hole_table)
+            .find(|t| t.rows.len() == 21)
+            .expect("the 21-row table is installed");
+        assert!(!table.blocks.is_empty());
+        assert!(table.blocks.iter().all(|b| b.placed.is_some()));
+        for row in &table.rows {
+            let id = format!("{}/tag/{}", table.id, row.tag);
+            assert!(
+                plan.balloons.iter().any(|b| {
+                    b.id == id
+                        && b.certifying
+                        && b.features.contains(&row.feature)
+                        && b.state == crate::items::State::Shown
+                }),
+                "missing drawn tag for {}",
+                row.feature
+            );
+        }
+        let font =
+            crate::text::Font::new(include_bytes!("../fonts/IBMPlexMono-Regular.ttf").to_vec())
+                .unwrap();
+        let drawings = model::render_sheets(&part, &analysis, &plan, &font).unwrap();
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .chain(drawings.iter().flat_map(|d| &d.problems))
+                .any(|q| q.code == "dimension_line_shared" || q.code == "hole_table_unavailable")
+        );
+        assert!(
+            !crate::lint::lint_sheets(&analysis, &drawings)
+                .iter()
+                .any(|q| q.code == "angular_requirement_unverifiable")
+        );
     }
 
     fn corpus_analysis(file: &str) -> Option<model::Analysis> {
