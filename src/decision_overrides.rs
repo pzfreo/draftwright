@@ -541,7 +541,7 @@ fn report(analysis: &crate::model::Analysis, plan: &mut Plan) {
         add(&mut v.basis, Family::Views, Target::View(id));
         if v.auxiliary.is_some() {
             v.basis += &format!(
-                "; Spec: views/{}/auxiliary sets the anchor, parent, crop and relative scale",
+                "; Spec: views/{}/auxiliary; sets the anchor, parent, crop and relative scale",
                 crate::items::key(id)
             );
         }
