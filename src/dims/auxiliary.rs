@@ -343,7 +343,7 @@ pub(super) fn apply<'a>(
         {
             w.terms.extend([
                 crate::callouts::BREAK.into(),
-                format!("⌀ TANGENT TO {n} EDGES"),
+                format!("TANGENT TO {n} EDGES"),
             ]);
         }
         *sites = std::iter::once((at, diameter / 2.))

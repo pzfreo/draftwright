@@ -508,7 +508,10 @@ impl Callout {
         Self::read_units(text, crate::output::Units::Mm)
     }
     fn read_units(text: &str, units: crate::output::Units) -> Callout {
-        let text = text.split_once(TANGENT_NOTE).map_or(text, |(bore, _)| bore);
+        let text = text.split_once(TANGENT_NOTE).map_or(text, |(bore, _)| {
+            // Saved drawings may still prefix the tangency line with a diameter sign.
+            bore.trim_end().trim_end_matches('⌀')
+        });
         let chars: Vec<char> = text.chars().collect();
         let mut out = Callout {
             zero_nominal: None,
@@ -850,7 +853,7 @@ fn uncounted<'a>(g: &'a HoleGroup, marks: &[Mark]) -> Vec<&'a str> {
         .collect()
 }
 
-pub(super) const TANGENT_NOTE: &str = "⌀ TANGENT TO ";
+pub(super) const TANGENT_NOTE: &str = "TANGENT TO ";
 
 fn tangent_notes(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     marks.iter().filter_map(|mark| {

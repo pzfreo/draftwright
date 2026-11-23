@@ -175,7 +175,7 @@ fn jern_has_an_edge_parent_and_a_true_shape_with_grounded_location() {
     let radius = lift(&camera, page_span([centre, tip]));
     assert_true(radius, square.direction);
     assert!((dot(radius, radius).sqrt() / square.scale - 11.9928 / 2.).abs() < 1e-4);
-    assert!(d.text.iter().any(|t| t.text == "⌀ TANGENT TO 3 EDGES"));
+    assert!(d.text.iter().any(|t| t.text == "TANGENT TO 3 EDGES"));
 
     let located: Vec<_> = p
         .dimensions
@@ -277,9 +277,9 @@ fn inscribed_bore_note_checks_both_tangency_and_edge_count() {
     let note = wrong_count
         .text
         .iter_mut()
-        .find(|r| r.text == "⌀ TANGENT TO 3 EDGES")
+        .find(|r| r.text == "TANGENT TO 3 EDGES")
         .unwrap();
-    note.text = "⌀ TANGENT TO 4 EDGES".into();
+    note.text = "TANGENT TO 4 EDGES".into();
     assert!(
         has_finding(&a, &wrong_count),
         "the printed edge count must be verified"
