@@ -3550,7 +3550,11 @@ pub(crate) fn annotation_takes_origin(
                 })
             };
             plan.dimensions.iter().any(blocks)
-                || plan.gdt.iter().filter_map(crate::dims::gdt::proxy).any(|d| blocks(&d))
+                || plan
+                    .gdt
+                    .iter()
+                    .filter_map(crate::dims::gdt::proxy)
+                    .any(|d| blocks(&d))
         })
 }
 
