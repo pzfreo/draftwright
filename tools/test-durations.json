@@ -802,7 +802,7 @@
 "draftwright::audits trust_rules::an_omission_is_never_reported_as_a_drop": 0.1,
 "draftwright::audits trust_rules::annotations_carry_their_plan_items_provenance": 7.3,
 "draftwright::audits trust_rules::dimension_ids_are_derived_and_a_bare_role_warns_without_applying": 21.5,
-"draftwright::audits trust_rules::every_planned_dimension_can_be_addressed": 187.7,
+"draftwright::audits trust_rules::every_planned_dimension_can_be_addressed": 620.0,
 "draftwright::audits trust_rules::labels_are_measured_with_the_font_they_are_drawn_with": 1.3,
 "draftwright::audits trust_rules::lint_issue_serialization_preserves_every_inspection_channel": 0.0,
 "draftwright::audits trust_rules::no_document_infers_manufacturing_intent": 16.2,

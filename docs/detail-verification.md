@@ -437,7 +437,7 @@ integration checks failed, with both latency gates passing. Every failure has a 
 passing rerun. In addition to the head-priority correction above:
 
 * Whole correlated-ladder omissions retain the detail's reservations, as direct omissions
-  already did; `placement::omitting_one_dimension_moves_no_other` again keeps every unrelated
+  already did; `trust_rules::every_planned_dimension_can_be_addressed` checks that the omission keeps every unrelated
   view and dimension fixed.
 * The reference-to-controlling K6 regression uses the boss-circle fixture's real closed chain,
   since the turned fixture now intentionally has a nonredundant baseline. All positive and
