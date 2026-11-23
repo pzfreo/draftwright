@@ -890,6 +890,44 @@ fn local_radius(height: f64) -> f64 {
     LOCAL_REACH * height
 }
 
+/// Paper beyond the view for a rounded corner whose true apex projects outside the part.
+/// The measured sector needs room for its arrows and witness overshoot even with exterior text.
+pub(crate) fn virtual_sharp_bands(
+    analysis: &crate::model::Analysis,
+    views: &[(&'static str, P3, P3)],
+    scale: f64,
+) -> Vec<crate::layout::CalloutBand> {
+    crate::lint::profile_angles::requirements(analysis)
+        .into_iter()
+        .filter(|c| c.virtual_vertex)
+        .filter_map(|c| {
+            let &(view, direction, up) = views
+                .iter()
+                .find(|(name, ..)| *name == super::end_on(c.axis))?;
+            let frame = Frame::looking(analysis, direction, up, [0.0; 2], scale);
+            let [x, y] = frame.page(c.vertex);
+            let [left, bottom, right, top] = frame.outline();
+            let reach = (2.0 * ARROW + GAP) / c.degrees().to_radians() + OVERSHOOT + LIFT + 2.0;
+            Some(
+                [
+                    ("left", left - x),
+                    ("right", x - right),
+                    ("below", bottom - y),
+                    ("above", y - top),
+                ]
+                .into_iter()
+                .filter(move |(_, beyond)| *beyond > 1e-6)
+                .map(move |(side, beyond)| crate::layout::CalloutBand {
+                    view,
+                    side,
+                    depth: beyond + reach,
+                }),
+            )
+        })
+        .flatten()
+        .collect()
+}
+
 /// How far beyond another item's ink a candidate's ink may still meet it, page mm: past the
 /// distance at which parallel lines read as one ([`super::leaders::lines_meet`], 1 mm).
 const NEAR: f64 = 1.5;

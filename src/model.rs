@@ -4130,8 +4130,12 @@ fn veto_grown_leaders(
     sheet: usize,
     reference: &Plan,
 ) {
+    let reference_angle_losses = angular_losses(reference);
     candidates.retain(|(c, p)| {
-        if c.sheet <= sheet || !grown_callouts(p, reference) {
+        if c.sheet <= sheet
+            || c.angular_losses < reference_angle_losses
+            || !grown_callouts(p, reference)
+        {
             return true;
         }
         let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
@@ -4777,8 +4781,7 @@ fn recover_candidates(
                     smallest_angle_losses = angular_losses;
                     smallest_iso = p.views.iter().find(|v| v.id == "v:iso").map(|v| v.scale);
                 }
-                found_all_angles |=
-                    angular_losses == 0 && (!seed_kept || crossings + line_crossings == 0);
+                found_all_angles |= angular_losses == 0;
                 candidates.push((
                     crate::sheet_fit::Candidate {
                         sheet: i,
@@ -7697,6 +7700,18 @@ fn plan_with_presentation(
     let page = page.or_else(|| presentation.map(|p| p.page));
     // A schedule removes annotation demand; it must not shrink or enlarge the proven feature ink.
     let scale = presentation.map(|p| p.scale).or(scale);
+    if !crate::nominal::comparison()
+        && let (Some(page), Some(scale)) = (page, scale)
+        && page[0] > spec.pages()[0].1 + 1e-6
+    {
+        demand
+            .callout_bands
+            .extend(crate::dims::angular::virtual_sharp_bands(
+                analysis,
+                &shown_views,
+                scale,
+            ));
+    }
     let [lo, hi] = analysis.envelope;
     // Sections are marked on the plan; explicit cuts reserve a separate labelled frame.
     let section_label = named_request
