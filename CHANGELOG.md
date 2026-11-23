@@ -6,6 +6,9 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- **Python 3.11 or newer is now required** (was 3.9), matching quiddity. Python 3.9 and 3.10 are past
+  end of life. The wheel is abi3 for 3.11+, and CI installs it on 3.11 and 3.15. The PyPI page lists 3.11 to 3.15.
+
 - Corner cuts are dimensioned the way they were designed. `C<leg>` is only for a 45° cut
   whose leg is at most 25% of the part's larger extent in the view, so a thin profile's small
   edge break stays `C`; a larger or non-45° cut is a feature of the part, and Jern's 43% corner
