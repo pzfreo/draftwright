@@ -4122,7 +4122,8 @@ fn recover_paper(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
 /// The automatic enlargement veto on *candidates* beside the smallest sheet's drawing
 /// *reference* (sheet index *sheet*): a candidate on a larger sheet whose established leader
 /// has grown too far ([`grown_callouts`]: doubled at a larger scale, more than 2 mm longer
-/// otherwise) is dropped, and its trace in *tried* says so.
+/// otherwise) is dropped, and its trace in *tried* says so. A live candidate
+/// carrying more required angles keeps its place in the choice.
 fn veto_grown_leaders(
     spec: &Spec,
     candidates: &mut Vec<(crate::sheet_fit::Candidate, Plan)>,
@@ -4130,7 +4131,11 @@ fn veto_grown_leaders(
     sheet: usize,
     reference: &Plan,
 ) {
-    let reference_angle_losses = angular_losses(reference);
+    let reference_angle_losses = if crate::nominal::comparison() {
+        0
+    } else {
+        angular_losses(reference)
+    };
     candidates.retain(|(c, p)| {
         if c.sheet <= sheet
             || c.angular_losses < reference_angle_losses
