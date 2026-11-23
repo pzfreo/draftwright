@@ -1348,6 +1348,7 @@ fn select_scales_full(
     let reference_angles =
         (!crate::nominal::comparison()).then(|| model::angular_losses(&reference));
     let reference_fits = std::cell::OnceCell::new();
+    let same_scale_angle_neighbour = std::cell::Cell::new(false);
     let mut candidates = Vec::new();
     let mut search_trace = Vec::new();
     let mut best = sheet_fit::inside_frames(fit, &baseline).then(|| baseline.clone());
@@ -1430,6 +1431,21 @@ fn select_scales_full(
                     })
                     && actual_space_drops(&plan) == 0
                 {
+                    if reference_angles == Some(0)
+                        && automatic(spec)
+                        && max == 1
+                        && plan.sheets.is_empty()
+                        && baseline.sheets.is_empty()
+                        && plan.sheet.scale_factor == baseline.sheet.scale_factor
+                        && model::findings(&plan).clean()
+                        && sheet_fit::inside_frames(fit, &plan)
+                        && spec
+                            .pages()
+                            .windows(2)
+                            .any(|pair| pair[0].0 == size && pair[1].0 == baseline.sheet.size)
+                    {
+                        same_scale_angle_neighbour.set(true);
+                    }
                     *outcome = format!("refused at {scale}: required profile angles not carried");
                     return None;
                 }
@@ -1793,6 +1809,11 @@ fn select_scales_full(
         }
         if full_size_neighbour {
             steps.retain(|&scale| scale >= 1.0);
+        }
+        // This paper already carries all angles at the scale at which the
+        // immediately smaller fitting sheet lost them.
+        if same_scale_angle_neighbour.get() && size == baseline.sheet.size {
+            steps.retain(|&scale| scale == baseline.sheet.scale_factor);
         }
         // The compact fallback keeps a drawing on one sheet of this paper; a split keeps
         // normal lanes (pinned replay across whole-view sheets is not yet reliable).
@@ -5542,6 +5563,24 @@ mod compact_sheet_regressions {
                     "angular_requirement_missing" | "profile_corner_unlocated"
                 ))
         );
+
+        let mut automatic = spec.clone();
+        automatic.sheet.size = None;
+        automatic.sheet.scale = None;
+        let recovered = super::select(&a, &automatic).unwrap();
+        assert_eq!(
+            (
+                recovered.sheet.size.as_str(),
+                recovered.sheet.scale.as_str()
+            ),
+            ("A3", "2:1")
+        );
+        let neighbour = recovered
+            .sheet_candidates
+            .iter()
+            .find(|candidate| candidate.size == "A3")
+            .unwrap();
+        assert_eq!(neighbour.scales, ["2:1"], "{}", recovered.sheet.basis);
     }
 
     #[test]
