@@ -1072,13 +1072,13 @@ pub(super) fn place_profile(
                             || y > outline[3] + 1e-6)
                 })
             });
-        let clear = |c: &Placed, stubs: usize, straight_ok: bool, vertex: P2, limit: f64| {
+        let clear = |c: &Placed, stubs: usize, straight_ok: bool, g: &Ink, limit: f64| {
             let ink = reach(c, 0.0);
             // The label within the same reach of its corner as the arc.
             let b = c.label_box;
             let far = [b[0], b[2]]
                 .into_iter()
-                .flat_map(|x| [b[1], b[3]].map(|y| (x - vertex[0]).hypot(y - vertex[1])))
+                .flat_map(|x| [b[1], b[3]].map(|y| (x - g.vertex[0]).hypot(y - g.vertex[1])))
                 .fold(0.0, f64::max);
             far <= limit &&
             (extended_band || area.is_none_or(|b| {
@@ -1106,7 +1106,12 @@ pub(super) fn place_profile(
                 && (proof.blank(v, c.label_box) || proof.exterior_clear(v, c.label_box, &[], &[]))
                 // The arc and its arrows cross no edge of the part; inside the corner its
                 // witness stubs lie on the corner's own edges.
-                && proof.lines_clear(v, &c.lines[stubs..], &c.arrows, 2 - stubs, straight_ok)
+                && (if g.virtual_sharp.is_some() {
+                    proof.virtual_witnesses_clear(v, &c.lines[..2])
+                        && proof.lines_clear(v, &c.lines[2..], &c.arrows, 0, straight_ok)
+                } else {
+                    proof.lines_clear(v, &c.lines[stubs..], &c.arrows, 2 - stubs, straight_ok)
+                })
                 // Added opening lanes can put a corner's witness stubs onto
                 // its outline. Keep the complete replacement sector on clear
                 // paper inside the view, including those stubs and arrowheads.
@@ -1198,9 +1203,9 @@ pub(super) fn place_profile(
                                         // the full check.
                                         if crowded.is_some() {
                                             return roomy(c)
-                                                && clear(c, *stubs, straight_ok, g.vertex, reach);
+                                                && clear(c, *stubs, straight_ok, g, reach);
                                         }
-                                        clear(c, *stubs, straight_ok, g.vertex, reach)
+                                        clear(c, *stubs, straight_ok, g, reach)
                                             && (roomy(c) || {
                                                 crowded = Some(c.clone());
                                                 false
