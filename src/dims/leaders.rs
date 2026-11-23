@@ -7649,9 +7649,11 @@ pub(super) fn recess_route_near_outline(
     view: &crate::model::PlannedView,
     placed: &Placed,
 ) -> bool {
-    recess_outline(analysis, view).is_some_and(|outline| {
-        outline.crosses_box(elbow_box(placed.lines[0][1]))
-            || outline.crosses_box(grow(placed.label_box, 1.0))
+    placed.lines.first().is_some_and(|shaft| {
+        recess_outline(analysis, view).is_some_and(|outline| {
+            outline.crosses_box(elbow_box(shaft[1]))
+                || outline.crosses_box(grow(placed.label_box, 1.0))
+        })
     })
 }
 
@@ -7662,7 +7664,9 @@ pub(super) fn nearby_recess_bends(
     d: &PlannedDimension,
     placed: &Placed,
 ) -> Vec<Placed> {
-    let ([tip, elbow], [_, end]) = (placed.lines[0], placed.lines[1]);
+    let &[[tip, elbow], [_, end], ..] = placed.lines.as_slice() else {
+        return Vec::new();
+    };
     let shoulder = (end[0] - elbow[0]).abs();
     let [x, y] = [elbow[0] - tip[0], elbow[1] - tip[1]];
     let mut want = want.clone();
