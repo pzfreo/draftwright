@@ -2157,7 +2157,7 @@ fn inclined_planner_warning_names_each_holes_anchors() {
             centre, radii, t0, t1, ..
         } if (centre[0] - at[0]).hypot(centre[1] - at[1]) < 0.01
             && radii.iter().all(|r| (r - 4.25 * view.scale).abs() < 0.01)
-            && (t1 - t0).abs() > 6.28)),
+            && ((t1 - t0).abs() - std::f64::consts::TAU).abs() < 1e-5)),
             "{id}: true bore rim missing"
         );
         assert!(p.dimensions.iter().any(|d| {

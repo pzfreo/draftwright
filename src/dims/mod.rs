@@ -931,10 +931,10 @@ pub(crate) fn auxiliary_needs(analysis: &Analysis, spec: &Spec) -> BTreeSet<Stri
         };
         let subjects = ends
             .iter()
-            .filter_map(|end| end.strip_prefix("axis:"))
-            .filter_map(|end| {
+            .filter_map(|reference| {
+                let end = reference.strip_prefix("axis:")?;
                 needs.get(end).map(String::as_str).or_else(|| {
-                    let face = analysis.dimension_reference_axis_face(end)?;
+                    let face = analysis.dimension_reference_axis_face(reference)?;
                     analysis.features.iter().find_map(|f| {
                         (f.faces.contains(&face) && needs.contains(&f.id)).then_some(f.id.as_str())
                     })
