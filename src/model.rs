@@ -2636,12 +2636,7 @@ fn drops(plan: &Plan) -> usize {
 pub(crate) fn angular_losses(plan: &Plan) -> usize {
     plan.problems
         .iter()
-        .filter(|p| {
-            matches!(
-                p.code.as_str(),
-                "angular_dimension_dropped" | "angular_requirement_missing"
-            )
-        })
+        .filter(|p| p.code == "angular_dimension_dropped")
         .count()
 }
 
@@ -3319,6 +3314,21 @@ pub(crate) const LARGE_SHEET: usize = 2;
 /// before the automatic search admits A2 or larger.
 pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
     let (_, w, h) = first.spec.pages()[LARGE_SHEET - 1];
+    let (row, column, _) = full_size_view_footprints(analysis, first);
+    row <= w - 2.0 * layout::margin() && column <= h - 2.0 * layout::margin()
+}
+
+/// The compact-paper rule is for parts whose principal views already fit full size
+/// on the smallest sheet, with enough unused room to fall below the fill band.
+pub(crate) fn sparse_at_full_size(analysis: &Analysis, plan: &Plan) -> bool {
+    let (_, w, h) = plan.spec.pages()[0];
+    let w = w - 2.0 * layout::margin();
+    let h = h - 2.0 * layout::margin();
+    let (row, column, area) = full_size_view_footprints(analysis, plan);
+    row <= w && column <= h && area < w * h * crate::sheet_fit::FILL_BAND[0]
+}
+
+fn full_size_view_footprints(analysis: &Analysis, plan: &Plan) -> (f64, f64, f64) {
     let size = |v: &PlannedView| {
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
         let view = View::new(v.direction, v.up).expect("planned view");
@@ -3326,24 +3336,26 @@ pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
         if let Some(b) = &v.broken {
             size[b.axis] -= b.reduction();
         }
-        size
+        size.map(|extent| extent + 2.0 * layout::dim_pad())
     };
-    let views: Vec<&PlannedView> = first
+    let views: Vec<_> = plan
         .views
         .iter()
         .filter(|v| v.id != "v:iso" && v.detail.is_none())
+        .map(|v| (v.id.as_str(), size(v)))
         .collect();
     let row: f64 = views
         .iter()
-        .filter(|v| v.id != "v:plan")
-        .map(|v| size(v)[0] + 2.0 * layout::dim_pad())
+        .filter(|(id, _)| *id != "v:plan")
+        .map(|(_, [w, _])| w)
         .sum();
     let column: f64 = views
         .iter()
-        .filter(|v| v.id == "v:plan" || v.id == "v:front")
-        .map(|v| size(v)[1] + 2.0 * layout::dim_pad())
+        .filter(|(id, _)| matches!(*id, "v:plan" | "v:front"))
+        .map(|(_, [_, h])| h)
         .sum();
-    row <= w - 2.0 * layout::margin() && column <= h - 2.0 * layout::margin()
+    let area = views.iter().map(|(_, [w, h])| w * h).sum();
+    (row, column, area)
 }
 
 pub(crate) fn established_key(analysis: &Analysis, spec: &Spec) -> Vec<u8> {
@@ -4321,7 +4333,6 @@ fn recover_candidates(
     let mut smallest = None;
     let mut smallest_angle_losses = 0;
     let mut found_all_angles = false;
-    let mut smallest_has_wrapped_callouts = false;
     let angle_losses = |p: &Plan| {
         if crate::nominal::comparison() {
             0
@@ -4362,11 +4373,15 @@ fn recover_candidates(
             for scale in spec.scales().iter().copied().filter(|s| {
                 *s >= min_legible_scale && established_scale.is_none_or(|cap| *s <= cap)
             }) {
-                // Equal and smaller scales on the neighbour can only compete by
-                // stating more angles. Stop probing them once an eligible pair states all.
-                if smallest.is_some_and(|fit| !crate::sheet_fit::allowed(fit, i, scale))
-                    && (smallest_angle_losses == 0 || found_all_angles)
-                {
+                if smallest.is_some_and(|fit: (usize, f64)| {
+                    if i == fit.0 {
+                        false
+                    } else if smallest_angle_losses > 0 {
+                        found_all_angles || scale != fit.1
+                    } else {
+                        !crate::sheet_fit::allowed(fit, i, scale)
+                    }
+                }) {
                     continue;
                 }
                 // A view larger than the usable paper cannot be repaired by annotation placement.
@@ -4760,19 +4775,10 @@ fn recover_candidates(
                 if smallest.is_none() {
                     smallest = Some((i, scale));
                     smallest_angle_losses = angular_losses;
-                    smallest_has_wrapped_callouts = angular_losses > 0
-                        && p.dimensions.iter().any(|d| {
-                            d.kind == "callout"
-                                && d.terms.iter().any(|s| crate::callouts::is_break(s))
-                        });
                     smallest_iso = p.views.iter().find(|v| v.id == "v:iso").map(|v| v.scale);
                 }
-                found_all_angles |= angular_losses == 0
-                    && (!seed_kept || crossings + line_crossings == 0)
-                    // A wrapped leader may still veto a later sheet. In that case
-                    // keep probing pairs in case the only complete one is vetoed.
-                    && (!smallest_has_wrapped_callouts
-                        || smallest.is_some_and(|(j, _)| i == j));
+                found_all_angles |=
+                    angular_losses == 0 && (!seed_kept || crossings + line_crossings == 0);
                 candidates.push((
                     crate::sheet_fit::Candidate {
                         sheet: i,
@@ -4854,7 +4860,7 @@ fn recover_candidates(
     let prefer_full_size = !crate::nominal::comparison()
         && spec.sheet.size.is_none()
         && smallest.is_some_and(|(i, scale)| i == 0 && scale < 1.0)
-        && is_small(&mut small_part)?;
+        && sparse_at_full_size(analysis, &first);
     let Some((choice, (i, s))) = crate::sheet_fit::choose(
         &keys,
         spec.sheet.size.is_some(),
@@ -4999,8 +5005,13 @@ fn recover_candidates(
             "; every allowed pair adds material crossings to the valid first estimate, which is kept",
         ),
     };
+    let neighbour = if smallest_angle_losses > 0 {
+        "the neighbouring sheet may recover required angles at the same scale"
+    } else {
+        "at most one larger sheet only with enlargement"
+    };
     chosen.sheet.basis = format!(
-        "smallest fit {} at {}; at most one larger sheet only with enlargement; drawn-item fill {:.1}%, target {:.0}–{:.0}% (validity and completeness first); {estimate}{kept}; candidates: {}",
+        "smallest fit {} at {}; {neighbour}; drawn-item fill {:.1}%, target {:.0}–{:.0}% (validity and completeness first); {estimate}{kept}; candidates: {}",
         spec.pages()[i].0,
         scale_name(s),
         chosen.sheet.fill * 100.0,

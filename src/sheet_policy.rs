@@ -1733,7 +1733,8 @@ fn select_scales_full(
             && size == spec.pages()[0].0
             && baseline.sheet.size == spec.pages()[1].0
             && baseline.sheet.scale_factor >= 1.0
-            && baseline.sheets.is_empty();
+            && baseline.sheets.is_empty()
+            && model::sparse_at_full_size(fit, &baseline);
         // A conservative band estimate cannot discard the drawing already
         // proved by the inner planner. Recheck its finished ink at this pair.
         if maximise

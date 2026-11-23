@@ -1495,7 +1495,8 @@ pub(crate) struct Candidate {
 }
 
 /// Compare fitting pairs on the smallest sheet and its immediate neighbour. Fewer required
-/// angle losses can justify a different scale on either sheet. For a small part, a full-size
+/// angle losses can justify a smaller scale on the same sheet or more paper at the same scale.
+/// For a small part, a full-size
 /// pair takes precedence over a reducing scale. Otherwise [`rank`] compares fill. Against a
 /// valid first estimate (*seed_clean*), a pair
 /// that adds material crossings is set aside (the quality ratchet); it still defines the smallest
@@ -1518,8 +1519,13 @@ pub(crate) fn choose(
         .filter(|(_, c)| {
             named_sheet
                 || (c.sheet == first.0 && c.scale == first.1)
-                || (c.sheet == first.0 + 1 && allowed(first, c.sheet, c.scale))
-                || (c.sheet <= first.0 + 1 && c.angular_losses < smallest.angular_losses)
+                || (c.sheet == first.0 && c.angular_losses < smallest.angular_losses)
+                || (c.sheet == first.0 + 1
+                    && if smallest.angular_losses > 0 {
+                        c.scale == first.1 && c.angular_losses < smallest.angular_losses
+                    } else {
+                        allowed(first, c.sheet, c.scale)
+                    })
         })
         .filter(|(_, c)| !seed_clean || c.extra_crossings == 0)
         .min_by(|(_, a), (_, b)| {
@@ -2495,6 +2501,15 @@ mod tests {
         assert!(!allowed((0, 1.0), 1, 1.0));
         assert!(allowed((0, 1.0), 1, 2.0));
         assert!(!allowed((0, 1.0), 2, 5.0));
+
+        let mut smallest = c(0, 1.0, 0.40);
+        smallest.angular_losses = 1;
+        let enlarged = c(1, 2.0, 0.65);
+        let same_scale = c(1, 1.0, 0.30);
+        assert_eq!(
+            choose(&[smallest, enlarged, same_scale], false, true, false),
+            Some((Some(2), (0, 1.0)))
+        );
     }
     /// 10060 as measured: A4 1:1 17.0% and A3 2:1 14.9%, both valid and below the band.
     #[test]
