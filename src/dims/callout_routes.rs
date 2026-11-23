@@ -1238,7 +1238,7 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
-                if across_ids.contains(&id) && new_contacts.is_none() {
+                if spec.units.is_mm() && across_ids.contains(&id) && new_contacts.is_none() {
                     // Prefer a short exit from the bore. The inventory score puts ink
                     // inside its estimated annotation band first, but the settled
                     // repair below can grow that band into clear paper.
