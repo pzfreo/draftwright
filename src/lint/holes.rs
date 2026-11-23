@@ -508,9 +508,7 @@ impl Callout {
         Self::read_units(text, crate::output::Units::Mm)
     }
     fn read_units(text: &str, units: crate::output::Units) -> Callout {
-        let text = text
-            .split_once("⌀ TANGENT TO ")
-            .map_or(text, |(bore, _)| bore);
+        let text = text.split_once(TANGENT_NOTE).map_or(text, |(bore, _)| bore);
         let chars: Vec<char> = text.chars().collect();
         let mut out = Callout {
             zero_nominal: None,
@@ -852,6 +850,50 @@ fn uncounted<'a>(g: &'a HoleGroup, marks: &[Mark]) -> Vec<&'a str> {
         .collect()
 }
 
+pub(super) const TANGENT_NOTE: &str = "⌀ TANGENT TO ";
+
+fn tangent_notes(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    marks.iter().filter_map(|mark| {
+        let (_, note) = mark.text.split_once(TANGENT_NOTE)?;
+        let mut words = note.split_whitespace();
+        let printed = words.next().and_then(|n| n.parse::<usize>().ok())
+            .filter(|_| words.next() == Some("EDGES") && !note.contains(TANGENT_NOTE));
+        let direction = mark.claims.iter().find_map(|claim| {
+            serde_json::from_str(claim.feature.strip_prefix("tangent_view:")?).ok()
+        });
+        let subjects: BTreeSet<_> = mark.claims.iter()
+            .filter(|claim| claim.parameter == "bore.diameter")
+            .map(|claim| claim.feature.as_str()).collect();
+        let frame = crate::bridge::holes::frame(a);
+        let verified = printed.is_some() && !subjects.is_empty() && subjects.iter().all(|id| {
+            a.features.iter().find(|feature| feature.id == *id && feature.kind == "hole")
+                .and_then(|feature| Hole::read(feature, &frame).ok()).is_some_and(|hole| {
+                    let ends = [hole.direction, hole.direction.map(|x| -x)];
+                    direction.as_ref().map_or(ends.as_slice(), std::slice::from_ref)
+                        .iter().any(|&toward| super::auxiliary::tangent_edges(a, &hole, toward) == printed)
+                })
+        });
+        (!verified).then(|| LintIssue {
+            id: format!("l:hole_tangent_note_unverifiable:{}", mark.name),
+            code: "hole_tangent_note_unverifiable".into(),
+            severity: Severity::Warning,
+            message: "The bore tangency note does not match the opening geometry and its edge count.".into(),
+            annotation: Some(mark.name.clone()),
+            view: mark.view.clone(),
+            subjects: subjects.into_iter().map(str::to_owned).collect(),
+            fix: Some("Correct the edge count on the supported bore opening or remove the tangency note.".into()),
+            sheet: None,
+            at: None,
+            requirements: Vec::new(),
+            measurements: Vec::new(),
+            sources: Vec::new(),
+            stage: None,
+            related: Vec::new(),
+            evidence: Some(note.into()),
+        })
+    }).collect()
+}
+
 /// The hole coverage findings: each requirement of each group that the marks do not state.
 pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     // A thread's source-bound manufacturing row can carry its tapping-drill values.
@@ -890,7 +932,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         }
     }
     let marks = evidence.as_slice();
-    let mut issues = Vec::new();
+    let mut issues = tangent_notes(analysis, marks);
     for g in groups(analysis) {
         let uncounted = uncounted(&g, marks);
         for (parameter, value) in g.requirements() {

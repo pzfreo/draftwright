@@ -52,6 +52,14 @@ fn assert_true(span: [f64; 3], direction: [f64; 3]) {
     );
 }
 
+fn lift(view: &View, span: [f64; 2]) -> [f64; 3] {
+    std::array::from_fn(|k| span[0] * view.x[k] + span[1] * view.y[k])
+}
+
+fn page_span([a, b]: [[f64; 2]; 2]) -> [f64; 2] {
+    [b[0] - a[0], b[1] - a[1]]
+}
+
 fn arrow(drawing: &Drawing, p: &Plan, child: &str, parent: &str) {
     let parent_view = p.views.iter().find(|v| v.id == parent).unwrap();
     let child_view = p.views.iter().find(|v| v.id == child).unwrap();
@@ -149,6 +157,24 @@ fn jern_has_an_edge_parent_and_a_true_shape_with_grounded_location() {
         .unwrap();
     assert_eq!(dimension.view, TRUE);
     assert!(dimension.placed.is_some());
+    let camera = View::new(square.direction, square.up).unwrap();
+    let tip = dimension.placed.as_ref().unwrap().arrows[0][0];
+    let centre = shape
+        .edges
+        .iter()
+        .find_map(|edge| match edge {
+            Curve::Conic { centre, radii, .. }
+                if (radii[0] - 11.9928 * square.scale / 2.).abs() < 1e-4
+                    && ((tip[0] - centre[0]).hypot(tip[1] - centre[1]) - radii[0]).abs() < 1e-4 =>
+            {
+                Some(*centre)
+            }
+            _ => None,
+        })
+        .expect("the leader tip lies on the true bore rim");
+    let radius = lift(&camera, page_span([centre, tip]));
+    assert_true(radius, square.direction);
+    assert!((dot(radius, radius).sqrt() / square.scale - 11.9928 / 2.).abs() < 1e-4);
     assert!(d.text.iter().any(|t| t.text == "⌀ TANGENT TO 3 EDGES"));
 
     let located: Vec<_> = p
@@ -157,6 +183,7 @@ fn jern_has_an_edge_parent_and_a_true_shape_with_grounded_location() {
         .filter(|d| d.id.starts_with(&format!("d:{BORE}/location.length.")))
         .collect();
     assert_eq!(located.len(), 2);
+    let station = located[0].id.clone();
     for d in located {
         assert_eq!(d.view, TRUE);
         assert!(d.placed.is_some());
@@ -209,6 +236,65 @@ fn jern_has_an_edge_parent_and_a_true_shape_with_grounded_location() {
     assert!(
         issues.iter().all(|f| !f.subjects.iter().any(|s| s == BORE)),
         "{issues:?}"
+    );
+
+    let mut false_ink = d.clone();
+    let item = false_ink
+        .sheet
+        .items
+        .iter_mut()
+        .find(|item| item.name == station)
+        .unwrap();
+    // Move the extension off its witness along the same infinite line. Its
+    // distance and direction still read correctly, but it no longer reaches the part.
+    let shift = page_span(item.lines[0]);
+    for point in &mut item.lines[0] {
+        for k in 0..2 {
+            point[k] += 100. * shift[k];
+        }
+    }
+    assert!(
+        draftwright::lint::lint(&a, &false_ink)
+            .iter()
+            .any(|issue| issue.code == "feature_not_located"
+                && issue.subjects.iter().any(|id| id == BORE)),
+        "a detached auxiliary witness must lose location credit"
+    );
+}
+
+#[test]
+fn inscribed_bore_note_checks_both_tangency_and_edge_count() {
+    let (part, a) = part("parts/corner-cuts.step.gz");
+    let d = render(&part, &a, &plan(&a, jern()));
+    let has_finding = |a: &Analysis, d: &Drawing| {
+        draftwright::lint::lint(a, d).iter().any(|issue| {
+            issue.code == "hole_tangent_note_unverifiable"
+                && issue.subjects.iter().any(|id| id == BORE)
+        })
+    };
+    assert!(!has_finding(&a, &d), "the genuine tangency is supported");
+    let mut wrong_count = d.clone();
+    let note = wrong_count
+        .text
+        .iter_mut()
+        .find(|r| r.text == "⌀ TANGENT TO 3 EDGES")
+        .unwrap();
+    note.text = "⌀ TANGENT TO 4 EDGES".into();
+    assert!(
+        has_finding(&a, &wrong_count),
+        "the printed edge count must be verified"
+    );
+
+    let mut non_tangent = a.clone();
+    let bore = non_tangent
+        .features
+        .iter_mut()
+        .find(|f| f.id == BORE)
+        .unwrap();
+    bore.parameters["diameter"] = json!(11.9828);
+    assert!(
+        has_finding(&non_tangent, &d),
+        "tangency must agree with the bore geometry"
     );
 }
 
@@ -270,10 +356,8 @@ fn unavailable_parents_report_why_the_request_cannot_draw_and_offer_a_fix() {
 #[test]
 fn plate_pin_primary_shows_true_height_and_inclination() {
     let (part, a) = part("pmi/step/assembly_plate_pin.step.gz");
-    let p = plan(
-        &a,
-        json!({"views":{"aux:f:boss:f20":{"auxiliary":{"edge_on":PIN,"from":"plan"}}}}),
-    );
+    let request = json!({"views":{"aux:f:boss:f20":{"auxiliary":{"edge_on":PIN,"from":"plan"}}}});
+    let p = plan(&a, request.clone());
     let view = p
         .views
         .iter()

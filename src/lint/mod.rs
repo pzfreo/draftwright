@@ -48,6 +48,7 @@ use crate::output::{Claim, Drawing};
 
 pub mod angled_steps;
 mod authored;
+mod auxiliary;
 pub mod blends;
 pub mod blind_slots;
 pub mod bosses;
@@ -322,6 +323,20 @@ fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
                 });
             }
             let text = body.flatten().unwrap_or(drawn_text);
+            if text.contains(holes::TANGENT_NOTE)
+                && let Some(frame) = a
+                    .view
+                    .as_deref()
+                    .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")))
+            {
+                claims.push(Claim {
+                    feature: format!(
+                        "tangent_view:{}",
+                        serde_json::to_string(&frame.direction).unwrap()
+                    ),
+                    parameter: "direction".into(),
+                });
+            }
             Mark {
                 precision: drawing.sheet.precision.get(&a.name).copied(),
                 units: drawing.sheet.units,

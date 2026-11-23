@@ -5,13 +5,13 @@ use super::{Mark, location::AXES};
 use crate::model::Analysis;
 use crate::model::dimension_geometry::Reference;
 
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub(super) fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|k| a[k] - b[k])
 }
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+pub(super) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     (0..3).map(|k| a[k] * b[k]).sum()
 }
-fn unit(a: [f64; 3]) -> Option<[f64; 3]> {
+pub(super) fn unit(a: [f64; 3]) -> Option<[f64; 3]> {
     let n = dot(a, a).sqrt();
     (n > 1e-10).then(|| a.map(|v| v / n))
 }
@@ -51,7 +51,12 @@ fn auxiliary_axis(a: &Analysis, id: &str) -> Option<[f64; 3]> {
         return Some(direction);
     }
     a.features.iter().find(|f| f.id == id && f.kind == "boss")?;
-    let [start, end] = crate::auxiliary_geometry::feature_axis(a, id)?;
+    let Reference::Edge {
+        ends: [start, end], ..
+    } = a.dimension_reference(&format!("axis:{id}")).ok()?
+    else {
+        return None;
+    };
     let direction = unit(sub(end, start))?;
     crate::bridge::holes::principal(direction)
         .is_none()
@@ -243,17 +248,52 @@ fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option
         return None;
     }
     let f = a.features.iter().find(|f| f.id == id)?;
-    let station = crate::auxiliary_geometry::edge_stations(a, f, frame.direction)
-        .into_iter()
-        .find(|s| s.role() == claim.parameter)?;
-    let (key, _) = a.dimension_references().get_key_value(&station.key)?;
+    let (face, edge) = claim
+        .parameter
+        .strip_prefix("location.length.f")?
+        .split_once(".e")?;
+    let (face, edge) = (face.parse::<usize>().ok()?, edge.parse::<usize>().ok()?);
+    let mouth = super::auxiliary::opening(a, f, frame.direction)?;
+    let faces = super::auxiliary::opening_faces(a, f, mouth);
+    let Reference::Plane {
+        origin,
+        normal,
+        membership,
+        ..
+    } = faces.into_iter().find(|r| r.membership().faces == [face])?
+    else {
+        return None;
+    };
+    let shift = dot(sub(*origin, mouth.at), *normal) / dot(mouth.normal, *normal);
+    let piercing = std::array::from_fn(|k| mouth.at[k] + shift * mouth.normal[k]);
+    let reference = membership
+        .edges
+        .as_ref()?
+        .iter()
+        .find(|e| e.index == edge)?;
+    let (key, _) = a
+        .dimension_references()
+        .get_key_value(reference.reference.as_ref()?)?;
+    let anchor = a.dimension_reference(key).ok()?;
+    let Reference::Edge { ends, .. } = &anchor else {
+        return None;
+    };
+    let [first, last] = *ends;
+    let span = sub(last, first);
+    let along = unit(span)?;
+    let distance = dot(sub(piercing, first), along);
+    if distance < -0.002 || distance > dot(span, along) + 0.002 {
+        return None;
+    }
+    let foot = std::array::from_fn(|k| first[k] + along[k] * distance);
+    let delta = sub(piercing, foot);
     let c = Constraint {
         key,
-        anchor: a.dimension_reference(key).ok()?,
+        anchor,
         anchor_index: 0,
-        normal: station.direction,
-        witnesses: station.points,
-        value: station.length,
+        normal: unit(delta)?,
+        witnesses: [foot, piercing],
+        value: dot(delta, delta).sqrt(),
         auxiliary: true,
     };
     (super::location::nominal_in(&mark.text, c.value, mark.units, mark.precision)
@@ -289,7 +329,7 @@ fn trace_rooted(
         .collect();
     let station = |k: usize, value| super::profile_angles::rooted_at(&roots[k], &spans, k, value);
     let support_face = membership.faces.iter().find_map(|&face| {
-        let r = crate::auxiliary_geometry::face_at(a, face)?;
+        let r = super::auxiliary::face_at(a, face)?;
         matches!(&r, Reference::Plane { normal, .. } if crate::bridge::holes::principal(*normal).is_none()).then_some(r)
     });
     let on_face = |p| match &support_face {
@@ -297,12 +337,11 @@ fn trace_rooted(
         _ => false,
     };
     let adjoining_stock_located = membership.faces.iter().any(|&face| {
-        let Some(Reference::Plane { normal, origin, .. }) =
-            crate::auxiliary_geometry::face_at(a, face)
+        let Some(Reference::Plane { normal, origin, .. }) = super::auxiliary::face_at(a, face)
         else {
             return false;
         };
-        crate::bridge::holes::principal(normal).is_some_and(|axis| station(axis, origin[axis]))
+        crate::bridge::holes::principal(*normal).is_some_and(|axis| station(axis, origin[axis]))
     });
     let mut directions = Vec::new();
     for corner in super::profile_angles::requirements(a) {
@@ -455,23 +494,30 @@ fn ink_matches(a: &Analysis, mark: &Mark, c: &Constraint<'_>) -> bool {
     let centre = view.map(std::array::from_fn(|k| {
         (a.envelope[0][k] + a.envelope[1][k]) / 2.
     }));
-    let station = |p| {
+    let paper = |p| {
         let p = view.map(p);
-        project([
+        [
             frame.at[0] + frame.scale * (p[0] - centre[0]),
             frame.at[1] + frame.scale * (p[1] - centre[1]),
-        ])
+        ]
     };
-    let ink: Vec<_> = lines[..2].iter().map(|e| project(e[0])).collect();
-    let want = c.witnesses.map(station);
+    let want = c.witnesses.map(paper);
     let near = |x: f64, y: f64| (x - y).abs() < 1e-5;
+    let reaches = |line: [[f64; 2]; 2], point: [f64; 2]| {
+        near(project(line[0]), project(point))
+            && (!c.auxiliary || {
+                let gap = sub2(line[0], point);
+                // Extension ink may leave a small gap at the measured point.
+                gap[0].hypot(gap[1]) <= 3.
+            })
+    };
     let along = sub2(lines[2][1], lines[2][0]);
     (along[0] * u[1] - along[1] * u[0]).abs() < 1e-5
         && lines[..2]
             .iter()
             .all(|e| near(project(e[0]), project(e[1])))
-        && ((near(ink[0], want[0]) && near(ink[1], want[1]))
-            || (near(ink[0], want[1]) && near(ink[1], want[0])))
+        && ((reaches(lines[0], want[0]) && reaches(lines[1], want[1]))
+            || (reaches(lines[0], want[1]) && reaches(lines[1], want[0])))
 }
 fn sub2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     [a[0] - b[0], a[1] - b[1]]

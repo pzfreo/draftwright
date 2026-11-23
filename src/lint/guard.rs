@@ -10,8 +10,7 @@
 //!   features (`crate::bridge`), the Analysis's PMI reading (`crate::pmi`) and its lowering
 //!   (`crate::pmi_lowering`, a function of the Analysis alone), the material re-entry predicate
 //!   it shares with the leader router (`crate::material`, a function of the Analysis's solids
-//!   and a page projection alone), shared auxiliary edge evidence (`crate::auxiliary_geometry`,
-//!   a function of the Analysis and a direction alone), and the rendered drawing
+//!   and a page projection alone), and the rendered drawing
 //!   (`crate::output`) and the independent scope vocabulary/default (`crate::remedy_scope`,
 //!   whose source is audited by this guard too).
 
@@ -36,14 +35,13 @@ const FORBIDDEN: [&str; 14] = [
 ];
 
 /// The `crate::` paths lint may use.
-const ALLOWED: [&str; 15] = [
+const ALLOWED: [&str; 14] = [
     "crate::model::Analysis",
     "crate::model::dimension_geometry::Reference",
     "crate::bridge",
     "crate::pmi",
     "crate::pmi_lowering",
     "crate::material",
-    "crate::auxiliary_geometry",
     "crate::arc",
     "crate::radius",
     "crate::output",
@@ -194,7 +192,6 @@ fn module_violations() -> Vec<(String, Vec<String>)> {
     );
     // `crate::material` is allowed to lint, so it is held to lint's rule as well.
     files.push(dir.parent().unwrap().join("material.rs"));
-    files.push(dir.parent().unwrap().join("auxiliary_geometry.rs"));
     // The scope vocabulary/default has no authoring or drawing state. Audit it too.
     files.push(dir.parent().unwrap().join("remedy_scope.rs"));
     // Shared arc geometry/evidence is audited by the same independence guard.
