@@ -208,7 +208,7 @@ pub(super) fn apply(spec: &crate::model::Spec, wants: &mut [Want]) {
 /// An existing statement of the same projected leg span can carry its group claim.
 /// Equal numbers at other stations, authored placements and tolerance bands stay distinct.
 pub(super) fn share(
-    kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
+    kept: &mut Vec<(Want, bool, Option<&str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<super::Omitted>,
     units: crate::units::Units,

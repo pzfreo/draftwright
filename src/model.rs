@@ -1047,6 +1047,8 @@ pub struct ViewSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::detail::DetailSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub auxiliary: Option<crate::auxiliary::AuxiliarySpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sheet: Option<u32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub omit: bool,
@@ -1281,6 +1283,8 @@ pub struct PlannedView {
     pub line_pose: Option<LinePose>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::detail::Detail>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auxiliary: Option<crate::auxiliary::Auxiliary>,
     #[serde(
         default = "crate::sheets::one",
         skip_serializing_if = "crate::sheets::is_one"
@@ -6793,6 +6797,7 @@ fn plan_with_presentation(
     let analysis = merged.as_ref();
     crate::sheets::validate(spec)?;
     crate::detail::check(analysis, spec)?;
+    crate::auxiliary::check(spec)?;
     crate::spec_notes::check_claims(analysis, spec)?;
     crate::dims::check_views(spec)?;
     crate::placement_intent::check(spec)?;
@@ -7361,6 +7366,7 @@ fn plan_with_presentation(
                 && *name != "iso_below"
                 && !spec.views.sections.iter().any(|r| r.view_name() == Some(name.as_str()))
                 && !crate::detail::NAMES.contains(&name.as_str())
+                && !crate::auxiliary::is_name(name)
                 && !VIEWS.iter().any(|(v, ..)| v == *name)
         })
         .map(|name| {
@@ -7438,15 +7444,17 @@ fn plan_with_presentation(
     let reduction = reduction
         .or_else(|| crate::dims::idle_view(analysis, spec, &demand))
         .filter(|(_, dropped, _)| {
-            !spec.dimensions.values().any(|d| {
-                !d.omit
-                    && (d.between.is_some() || spec.dimension_source == DimensionSource::Authored)
-                    && d.place
-                        .as_ref()
-                        .and_then(|p| p.view.as_deref())
-                        .or(d.view.as_deref())
-                        == Some(*dropped)
-            })
+            !crate::auxiliary::keeps_parent(spec, dropped)
+                && !spec.dimensions.values().any(|d| {
+                    !d.omit
+                        && (d.between.is_some()
+                            || spec.dimension_source == DimensionSource::Authored)
+                        && d.place
+                            .as_ref()
+                            .and_then(|p| p.view.as_deref())
+                            .or(d.view.as_deref())
+                            == Some(*dropped)
+                })
         });
     let shown = |name: &str| match spec.views.get(name) {
         Some(v) => !v.omit,
@@ -7457,6 +7465,7 @@ fn plan_with_presentation(
         plan: shown("plan"),
         side: shown("side"),
     };
+    let auxiliary = crate::auxiliary::requests(analysis, spec, shown, &mut problems)?;
     // The bands hold the lanes the dimensions will take in the views shown (review M3).
     let shown_views: Vec<(&str, [f64; 3], [f64; 3])> = VIEWS
         .iter()
@@ -7768,8 +7777,8 @@ fn plan_with_presentation(
         scale,
         page,
         lo[2],
-        spec.views.values().any(|v| v.detail.is_some()),
-        &|s| crate::detail::scaled(analysis, spec, s),
+        spec.views.values().any(|v| v.detail.is_some()) || !auxiliary.is_empty(),
+        &|s| crate::auxiliary::reserve(crate::detail::scaled(analysis, spec, s), &auxiliary, s),
     );
     if !request.required_tables.is_empty() && pick.fallback.is_some() {
         let mut bare = request.clone();
@@ -7780,8 +7789,8 @@ fn plan_with_presentation(
             scale,
             page,
             lo[2],
-            spec.views.values().any(|v| v.detail.is_some()),
-            &|s| crate::detail::scaled(analysis, spec, s),
+            spec.views.values().any(|v| v.detail.is_some()) || !auxiliary.is_empty(),
+            &|s| crate::auxiliary::reserve(crate::detail::scaled(analysis, spec, s), &auxiliary, s),
         );
         if p.fallback.is_none() {
             (request, pick, strips) = (bare, p, s);
@@ -7817,7 +7826,13 @@ fn plan_with_presentation(
             Some(pick.page),
             lo[2],
             false,
-            &|scale| crate::detail::scaled(analysis, spec, scale),
+            &|scale| {
+                crate::auxiliary::reserve(
+                    crate::detail::scaled(analysis, spec, scale),
+                    &auxiliary,
+                    scale,
+                )
+            },
         );
         if p.fallback.is_none() && p.page == pick.page && (p.scale - pick.scale).abs() < 1e-12 {
             with_radii.automatic_pair = request.automatic_pair;
@@ -7904,13 +7919,17 @@ fn plan_with_presentation(
         (None, Some(_), Some(_)) => "as the spec asks".into(),
     };
 
-    let authored_details = spec.views.values().any(|v| v.detail.is_some());
+    let authored_details = spec.views.values().any(|v| v.detail.is_some()) || !auxiliary.is_empty();
     let mut scaled_details = if pick.fallback.is_some() && !authored_details {
         // The demand search refused optional details at this pair. Do not compose them
         // again against the smaller bare reservation and displace established furniture.
         layout::Scaled::default()
     } else {
-        crate::detail::scaled(analysis, spec, pick.scale)
+        crate::auxiliary::reserve(
+            crate::detail::scaled(analysis, spec, pick.scale),
+            &auxiliary,
+            pick.scale,
+        )
     };
     let mut g = layout::geometry(
         &request,
@@ -8090,6 +8109,7 @@ fn plan_with_presentation(
             };
             PlannedView {
                 detail: None,
+                auxiliary: None,
                 sheet: 1, scale_note: None, xref: None,
                 id: format!("v:{name}"),
                 direction: *direction,
@@ -8130,6 +8150,7 @@ fn plan_with_presentation(
         let label = section_label.clone();
         views.push(PlannedView {
             detail: None,
+            auxiliary: None,
             sheet: 1, scale_note: None, xref: None,
             id: format!("v:{section_name}"),
             direction: [0.0, -1.0, 0.0],
@@ -8205,11 +8226,14 @@ fn plan_with_presentation(
                 line_style: Default::default(),
                 from_spec: Vec::new(),
                 detail: Some(detail),
+                auxiliary: None,
             });
         } else {
             problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", scale_name(detail.scale)),refs:vec![format!("v:{name}")],..Default::default()});
         }
     }
+    crate::auxiliary::place(&mut views, auxiliary, &g.derived, pick.scale, &mut problems);
+    crate::auxiliary::letters(&mut views);
     if require_automatic
         && !views
             .iter()
@@ -10856,7 +10880,7 @@ fn projection_cut(v: &PlannedView) -> Option<&Cut> {
 
 fn projection_key(v: &PlannedView) -> Vec<u64> {
     let cut = projection_cut(v);
-    bits(&[
+    let mut key = bits(&[
         &v.direction,
         &v.up,
         cut.map_or(&[], |c| &c.origin[..]),
@@ -10865,7 +10889,11 @@ fn projection_key(v: &PlannedView) -> Vec<u64> {
         v.detail.as_ref().map_or(&[], |d| &d.bounds[1][..]),
         v.half_section.as_ref().map_or(&[], |h| &h.origin[..]),
         v.half_section.as_ref().map_or(&[], |h| &h.keep[..]),
-    ])
+    ]);
+    if let Some(crop) = v.auxiliary.as_ref().map(|aux| aux.bounds) {
+        key.extend(std::iter::once(0x617578).chain(crop.map(f64::to_bits)));
+    }
+    key
 }
 
 /// Numbers as a map key, by their bits.
@@ -11184,6 +11212,7 @@ impl Projections {
             bbox: None,
             undrawn: 0,
         };
+        let partial_aux = v.auxiliary.as_ref().is_some_and(|aux| !aux.full);
         let rect = [
             v.at[0] - size[0] * v.scale / 2.0,
             v.at[1] - size[1] * v.scale / 2.0,
@@ -11239,15 +11268,31 @@ impl Projections {
                     .map(|e| placed(e, v.scale, centre, v.at));
                 match projected(&moved) {
                     Some(curve) => {
+                        // The HLR fallback emits each straight generator segment as a
+                        // degree-one Bézier. Keep the line as a line so a drawn
+                        // inclination can use it as visible support.
+                        let curve = match &curve {
+                            Curve::Beziers(pieces) if v.auxiliary.is_some() => {
+                                match pieces.as_slice() {
+                                    [piece] if let [from, to] = piece.as_slice() => {
+                                        Curve::Line(*from, *to)
+                                    }
+                                    _ => curve,
+                                }
+                            }
+                            _ => curve,
+                        };
                         let curve = crate::linework::stable_curve(curve);
                         let items = if piece.visible {
                             &mut geometry.visible
                         } else {
                             &mut geometry.hidden
                         };
-                        if v.detail.is_some() {
+                        if v.detail.is_some() || partial_aux {
                             let clipped = crate::detail::clip(curve.clone(), rect);
-                            boundary.add(&curve, &clipped, rect);
+                            if !partial_aux || piece.visible {
+                                boundary.add(&curve, &clipped, rect);
+                            }
                             items.extend(clipped.into_iter().map(Item::Edge));
                         } else {
                             items.extend(keep(curve).into_iter().map(Item::Edge));
@@ -11267,6 +11312,10 @@ impl Projections {
                 items
                     .into_iter()
                     .flat_map(|item| match (item, half) {
+                        (Item::Edge(c), _) if partial_aux => crate::detail::clip(c, rect)
+                            .into_iter()
+                            .map(Item::Edge)
+                            .collect(),
                         (Item::Edge(c), Some(_)) => keep(c).into_iter().map(Item::Edge).collect(),
                         (item, _) => vec![item],
                     })
@@ -11636,7 +11685,9 @@ fn render_sheet_with(
         .views
         .iter()
         .filter(|v| {
-            v.sheet != sheet.number && v.cut.as_ref().is_some_and(|c| carries(&c.marked_in))
+            v.sheet != sheet.number
+                && (v.cut.as_ref().is_some_and(|c| carries(&c.marked_in))
+                    || v.auxiliary.as_ref().is_some_and(|aux| carries(&aux.parent)))
         })
         .collect();
     render_annotations_with_cuts(
@@ -11677,6 +11728,74 @@ pub fn render_annotations(
 }
 
 /// Assembles the same drawing, reusing independently rendered annotations by ID.
+#[allow(clippy::too_many_arguments)]
+fn auxiliary_marker(
+    analysis: &Analysis,
+    plan: &Plan,
+    child: &PlannedView,
+    parent: &PlannedView,
+    sheet: &mut Sheet,
+    ink: &mut Vec<Item>,
+    captions: &mut Vec<(String, [f64; 2])>,
+    names: &mut Vec<String>,
+) {
+    let Some(aux) = &child.auxiliary else { return };
+    let avoid: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter_map(|d| d.placed.as_ref())
+        .flat_map(|p| {
+            std::iter::once(p.label_box).chain(p.lines.iter().map(|[a, b]| {
+                [
+                    a[0].min(b[0]) - 0.5,
+                    a[1].min(b[1]) - 0.5,
+                    a[0].max(b[0]) + 0.5,
+                    a[1].max(b[1]) + 0.5,
+                ]
+            }))
+        })
+        .chain(
+            plan.gdt
+                .iter()
+                .filter_map(|g| g.placed.as_ref().map(|p| p.label_box)),
+        )
+        .collect();
+    let Some((curves, at)) = crate::auxiliary::viewing_arrow(
+        analysis,
+        child,
+        parent,
+        &plan.views,
+        plan.sheet.page,
+        &avoid,
+    ) else {
+        return;
+    };
+    let items: Vec<_> = curves.iter().cloned().map(Item::Edge).collect();
+    if let Some(bbox) = items_bbox(&items) {
+        sheet.items.push(Drawn {
+            datum_triangle: None,
+            heads: Vec::new(),
+            name: format!("{}/arrow/{}", parent.id, child.id),
+            kind: Kind::Centreline,
+            ink: bbox,
+            label: None,
+            lines: curves.iter().map(|c| [c.at(0.), c.at(1.)]).collect(),
+            elbow: None,
+            interior: false,
+        });
+    }
+    ink.extend(items);
+    let name = format!("{}/arrow_label", child.id);
+    let text = if parent.sheet == child.sheet {
+        aux.label.clone()
+    } else {
+        format!("{} / SHEET {}", aux.label, child.sheet)
+    };
+    captions.push((text, at));
+    names.push(name.clone());
+    sheet.dxf.furniture_views.insert(name, parent.id.clone());
+}
+
 pub fn render_annotations_with_items(
     part: &Part,
     analysis: &Analysis,
@@ -11748,7 +11867,11 @@ pub(crate) fn render_annotations_on_sheet(
     let remote = plan
         .views
         .iter()
-        .filter(|v| v.sheet != number && v.cut.as_ref().is_some_and(|c| local(&c.marked_in)))
+        .filter(|v| {
+            v.sheet != number
+                && (v.cut.as_ref().is_some_and(|c| local(&c.marked_in))
+                    || v.auxiliary.as_ref().is_some_and(|aux| local(&aux.parent)))
+        })
         .collect::<Vec<_>>();
     render_annotations_with_cuts(
         part,
@@ -11771,14 +11894,14 @@ fn render_annotations_with_cuts(
     geometry: GeometryLayer,
     projections: &mut Projections,
     items: &BTreeMap<String, RenderedItem>,
-    remote_sections: &[&PlannedView],
+    remote_views: &[&PlannedView],
 ) -> Result<Drawing, Unresolved> {
     projections.bind(analysis, &plan.spec);
     // A tangent/gap plane has retained geometry, but no new cut face. Refuse
     // that section's ink and report it, rather than captioning the retained half
     // as a manufactured section (ISSUE-1530-a). The rest of the sheet still draws.
     let mut rejected_sections = BTreeMap::new();
-    for v in plan.views.iter().chain(remote_sections.iter().copied()) {
+    for v in plan.views.iter().chain(remote_views.iter().copied()) {
         let Some(cut) = &v.cut else {
             continue;
         };
@@ -11906,7 +12029,7 @@ fn render_annotations_with_cuts(
                 up: v.up,
                 // DrawnFrame records where the whole part's centre lands. A detail is
                 // laid out about its crop centre; keep lint's world-to-page transform exact.
-                at: if v.detail.is_some() {
+                at: if v.detail.is_some() || v.auxiliary.is_some() {
                     // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
                     let view = View::new(v.direction, v.up).expect("planned view");
                     let whole = extent(analysis, &view).1;
@@ -12057,6 +12180,42 @@ fn render_annotations_with_cuts(
             );
         }
     }
+    for v in &plan.views {
+        let Some(aux) = &v.auxiliary else { continue };
+        let at = crate::auxiliary::caption_at(v, aux);
+        let name = format!("{}/caption", v.id);
+        captions.push((crate::auxiliary::caption(v, aux), at));
+        caption_names.push(name.clone());
+        sheet.dxf.furniture_views.insert(name, v.id.clone());
+        if let Some(angle) = aux.rotation {
+            let (curves, text, at) = crate::auxiliary::rotation(angle, at);
+            furniture.extend(curves.into_iter().map(Item::Edge));
+            let name = format!("{}/rotation", v.id);
+            captions.push((text, at));
+            caption_names.push(name.clone());
+            sheet.dxf.furniture_views.insert(name, v.id.clone());
+        }
+    }
+    for child in plan
+        .views
+        .iter()
+        .chain(remote_views.iter().copied())
+        .filter(|c| c.auxiliary.is_some())
+    {
+        let aux = child.auxiliary.as_ref().expect("filtered auxiliary");
+        if let Some(parent) = plan.views.iter().find(|v| v.id == aux.parent) {
+            auxiliary_marker(
+                analysis,
+                plan,
+                child,
+                parent,
+                &mut sheet,
+                &mut furniture,
+                &mut captions,
+                &mut caption_names,
+            );
+        }
+    }
     if !thin.is_empty() {
         layers.push(Layer {
             name: "thin".into(),
@@ -12108,7 +12267,7 @@ fn render_annotations_with_cuts(
         });
         furniture.extend(ink);
     }
-    for v in plan.views.iter().chain(remote_sections.iter().copied()) {
+    for v in plan.views.iter().chain(remote_views.iter().copied()) {
         if rejected_sections.contains_key(&v.id) {
             continue;
         }
@@ -12247,7 +12406,9 @@ fn render_annotations_with_cuts(
         }
     }
     for v in &plan.views {
-        if let Some(note) = &v.scale_note {
+        if let Some(note) = &v.scale_note
+            && v.auxiliary.is_none()
+        {
             if rejected_sections.contains_key(&v.id) {
                 continue;
             }

@@ -1239,7 +1239,7 @@ fn pitch_want(
 
 /// A kept item, as `dims::plan` holds it: the want, whether it is a default, the view that
 /// carries it, and the views that look along it.
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
 /// One span's tolerance, shared with lint's boss-location audit (lint may not read dims).
 pub(crate) use crate::lint::location::SAME_SPAN;
@@ -1304,8 +1304,8 @@ pub(super) fn consolidate(
     );
 }
 
-fn merge(
-    kept: &mut Vec<Kept>,
+fn merge<'a>(
+    kept: &mut Vec<Kept<'a>>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
     rank: impl Fn(&Want) -> Option<u8>,
@@ -1313,8 +1313,8 @@ fn merge(
 ) {
     // The span each location measures: its view, axis, raw ends on that axis, label, and whether
     // it is a default (its label then the planner's own, not a precision the spec states).
-    type Span = (&'static str, usize, f64, f64, String, bool);
-    let span = |(w, default, view, _): &Kept| match w.shape {
+    type Span<'a> = (&'a str, usize, f64, f64, String, bool);
+    let span = |(w, default, view, _): &Kept<'a>| match w.shape {
         Shape::Linear { a, b, axis, .. } => Some((
             view.unwrap_or(w.views[0]),
             axis,
@@ -1419,7 +1419,7 @@ mod tests {
     use super::*;
 
     /// A default location of *feature* in the plan, from x = 0 to *at*, labelled *label*.
-    fn location(feature: &str, parameter: &str, at: f64, label: &str) -> Kept {
+    fn location(feature: &str, parameter: &str, at: f64, label: &str) -> Kept<'static> {
         let want = Want {
             units: Default::default(),
             id: want_id(feature, parameter),

@@ -103,6 +103,21 @@ def pictorial_fields():
     })
 
 
+def auxiliary_request():
+    """Shared on-demand and private MCP validation for requested auxiliary views."""
+    return {**obj({
+    'square_to': {**S, 'minLength': 1},
+    'edge_on': {**S, 'minLength': 1},
+    **optional({'from': {**S, 'pattern': r'^(v:)?(front|plan|side|aux:.+)(?![\s\S])'},
+                'scale_factor': {**N, 'exclusiveMinimum': 0}}),
+    'full': B,
+}), 'description': 'Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.',
+    'oneOf': [
+        {'required': ['square_to'], 'not': {'required': ['edge_on']}},
+        {'required': ['edge_on'], 'not': {'required': ['square_to']}},
+    ]}
+
+
 def document():
     """Full draft-2020-12 author Spec, including the get_spec read shape."""
     line = optional({k: B for k in ('hidden', 'centre_marks', 'centre_lines',
@@ -161,8 +176,9 @@ def document():
         'detail': obj({'around': {'type': ['string', 'array'], 'items': S, 'minItems': 1},
                        **optional({'from': {'type': 'string', 'pattern': r'^(front|plan|side|section_([a-h])\2)(?![\s\S])'},
                                    'scale_factor': {'type': 'number', 'exclusiveMinimum': 1}})}, ('around',)),
+        'auxiliary': auxiliary_request(),
         'break': obj({'axis': enum('x','y','z'), 'remove': arr(N, minItems=2, maxItems=2), 'gap': {**N, 'exclusiveMinimum': 0, 'description': 'Retained gap in paper mm at every scale; default 6.'}, 'aligned': B}),
-        'view': obj({**line, **pictorial_fields(), **optional({'break': ref('break'), 'half_section': {**B, 'description': 'ISO 128-50 half section on a profile view of a part turned whole: true forces it, false forbids it; unset draws it automatically when a coaxial hole steps inside (counterbore, spotface or countersink).'}, 'sheet': SHEET, 'place': ref('view_place'), 'detail': ref('detail')}), 'omit': B}),
+        'view': obj({**line, **pictorial_fields(), **optional({'break': ref('break'), 'half_section': {**B, 'description': 'ISO 128-50 half section on a profile view of a part turned whole: true forces it, false forbids it; unset draws it automatically when a coaxial hole steps inside (counterbore, spotface or countersink).'}, 'sheet': SHEET, 'place': ref('view_place'), 'detail': ref('detail'), 'auxiliary': ref('auxiliary')}), 'omit': B}),
         'note': obj({'id': S, 'text': S}, ('id', 'text')),
         'table': obj({'id': S, 'rows': arr(arr({'type': ['string', 'number']})),
                       'sheet': nullable(SHEET), 'prefer': nullable(enum('tr', 'tl', 'br', 'bl'))}, ('id', 'rows')),

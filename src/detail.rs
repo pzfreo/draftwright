@@ -783,7 +783,11 @@ pub(crate) fn caption(d: &Detail) -> String {
 pub(crate) fn caption_at(v: &PlannedView) -> [f64; 2] {
     // Invariant: Only views with detail metadata enter the caption iterator.
     let [_, h] = size(v.detail.as_ref().expect("detail caption"));
-    [v.at[0], v.at[1] - h / 2.0 - 8.0]
+    below(v, h)
+}
+
+pub(crate) fn below(v: &PlannedView, height: f64) -> [f64; 2] {
+    [v.at[0], v.at[1] - height / 2.0 - 8.0]
 }
 
 /// Reserve the caption before solving dimensions, including its half-text-height gap.
@@ -792,14 +796,27 @@ pub(crate) fn caption_obstacles(views: &[PlannedView]) -> Vec<crate::dims::Plann
     views
         .iter()
         .filter_map(|v| {
-            let d = v.detail.as_ref()?;
-            let text = caption(d);
+            let (id, text, at, rotation) = if let Some(d) = &v.detail {
+                (
+                    format!("detail_caption_{}", d.label),
+                    caption(d),
+                    caption_at(v),
+                    false,
+                )
+            } else {
+                let aux = v.auxiliary.as_ref()?;
+                (
+                    format!("{}/caption", v.id),
+                    crate::auxiliary::caption(v, aux),
+                    crate::auxiliary::caption_at(v, aux),
+                    aux.rotation.is_some(),
+                )
+            };
             let height = crate::section::FONT_SIZE;
             let laid = crate::dims::font().text(&text, height);
-            let at = caption_at(v);
             let gap = height / 2.0;
             let mut obstacle = crate::iso_caption::proxy(&crate::iso_caption::PlannedCaption {
-                id: format!("detail_caption_{}", d.label),
+                id,
                 view: v.id.clone(),
                 sheet: v.sheet,
                 text,
@@ -807,7 +824,7 @@ pub(crate) fn caption_obstacles(views: &[PlannedView]) -> Vec<crate::dims::Plann
                 at,
                 ink: [
                     at[0] + laid.min[0] - gap,
-                    at[1] + laid.min[1] - gap,
+                    at[1] + laid.min[1] - gap - if rotation { 8. } else { 0. },
                     at[0] + laid.max[0] + gap,
                     at[1] + laid.max[1] + gap,
                 ],
@@ -821,6 +838,9 @@ pub(crate) fn caption_obstacles(views: &[PlannedView]) -> Vec<crate::dims::Plann
         .collect()
 }
 pub(crate) fn crop_extent(a: &Analysis, v: &PlannedView) -> ([f64; 2], [f64; 2]) {
+    if let Some(rect) = v.auxiliary.as_ref().map(|aux| aux.bounds) {
+        return crate::auxiliary::extent(rect);
+    }
     let (mut size, centre) = crate::model::envelope_extent(
         v.detail.as_ref().map_or(a.envelope, |d| d.bounds),
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
@@ -981,7 +1001,34 @@ pub(crate) fn marker(
     let parent = crate::model::extent(a, &view).1;
     let at = [0, 1].map(|k| source.at[k] + source.scale * (centre[k] - parent[k]));
     let radius = source.scale * size[0].hypot(size[1]) / 2.0 + 1.0;
-    let glyph = crate::dims::font().text(&d.label, crate::section::FONT_SIZE);
+    let obstacles = marker_obstacles(a, views, avoid);
+    let preferred = [at[0] - radius - 2.0, at[1] + radius + 2.0];
+    let positions = std::iter::once(preferred).chain(
+        [4.0, 8.0, 12.0, 20.0, 28.0].into_iter().flat_map(|gap| {
+            (0..8).map(move |i| {
+                let theta = (3.0 - i as f64) * std::f64::consts::FRAC_PI_4;
+                [
+                    at[0] + (radius + gap) * theta.cos(),
+                    at[1] + (radius + gap) * theta.sin(),
+                ]
+            })
+        }),
+    );
+    let label_at = marker_label(&d.label, positions, page, &obstacles).unwrap_or(preferred);
+    (
+        crate::output::Curve::Conic {
+            centre: at,
+            radii: [radius; 2],
+            x_axis: [1.0, 0.0],
+            y_axis: [0.0, 1.0],
+            t0: 0.0,
+            t1: std::f64::consts::TAU,
+        },
+        label_at,
+    )
+}
+
+pub(crate) fn marker_obstacles(a: &Analysis, views: &[PlannedView], avoid: &[Rect]) -> Vec<Rect> {
     let mut obstacles: Vec<_> = views
         .iter()
         .map(|v| {
@@ -1005,47 +1052,31 @@ pub(crate) fn marker(
         })
         .collect();
     obstacles.extend_from_slice(avoid);
-    let preferred = [at[0] - radius - 2.0, at[1] + radius + 2.0];
-    let positions = std::iter::once(preferred).chain(
-        [4.0, 8.0, 12.0, 20.0, 28.0].into_iter().flat_map(|gap| {
-            (0..8).map(move |i| {
-                let theta = (3.0 - i as f64) * std::f64::consts::FRAC_PI_4;
-                [
-                    at[0] + (radius + gap) * theta.cos(),
-                    at[1] + (radius + gap) * theta.sin(),
-                ]
-            })
-        }),
-    );
-    let label_at = positions
-        .into_iter()
-        .find(|p| {
-            let b = [
-                p[0] + glyph.min[0] - 1.0,
-                p[1] + glyph.min[1] - 1.0,
-                p[0] + glyph.max[0] + 1.0,
-                p[1] + glyph.max[1] + 1.0,
-            ];
-            b[0] >= crate::layout::margin()
-                && b[1] >= crate::layout::margin()
-                && b[2] <= page[0] - crate::layout::margin()
-                && b[3] <= page[1] - crate::layout::margin()
-                && obstacles
-                    .iter()
-                    .all(|o| b[2] <= o[0] || b[0] >= o[2] || b[3] <= o[1] || b[1] >= o[3])
-        })
-        .unwrap_or(preferred);
-    (
-        crate::output::Curve::Conic {
-            centre: at,
-            radii: [radius; 2],
-            x_axis: [1.0, 0.0],
-            y_axis: [0.0, 1.0],
-            t0: 0.0,
-            t1: std::f64::consts::TAU,
-        },
-        label_at,
-    )
+    obstacles
+}
+
+pub(crate) fn marker_label(
+    label: &str,
+    positions: impl IntoIterator<Item = [f64; 2]>,
+    page: [f64; 2],
+    obstacles: &[Rect],
+) -> Option<[f64; 2]> {
+    let glyph = crate::dims::font().text(label, crate::section::FONT_SIZE);
+    positions.into_iter().find(|p| {
+        let b = [
+            p[0] + glyph.min[0] - 1.0,
+            p[1] + glyph.min[1] - 1.0,
+            p[0] + glyph.max[0] + 1.0,
+            p[1] + glyph.max[1] + 1.0,
+        ];
+        b[0] >= crate::layout::margin()
+            && b[1] >= crate::layout::margin()
+            && b[2] <= page[0] - crate::layout::margin()
+            && b[3] <= page[1] - crate::layout::margin()
+            && obstacles
+                .iter()
+                .all(|o| b[2] <= o[0] || b[0] >= o[2] || b[3] <= o[1] || b[1] >= o[3])
+    })
 }
 
 /// Detail boundaries are late furniture: interrupt the circle behind annotation text,

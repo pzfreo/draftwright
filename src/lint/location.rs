@@ -874,7 +874,13 @@ pub(crate) fn drawn_constraints(
             .view
             .as_deref()
             .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")));
-        if inclined && let Some(frame) = frame {
+        if (inclined
+            || mark
+                .view
+                .as_deref()
+                .is_some_and(|v| v.starts_with("v:aux:")))
+            && let Some(frame) = frame
+        {
             record_witness(mark, frame, &item.lines);
         }
         let span = frame.and_then(|f| ink_span(a, f, &item.lines)).or_else(|| {

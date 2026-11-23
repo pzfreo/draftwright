@@ -133,6 +133,16 @@ pub(crate) fn next_id(s: &str) -> Option<(usize, usize)> {
     let digit = |k: usize| k < b.len() && b[k].is_ascii_digit();
     let mut i = 0;
     while i < b.len() {
+        // An auxiliary's geometry anchor is the token that carries. Keep the
+        // view prefix and optional /edge suffix around the rebound anchor.
+        if (i == 0 || !word(b[i - 1]))
+            && let Some(prefix) = [b"v:aux:".as_slice(), b"aux:".as_slice()]
+                .into_iter()
+                .find(|prefix| b[i..].starts_with(prefix))
+        {
+            i += prefix.len();
+            continue;
+        }
         // An edge also follows a face with `_` (`profile_angle.angle.f97_e92_e96`).
         let after = |c: u8| matches!(c, b'.' | b':') || (c == b'_' && b[i] == b'e');
         if i > 0 && after(b[i - 1]) && matches!(b[i], b'f' | b'e') && digit(i + 1) {

@@ -364,6 +364,54 @@ obstacle edges. Only an entirely blocked search retains Python's natural-positio
 structural lint reports even shallow caption contacts with labels, lines and view edges.
 A sheet-scale or omitted iso carries no NTS caption. This furniture does not change the sheet-choice ladder or fill.
 
+#### Requested auxiliary views
+
+Use a geometry anchor to request a view. The auxiliary can look square to a
+planar face or feature axis, or show a face or axis edge-on. The geometry
+identifier also keys the Spec entry. An edge view may additionally use
+`aux:<anchor>/edge` as the Spec key when both forms share the same anchor.
+
+```json
+{
+  "views": {
+    "aux:face:4": {
+      "auxiliary": { "edge_on": "face:4", "from": "plan" }
+    },
+    "aux:f:hole:f10": {
+      "auxiliary": { "square_to": "f:hole:f10", "from": "v:aux:face:4/edge" }
+    }
+  }
+}
+```
+
+The viewing direction must lie in the parent's plane. A primary's parent is a
+principal view. A secondary's parent is a primary auxiliary. An omitted, hidden,
+or missing parent leaves the request in the Spec and reports
+`auxiliary_parent_unapplied`. Restore or change the parent, or use the offered edit
+to omit the request. Without `from`, Draftwright searches the principal views. A missing geometry anchor leaves the Spec entry in place and reports
+`auxiliary_anchor_unapplied`.
+
+The layout places these views in free boxes. Each parent shows a reference
+arrow and a letter. Sections and details share that letter namespace on each
+sheet. A caption gives `VIEW A` and adds the scale when it differs.
+`scale_factor` is relative to the sheet scale and defaults to 1.
+The camera keeps a principal axis upright where possible. Otherwise it makes
+the longest straight anchor edge horizontal and shows the rotation.
+
+Partial views show the anchor and adjoining edges, with breaks at the clipped
+boundary. Set `full: true` for the whole projection. Hidden lines default to
+off and `hidden` can override that. View `place`, `sheet` and `omit` follow
+the ordinary view fields.
+
+The true-shape view can carry an inclined bore or boss's diameter and
+perpendicular location spans from its support face's straight edges. Those
+spans use `location.length.<face>.<edge>` roles, for example
+`location.length.f4.e2`. Lint requires two independent printed distances from
+located edges and verifies the extension ink against the geometry. An inscribed
+bore adds a tangency note below its size. Lint checks the note's count and tangency
+to 0.001 mm. An auxiliary edge view can carry an inclined boss's true axial height
+and its angle from the seat face normal.
+
 #### Recognition corrections (#76 item 2)
 
 The automatic reading remains the default. Corrections sit beside a feature's other authored
@@ -2680,6 +2728,7 @@ reads it back from any of the three.
 | Sheet | `sheet` | always |
 | View | `v:<name>` | always |
 | Detail view | `v:detail_a`–`v:detail_h` | its allocated identifier, including authored omissions; automatic presence depends on scale and readable source requirements |
+| Auxiliary view | `v:aux:<anchor>`, with `/edge` for an edge view | the geometry anchor, independent of parent, sheet, and display letter |
 | Note, table, section | `n:<k>`, `t:<k>`, `s:<letter>` | always (set in the spec) |
 | PMI frame, symbol, label, drawing-wide requirement, thread or knurl (and the feature of a PMI dimension's claim) | `pmi:<identity>`: the record's semantic identity, below; never its Part 21 instance (that is the item's `source`, e.g. `geometric_tolerance:#123`) | the same requirements on the same faces: the intent written again (new Part 21 numbers) keeps it |
 | Problem | `p:<code>:<subject>` | the same plan |

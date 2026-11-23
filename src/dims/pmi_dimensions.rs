@@ -1818,7 +1818,7 @@ fn leader(
 pub(super) fn hide_fit_limits(
     spec: &Spec,
     notes: &BTreeMap<String, Note>,
-    kept: &mut [(Want, bool, Option<&'static str>, Vec<&'static str>)],
+    kept: &mut [(Want, bool, Option<&str>, Vec<&'static str>)],
 ) {
     if tolerance::limits_shown(spec) {
         return;
@@ -1841,7 +1841,7 @@ pub(super) fn hide_fit_limits(
 pub(super) fn yield_to_spec(
     spec: &Spec,
     notes: &BTreeMap<String, Note>,
-    kept: &mut [(Want, bool, Option<&'static str>, Vec<&'static str>)],
+    kept: &mut [(Want, bool, Option<&str>, Vec<&'static str>)],
     problems: &mut Vec<Problem>,
 ) {
     for (w, ..) in kept.iter_mut() {
@@ -1887,7 +1887,7 @@ pub(super) fn yield_to_spec(
 pub(super) fn omitted(
     analysis: &crate::model::Analysis,
     all: &[Want],
-    kept: &[(Want, bool, Option<&'static str>, Vec<&'static str>)],
+    kept: &[(Want, bool, Option<&str>, Vec<&'static str>)],
     omitted: &[super::Omitted],
 ) -> Vec<Problem> {
     let claimed: BTreeSet<&str> = kept

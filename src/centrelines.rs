@@ -89,6 +89,9 @@ fn cross(id: String, c: P, radius: f64, radial: Option<P>) -> LineWork {
 }
 
 fn end_on(v: &PlannedView, d: [f64; 3]) -> bool {
+    if v.auxiliary.is_some() {
+        return dot(v.direction, d).abs() > 1. - 1e-6;
+    }
     let k = (0..3)
         .max_by(|&a, &b| d[a].abs().total_cmp(&d[b].abs()).then(b.cmp(&a)))
         // Invariant: The iterator is over the fixed three coordinate axes.
@@ -645,7 +648,7 @@ fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
             work.retain(|w| !w.curves.is_empty());
             v.line_work = work;
         }
-        if v.detail.is_some() {
+        if v.detail.is_some() || v.auxiliary.as_ref().is_some_and(|aux| !aux.full) {
             let (size, _) = crate::detail::crop_extent(a, v);
             let rect = [
                 v.at[0] - size[0] * v.scale / 2.0,

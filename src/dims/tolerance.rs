@@ -92,7 +92,7 @@ fn fit_text(
 
 /// A kept item, as [`super::plan`] holds it: the want, whether it is a default, its view and the
 /// views that look along it.
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
 /// The feature kinds a fit can be set on, and the parameter whose size it qualifies.
 const FITTED: [(&str, &str); 2] = [("hole", "bore.diameter"), ("boss", "boss.diameter")];

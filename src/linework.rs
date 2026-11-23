@@ -744,7 +744,7 @@ pub(crate) fn configure(spec: &crate::model::Spec, views: &mut [crate::model::Pl
         return;
     }
     for v in views {
-        let name = v.id.trim_start_matches("v:");
+        let name = crate::auxiliary::spec_name(spec, &v.id);
         let entry = spec.views.get(name);
         let mut settings = Settings::default();
         let mut paths = Vec::new();
@@ -768,8 +768,10 @@ pub(crate) fn configure(spec: &crate::model::Spec, views: &mut [crate::model::Pl
             continue;
         }
         v.line_style = settings;
-        v.from_spec
-            .retain(|p| !p.starts_with("sheet/") && !p.starts_with(&format!("views/{name}/")));
+        v.from_spec.retain(|p| {
+            p.ends_with("/auxiliary")
+                || (!p.starts_with("sheet/") && !p.starts_with(&format!("views/{name}/")))
+        });
         v.from_spec.extend(paths);
         v.default = false;
         let basis = v
