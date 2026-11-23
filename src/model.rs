@@ -8298,14 +8298,15 @@ fn plan_with_presentation(
             .entry("material".into())
             .or_insert_with(|| m.designation.trim().to_string());
     }
-    let (mut requirements, more) = crate::pmi_lowering::plan_sheet(
+    let (mut requirements, more, tolerance_table) = crate::pmi_lowering::plan_sheet(
         &requirements,
         &spec.sheet.title,
         &mut title,
         g.title_block,
     );
     problems.extend(more);
-    let title_cells = title_block::cells_in(g.title_block, &title, &size, spec.units);
+    let mut title_cells = title_block::cells_in(g.title_block, &title, &size, spec.units);
+    title_block::mark_tolerance_table(&mut title_cells, tolerance_table);
     let mut sheet = PlannedSheet {
         units: spec.units,
         number: 1,
@@ -8339,12 +8340,11 @@ fn plan_with_presentation(
             } else {
                 "; anchor frames and sheet choice kept fixed for placement pins"
             };
-        sheet.title_cells =
-            title_block::cells_in(sheet.title_block, &sheet.title, &sheet.size, spec.units);
+        title_block::rebuild_cells(&mut sheet);
         sheet.projection_symbol = Some(title_block::projection(sheet.title_block, first_angle));
     }
     let title_problems = title_block::problems(&sheet.title_cells, sheet.page);
-    title_block::tolerance_state(&mut requirements, &title_problems);
+    title_block::tolerance_state(&mut requirements, &sheet.title_cells, &title_problems);
     problems.extend(title_problems);
     if crate::engine_pins::loading() {
         crate::engine_pins::keep_views(&mut views);

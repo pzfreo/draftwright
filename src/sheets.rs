@@ -1927,12 +1927,7 @@ fn separate_views_inner(
         plan.sheet.title_block[0] - source.sheet.title_block[0],
         plan.sheet.title_block[1] - source.sheet.title_block[1],
     ];
-    plan.sheet.title_cells = crate::title_block::cells_in(
-        plan.sheet.title_block,
-        &plan.sheet.title,
-        size,
-        plan.sheet.units,
-    );
+    crate::title_block::rebuild_cells(&mut plan.sheet);
     plan.sheet.projection_symbol = Some(crate::title_block::projection(
         plan.sheet.title_block,
         plan.spec.sheet.projection.as_deref() == Some("first"),
@@ -2433,6 +2428,7 @@ fn separate_views_inner(
         )
     });
     plan.problems.extend(crate::dims::recheck(analysis, &plan));
+    crate::title_block::recheck_tolerance_table(&mut plan);
     // Reflow never changes a datum's sheet: it is the same single-sheet inventory. Keep
     // its existing source completeness findings rather than adding allocation diagnostics
     // for symbols that were already unavailable before any table moved.

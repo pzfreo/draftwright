@@ -734,6 +734,7 @@ pub struct SheetRequirement {
     /// What the sheet states: the tolerance's designation, the finish's Ra value in µm, the
     /// note's text.
     pub value: String,
+    pub tolerance_table: bool,
     pub basis: String,
     /// A default finish's material removal condition as an AP242 surface texture states it
     /// (`material removal required`, `no material removal`); empty for any process allowed, and
@@ -808,6 +809,7 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                     source: r.source_id.clone(),
                     kind: "no_requirement",
                     value: r.label.clone(),
+                    tolerance_table: false,
                     removal: String::new(),
                     basis: format!(
                         "info: AP242 {} {} states no requirement; read, with no drawing needed",
@@ -847,6 +849,9 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                     d, r.source_id
                 ),
                 value: d,
+                tolerance_table: r.fields.iter().any(|(_, field)| {
+                    matches!(field, crate::pmi::Field::ToleranceCells(_))
+                }),
                 removal: String::new(),
             }),
             Err(why) => refuse(&mut problems, r, why),
@@ -877,6 +882,7 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                     r.source_id
                 ),
                 value: ra,
+                tolerance_table: false,
                 removal: r
                     .fields
                     .iter()
@@ -940,6 +946,7 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
                 source: r.source_id.clone(),
                 kind: "document_note",
                 value: part_note_text(r),
+                tolerance_table: false,
                 basis: format!(
                     "source-authored: the AP242 {} '{}' ({}), a general note (draftwright's DocumentNote)",
                     r.kind.replace('_', " "),
@@ -986,9 +993,10 @@ pub fn plan_sheet(
     given: &std::collections::BTreeMap<String, String>,
     title: &mut std::collections::BTreeMap<String, String>,
     block: [f64; 4],
-) -> (Vec<PlannedRequirement>, Vec<Problem>) {
+) -> (Vec<PlannedRequirement>, Vec<Problem>, bool) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
+    let mut tolerance_table = false;
     for r in requirements {
         let id = r.id.clone();
         let mut planned = PlannedRequirement {
@@ -1015,8 +1023,7 @@ pub fn plan_sheet(
                     }
                     Some(v)
                         if v.trim() == r.value
-                            || (r.value.contains('\n')
-                                && v.trim().replace(" · ", "\n") == r.value) =>
+                            || (r.tolerance_table && v.trim().replace(" · ", "\n") == r.value) =>
                     {
                         planned.basis +=
                             "; the spec states the same tolerance (sheet/title/tolerance)";
@@ -1037,6 +1044,7 @@ pub fn plan_sheet(
                         continue;
                     }
                 }
+                tolerance_table = r.tolerance_table;
             }
             "default_surface_finish" => {
                 planned.carrier = "sheet".into();
@@ -1055,7 +1063,7 @@ pub fn plan_sheet(
         }
         out.push(planned);
     }
-    (out, problems)
+    (out, problems, tolerance_table)
 }
 
 /// A general tolerance's designation (`_general_tolerance_designation`): its prose before any

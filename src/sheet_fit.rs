@@ -1437,7 +1437,7 @@ fn pack_reserved_at(
         ) && !q.refs.iter().any(|r| r.starts_with("title_block/"))
     });
     let title_problems = crate::title_block::problems(&p.sheet.title_cells, p.sheet.page);
-    crate::title_block::tolerance_state(&mut p.requirements, &title_problems);
+    crate::title_block::tolerance_state(&mut p.requirements, &p.sheet.title_cells, &title_problems);
     p.problems.extend(title_problems);
     p.problems.retain(|q| {
         !matches!(
