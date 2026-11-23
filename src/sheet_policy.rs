@@ -5460,10 +5460,11 @@ mod compact_sheet_regressions {
             "sheet": {"title": {"title": "Gantry plate 20 mm V-slot", "number": "FC-GANTRY-PLATE"}}
         }))
         .unwrap();
-        let plan = crate::api::plan(&file, None, &spec).unwrap();
+        let features = crate::api::Features::Native;
+        let plan = crate::api::plan_from(&file, features, &spec).unwrap();
         assert_eq!(plan.sheet.scale, "2:1", "{}", plan.sheet.basis);
         assert!(matches!(plan.sheet.size.as_str(), "A4" | "A3"));
-        let review = crate::api::review(&file, None, &spec).unwrap();
+        let review = crate::api::review_from(&file, features, &spec).unwrap();
         // The alpha.2 drawing had ten extension-through-feature warnings.
         let warnings: Vec<_> = review
             .problems
