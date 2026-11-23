@@ -2334,7 +2334,7 @@ fn place_auxiliary_pair(
             return Err("ink leaves the drawable frame".into());
         }
     }
-    if !model::carries_required(ordinary, &plan)
+    if !model::carries_required_with_location_chains(fit, ordinary, &plan)
         || model::undrawn_gdt(&plan) > model::undrawn_gdt(ordinary)
         || actual_space_drops(&plan) > actual_space_drops(ordinary)
     {

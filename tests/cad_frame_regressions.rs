@@ -54,9 +54,9 @@ fn accepted_cad_frame_layout(file: &str) {
         // that pair no longer contributes a false label_crowded notice.
         // 2026-11-14: repair preserving shared rows clears 21 crossings and 19 feature contacts.
         "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [33, 0, 6, 1, 1, 0], [1, 5, 26]),
-        // A2 retains the plate's basic location coverage at 1:1 with both
-        // inclined projections. The handwritten variant fits A4 with compact spacing.
-        "assembly_plate_pin.step" => ("A2", "1:1", [1, 1, 0, 0, 1, 0], [0, 0, 1]),
+        // Both inclined projections and the plate's basic dimensions fit at
+        // the ordinary scale. The handwritten variant uses compact spacing.
+        "assembly_plate_pin.step" => ("A3", "1:1", [1, 1, 0, 0, 2, 0], [0, 0, 1]),
         "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [2, 0, 0, 0, 5, 0], [0, 0, 2]),
         "specify-main-angle-bracket.step" => ("A3", "1:1", [2, 0, 0, 0, 0, 0], [0, 2, 0]),
         _ => unreachable!(),
@@ -127,19 +127,20 @@ fn accepted_cad_frame_layout(file: &str) {
         assert!(!auxiliaries[0].edge_on);
     }
     if file == "assembly_plate_pin.step" {
-        for face in [6, 7, 8, 9, 10, 12] {
-            for axis in ["x", "y"] {
-                let id = format!("d:f:hole:f{face}/location.length.{axis}");
-                let location = p.omitted.iter().find(|o| o.id == id).expect(&id);
-                let draftwright::items::State::Covered { by } = &location.state else {
-                    panic!("{id} must be covered by a basic dimension");
-                };
-                assert!(
-                    p.dimensions
-                        .iter()
-                        .any(|d| &d.id == by && d.placed.is_some())
-                );
-            }
+        for (faces, label) in [
+            ("f1,11", "30"),
+            ("f0,11", "95"),
+            ("f1,6", "15"),
+            ("f0,6", "20"),
+            ("f1,10", "45"),
+            ("f0,10", "50"),
+            ("f0,12", "80"),
+        ] {
+            let id = format!("d:pmi:dimension.linear.basic:p0:{faces}/linear.basic");
+            let dimension = p.dimensions.iter().find(|d| d.id == id).expect(&id);
+            assert_eq!(dimension.label, label);
+            assert_eq!(dimension.view, "v:plan");
+            assert!(dimension.placed.is_some());
         }
     }
 }

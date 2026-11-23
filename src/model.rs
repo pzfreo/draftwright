@@ -2967,6 +2967,37 @@ pub(crate) fn carries_required(required: &Plan, candidate: &Plan) -> bool {
     carried(required).is_subset(&carried(candidate))
 }
 
+/// A schedule can credit locations to a dimension chain that is still drawn
+/// when a candidate uses inline hole callouts instead of the schedule.
+pub(crate) fn carries_required_with_location_chains(
+    analysis: &Analysis,
+    required: &Plan,
+    candidate: &Plan,
+) -> bool {
+    let required = carried(required);
+    let actual = carried(candidate);
+    let missing = required.difference(&actual);
+    if missing.clone().next().is_none() {
+        return true;
+    }
+    let axis = |role: &str| match role {
+        "location.length.x" => Some(0),
+        "location.length.y" => Some(1),
+        "location.length.z" => Some(2),
+        _ => None,
+    };
+    let Some(locations) = missing
+        .map(|(id, role)| Some((id.clone(), axis(role)?)))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let proved = crate::dims::pmi_policy::retained_locations(analysis, candidate, &BTreeSet::new());
+    locations
+        .iter()
+        .all(|location| proved.contains_key(location))
+}
+
 /// Check actual bounds independently on each sheet; coincident coordinates on different
 /// pages are expected. Keep the single-sheet gate identical.
 pub(crate) fn drawn_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
