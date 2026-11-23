@@ -77,7 +77,7 @@ fn shf08_hole_leaves_the_near_side_on_a4_at_two_to_one() {
         "sheet": {"size": "A4", "scale": "2:1"}
     }))
     .unwrap();
-    let p = api::plan(&file, None, &spec).unwrap();
+    let p = api::plan_from(&file, api::Features::Native, &spec).unwrap();
     assert_eq!(
         (p.sheet.size.as_str(), p.sheet.scale.as_str()),
         ("A4", "2:1")
