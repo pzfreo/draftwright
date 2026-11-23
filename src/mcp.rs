@@ -123,7 +123,7 @@ pub fn schema(tool: &str, output: bool) -> Option<Value> {
     )?;
     Some(serde_json::from_str(text).expect("published schema"))
 }
-const AUXILIARY_REQUEST: &str = "#/$defs/auxiliary_request";
+const AUXILIARY_REQUEST: &str = "#/inspect_part/$defs/auxiliary_request";
 
 fn auxiliary_name(name: &str) -> bool {
     crate::auxiliary::is_name(name) && !name.contains(['\n', '\r', '\u{2028}', '\u{2029}'])

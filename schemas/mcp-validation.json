@@ -1,68 +1,4 @@
 {
-  "$defs": {
-    "auxiliary_request": {
-      "type": "object",
-      "properties": {
-        "square_to": {
-          "type": "string",
-          "minLength": 1
-        },
-        "edge_on": {
-          "type": "string",
-          "minLength": 1
-        },
-        "from": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "scale_factor": {
-          "anyOf": [
-            {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "full": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-      "oneOf": [
-        {
-          "required": [
-            "square_to"
-          ],
-          "not": {
-            "required": [
-              "edge_on"
-            ]
-          }
-        },
-        {
-          "required": [
-            "edge_on"
-          ],
-          "not": {
-            "required": [
-              "square_to"
-            ]
-          }
-        }
-      ]
-    }
-  },
   "inspect_part": {
     "type": "object",
     "properties": {
@@ -93,7 +29,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "$ref": "#/C"
+                "type": "boolean"
               }
             },
             "additionalProperties": false,
@@ -296,7 +232,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "$ref": "#/C"
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false
@@ -337,7 +273,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -410,7 +346,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "$ref": "#/C"
+                "type": "boolean"
               },
               "items": {
                 "type": "object",
@@ -418,7 +354,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "$ref": "#/C"
+                      "type": "boolean"
                     },
                     "position": {
                       "type": [
@@ -472,7 +408,7 @@
         "minimum": 0
       },
       "detail": {
-        "$ref": "#/C"
+        "type": "boolean"
       },
       "problem_filter": {
         "type": "object",
@@ -524,15 +460,76 @@
       },
       "type": "array"
     },
-    "C": {
-      "type": "boolean"
+    "$defs": {
+      "auxiliary_request": {
+        "type": "object",
+        "properties": {
+          "square_to": {
+            "type": "string",
+            "minLength": 1
+          },
+          "edge_on": {
+            "type": "string",
+            "minLength": 1
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scale_factor": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "full": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+        "oneOf": [
+          {
+            "required": [
+              "square_to"
+            ],
+            "not": {
+              "required": [
+                "edge_on"
+              ]
+            }
+          },
+          {
+            "required": [
+              "edge_on"
+            ],
+            "not": {
+              "required": [
+                "square_to"
+              ]
+            }
+          }
+        ]
+      }
     }
   },
   "list_items": {
     "type": "object",
     "properties": {
       "part_ref": {
-        "$ref": "#/E"
+        "$ref": "#/D"
       },
       "spec": {
         "type": "object",
@@ -560,14 +557,14 @@
               "keep_together": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/F"
+                  "$ref": "#/E"
                 }
               },
               "hole_table": {
                 "$ref": "#/C"
               },
               "gdt_on_sheet_1": {
-                "$ref": "#/H"
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -612,7 +609,7 @@
               "title": {
                 "type": "object",
                 "additionalProperties": {
-                  "$ref": "#/E"
+                  "$ref": "#/D"
                 }
               },
               "view_gutter": {
@@ -631,7 +628,7 @@
                 ]
               },
               "default_finish": {
-                "$ref": "#/G"
+                "$ref": "#/F"
               },
               "paper": {
                 "enum": [
@@ -748,7 +745,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "$ref": "#/H"
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false
@@ -765,7 +762,7 @@
                         "array"
                       ],
                       "items": {
-                        "$ref": "#/E"
+                        "$ref": "#/D"
                       },
                       "minItems": 1
                     },
@@ -789,7 +786,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -814,7 +811,8 @@
                       "pattern": "^[A-H]$"
                     },
                     "through": {
-                      "$ref": "#/D"
+                      "type": "string",
+                      "minLength": 1
                     }
                   },
                   "additionalProperties": false,
@@ -840,13 +838,13 @@
             "items": {
               "properties": {
                 "id": {
-                  "$ref": "#/E"
+                  "$ref": "#/D"
                 },
                 "kind": {
-                  "$ref": "#/E"
+                  "$ref": "#/D"
                 },
                 "faces": {
-                  "$ref": "#/F"
+                  "$ref": "#/E"
                 }
               },
               "additionalProperties": false,
@@ -857,7 +855,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "$ref": "#/H"
+                "type": "boolean"
               },
               "items": {
                 "type": "object",
@@ -865,7 +863,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "$ref": "#/H"
+                      "type": "boolean"
                     },
                     "position": {
                       "type": [
@@ -907,15 +905,15 @@
             }
           },
           "^(binding|engine_pins)$(?!\n)": {
-            "$ref": "#/G"
+            "$ref": "#/F"
           }
         }
       },
       "spec_version": {
-        "$ref": "#/E"
+        "$ref": "#/D"
       },
       "drawing_ref": {
-        "$ref": "#/E"
+        "$ref": "#/D"
       },
       "cursor": {
         "type": "integer",
@@ -927,7 +925,7 @@
         "maximum": 100
       },
       "detail": {
-        "$ref": "#/H"
+        "type": "boolean"
       },
       "filter": {
         "type": "object",
@@ -958,7 +956,7 @@
                         "const": "covered"
                       },
                       "by": {
-                        "$ref": "#/E"
+                        "$ref": "#/D"
                       }
                     },
                     "additionalProperties": false,
@@ -970,7 +968,7 @@
                         "const": "not_drawable"
                       },
                       "reason_code": {
-                        "$ref": "#/E"
+                        "$ref": "#/D"
                       }
                     },
                     "additionalProperties": false,
@@ -1042,26 +1040,19 @@
       ]
     },
     "D": {
-      "minLength": 1,
       "type": "string"
     },
     "E": {
-      "type": "string"
-    },
-    "F": {
       "items": {
-        "$ref": "#/E"
+        "$ref": "#/D"
       },
       "type": "array"
     },
-    "G": {
+    "F": {
       "type": [
         "object",
         "null"
       ]
-    },
-    "H": {
-      "type": "boolean"
     }
   },
   "get_item": {
@@ -1094,7 +1085,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "$ref": "#/C"
+                "type": "boolean"
               }
             },
             "additionalProperties": false,
@@ -1297,7 +1288,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "$ref": "#/C"
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false
@@ -1338,7 +1329,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -1411,7 +1402,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "$ref": "#/C"
+                "type": "boolean"
               },
               "items": {
                 "type": "object",
@@ -1419,7 +1410,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "$ref": "#/C"
+                      "type": "boolean"
                     },
                     "position": {
                       "type": [
@@ -1469,7 +1460,7 @@
         }
       },
       "detail": {
-        "$ref": "#/C"
+        "type": "boolean"
       }
     },
     "required": [
@@ -1500,9 +1491,6 @@
         "string",
         "null"
       ]
-    },
-    "C": {
-      "type": "boolean"
     }
   },
   "list_problems": {
@@ -1538,7 +1526,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "$ref": "#/C"
+                "type": "boolean"
               }
             },
             "additionalProperties": false,
@@ -1741,7 +1729,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "$ref": "#/C"
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false
@@ -1782,7 +1770,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -1855,7 +1843,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "$ref": "#/C"
+                "type": "boolean"
               },
               "items": {
                 "type": "object",
@@ -1863,7 +1851,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "$ref": "#/C"
+                      "type": "boolean"
                     },
                     "position": {
                       "type": [
@@ -1928,7 +1916,7 @@
         "maximum": 100
       },
       "detail": {
-        "$ref": "#/C"
+        "type": "boolean"
       },
       "filter": {
         "type": "object",
@@ -1965,9 +1953,6 @@
         "type": "string"
       },
       "type": "array"
-    },
-    "C": {
-      "type": "boolean"
     }
   },
   "item_options": {
@@ -2244,7 +2229,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -2437,7 +2422,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "$ref": "#/D"
+                "type": "boolean"
               }
             },
             "additionalProperties": false,
@@ -2640,7 +2625,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "$ref": "#/D"
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false
@@ -2681,7 +2666,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -2754,7 +2739,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "$ref": "#/D"
+                "type": "boolean"
               },
               "items": {
                 "type": "object",
@@ -2762,7 +2747,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "$ref": "#/D"
+                      "type": "boolean"
                     },
                     "position": {
                       "type": [
@@ -2827,7 +2812,7 @@
         "maximum": 100
       },
       "detail": {
-        "$ref": "#/D"
+        "type": "boolean"
       },
       "ops": {
         "type": "array",
@@ -2886,9 +2871,6 @@
         "string",
         "null"
       ]
-    },
-    "D": {
-      "type": "boolean"
     }
   },
   "apply_ops": {
@@ -2924,7 +2906,7 @@
                 }
               },
               "gdt_on_sheet_1": {
-                "$ref": "#/D"
+                "type": "boolean"
               }
             },
             "additionalProperties": false,
@@ -3127,7 +3109,7 @@
                       "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
-                      "$ref": "#/D"
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false
@@ -3168,7 +3150,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -3241,7 +3223,7 @@
             "type": "object",
             "properties": {
               "occurrences": {
-                "$ref": "#/D"
+                "type": "boolean"
               },
               "items": {
                 "type": "object",
@@ -3249,7 +3231,7 @@
                   "type": "object",
                   "properties": {
                     "suppress": {
-                      "$ref": "#/D"
+                      "type": "boolean"
                     },
                     "position": {
                       "type": [
@@ -3314,7 +3296,7 @@
         "maximum": 100
       },
       "detail": {
-        "$ref": "#/D"
+        "type": "boolean"
       },
       "ops": {
         "type": "array",
@@ -3377,9 +3359,6 @@
         "string",
         "null"
       ]
-    },
-    "D": {
-      "type": "boolean"
     }
   },
   "view_sheet": {
@@ -3659,7 +3638,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -4128,7 +4107,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -4569,7 +4548,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"
@@ -5001,7 +4980,7 @@
                 "auxiliary": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/auxiliary_request"
+                      "$ref": "#/inspect_part/$defs/auxiliary_request"
                     },
                     {
                       "type": "null"

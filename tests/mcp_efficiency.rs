@@ -648,7 +648,7 @@ fn shared_schema_types_preserve_state_alternatives_and_detail_placements() {
     let preflight: Value =
         serde_json::from_str(include_str!("../schemas/mcp-validation.json")).unwrap();
     let request = |auxiliary| json!({"part_ref":"part", "spec":{"views":{"aux:face:4":{"auxiliary":auxiliary}}}});
-    assert!(preflight["$defs"]["auxiliary_request"].is_object());
+    assert!(preflight["inspect_part"]["$defs"]["auxiliary_request"].is_object());
     mcp::validate(&preflight["inspect_part"], &request(Value::Null)).unwrap();
     mcp::validate(
         &preflight["inspect_part"],
