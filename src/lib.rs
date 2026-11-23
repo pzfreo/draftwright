@@ -94,7 +94,6 @@ pub mod iso_caption;
 pub mod shaded;
 
 pub mod auxiliary;
-mod auxiliary_geometry;
 pub mod detail;
 /// Authored corrections resolved into the ordinary feature inventory.
 pub mod recognition_corrections;

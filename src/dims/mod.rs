@@ -976,7 +976,7 @@ pub(crate) fn auxiliary_stock_pair(
     spec: &Spec,
     feature: &crate::bridge::Feature,
     toward: [f64; 3],
-) -> Option<[crate::auxiliary_geometry::EdgeStation; 2]> {
+) -> Option<[crate::lint::auxiliary_geometry::EdgeStation; 2]> {
     let (mut wants, ..) = pmi_policy::wants(a, spec);
     schemes::apply(a, spec, &mut wants).ok()?;
     authored::append(a, spec, &mut wants).ok()?;

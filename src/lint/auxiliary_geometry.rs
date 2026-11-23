@@ -2,11 +2,29 @@
 use crate::bridge::{Feature, holes};
 use crate::model::Analysis;
 use crate::model::dimension_geometry::Reference;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 const TOLERANCE: f64 = 1e-6;
 
 pub(crate) type Point = [f64; 3];
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BoreEnd {
+    pub toward: Point,
+    pub edges: BTreeSet<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profile_ends: Vec<usize>,
+}
+
+pub(crate) fn bore_end<'a>(a: &'a Analysis, id: &str, toward: Point) -> Option<&'a BoreEnd> {
+    a.edge_ink
+        .as_ref()?
+        .bore_ends
+        .get(id)?
+        .iter()
+        .find(|e| dot(e.toward, toward) > 1. - TOLERANCE)
+}
 
 pub(crate) fn sub(a: Point, b: Point) -> Point {
     std::array::from_fn(|k| a[k] - b[k])
@@ -346,7 +364,7 @@ pub(crate) fn profile_stations(
         .features
         .iter()
         .filter(|f| f.kind == "turned_step")
-        .filter_map(|f| Some((&f.id, crate::lint::turned::band(&frame, f).ok()?)));
+        .filter_map(|f| Some((&f.id, super::turned::band(&frame, f).ok()?)));
     let (first, band) = bands.next()?;
     let mut owner = first;
     let mut diameter = band.diameter;

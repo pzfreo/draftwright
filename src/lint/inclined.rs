@@ -1,7 +1,7 @@
 //! Direct authored constraints across an inclined cylindrical axis.
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Mark, location::AXES};
+use super::{Mark, auxiliary_geometry, location::AXES};
 use crate::model::Analysis;
 use crate::model::dimension_geometry::Reference;
 
@@ -254,11 +254,11 @@ fn auxiliary_constraint<'a>(a: &'a Analysis, mark: &'a Mark, id: &str) -> Option
         .split_once(".e")?;
     let (face, edge) = (face.parse::<usize>().ok()?, edge.parse::<usize>().ok()?);
     let c = opening_constraint(a, f, frame.direction, face, edge).or_else(|| {
-        let end = crate::auxiliary::bore_end(a, id, frame.direction)?;
+        let end = auxiliary_geometry::bore_end(a, id, frame.direction)?;
         if !end.edges.contains(&edge) {
             return None;
         }
-        let station = crate::auxiliary_geometry::projected_stations(a, f, frame.direction)
+        let station = auxiliary_geometry::projected_stations(a, f, frame.direction)
             .into_iter()
             .find(|s| s.face == face && s.edge == edge)?;
         let (key, _) = a.dimension_references().get_key_value(&station.key)?;
@@ -519,15 +519,12 @@ fn profile_located(a: &Analysis, marks: &[Mark], id: &str) -> bool {
         let Some((frame, _)) = witness(mark) else {
             continue;
         };
-        let Some(end) = crate::auxiliary::bore_end(a, id, frame.direction) else {
+        let Some(end) = auxiliary_geometry::bore_end(a, id, frame.direction) else {
             continue;
         };
-        let Some([axis, end]) = crate::auxiliary_geometry::profile_stations(
-            a,
-            feature,
-            frame.direction,
-            &end.profile_ends,
-        ) else {
+        let Some([axis, end]) =
+            auxiliary_geometry::profile_stations(a, feature, frame.direction, &end.profile_ends)
+        else {
             continue;
         };
         if !marks.iter().any(|m| {

@@ -1,10 +1,10 @@
 //! Measurements whose true projection is carried by a requested auxiliary view.
 use super::{Measurement, Shape, Want, add, angular::Angle, fmt_in, scale3, want_id};
-use crate::auxiliary_geometry::{
+use crate::bridge::{Feature, holes};
+use crate::lint::auxiliary_geometry::{
     EdgeStation, Point, coplanar_patches, cross, dot, edge_stations, face, profile_stations,
     projected_stations, seat_normal, sub, support, unit,
 };
-use crate::bridge::{Feature, holes};
 use crate::model::dimension_geometry::Reference;
 use crate::model::{Analysis, PlannedView, Spec};
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,7 +39,7 @@ pub(super) fn projected_pair(
     toward: Point,
     wants: &[Want],
 ) -> Option<[EdgeStation; 2]> {
-    let end = crate::auxiliary::bore_end(a, &f.id, toward)?;
+    let end = crate::lint::auxiliary_geometry::bore_end(a, &f.id, toward)?;
     let edges: Vec<_> = wants
         .iter()
         .flat_map(|w| super::pmi_policy::spans(a, w))
@@ -371,7 +371,7 @@ pub(super) fn apply<'a>(
                 }
             } else if crate::auxiliary::is_automatic_view(v)
                 && v.line_style.centre_lines != Some(false)
-                && let Some(end) = crate::auxiliary::bore_end(a, &f.id, v.direction)
+                && let Some(end) = crate::lint::auxiliary_geometry::bore_end(a, &f.id, v.direction)
                 && let Some(stations) = profile_stations(a, f, v.direction, &end.profile_ends)
             {
                 for station in stations {

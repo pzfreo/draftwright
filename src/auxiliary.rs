@@ -3,16 +3,16 @@ use haecceity::hlr::View;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::auxiliary_geometry::{
-    Point, coplanar_patches, cross, dot, face, feature_axis, sub, support, unit,
-};
 use crate::layout::{Rect, Scaled};
+use crate::lint::auxiliary_geometry::{
+    BoreEnd, Point, bore_end, coplanar_patches, cross, dot, face, feature_axis, sub, support, unit,
+};
 use crate::model::dimension_geometry::Reference;
 use crate::model::{Analysis, Invalid, Plan, PlannedView, Problem, Spec, VIEWS};
 
 mod automatic;
 mod visibility;
-pub(crate) use visibility::{BoreEnd, BossProfile, bore_end, boss_witnesses, evidence};
+pub(crate) use visibility::{BossProfile, boss_witnesses, evidence};
 
 const TOLERANCE: f64 = 1e-6;
 

@@ -49,6 +49,7 @@ use crate::output::{Claim, Drawing};
 pub mod angled_steps;
 mod authored;
 mod auxiliary;
+pub(crate) mod auxiliary_geometry;
 pub mod blends;
 pub mod blind_slots;
 pub mod bosses;

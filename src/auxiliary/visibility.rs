@@ -54,14 +54,6 @@ pub(crate) fn evidence(part: &haecceity::Part, a: &Analysis) -> (BoreEnds, BossP
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BoreEnd {
-    pub toward: Point,
-    pub edges: BTreeSet<usize>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub profile_ends: Vec<usize>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BossProfile {
     toward: Point,
     witnesses: [Point; 2],
@@ -196,15 +188,6 @@ fn boss_evidence(
     evidence
 }
 
-pub(crate) fn bore_end<'a>(a: &'a Analysis, id: &str, toward: Point) -> Option<&'a BoreEnd> {
-    a.edge_ink
-        .as_ref()?
-        .bore_ends
-        .get(id)?
-        .iter()
-        .find(|e| dot(e.toward, toward) > 1. - TOLERANCE)
-}
-
 fn contains_rim(curves: &[Curve], centre: [f64; 2], radius: f64) -> bool {
     use std::f64::consts::TAU;
     // Unwrap trimmed arcs onto the same circle before checking coverage.
@@ -279,7 +262,7 @@ fn visible_at(curves: &[Curve], point: [f64; 2]) -> bool {
 }
 
 fn witnesses(a: &Analysis, f: &Feature, view: &View, curves: &[Curve]) -> BTreeSet<usize> {
-    crate::auxiliary_geometry::projected_stations(a, f, view.toward)
+    crate::lint::auxiliary_geometry::projected_stations(a, f, view.toward)
         .into_iter()
         .filter(|s| visible_at(curves, view.map(s.points[0])))
         .map(|s| s.edge)
@@ -333,7 +316,7 @@ fn bore_evidence(part: &haecceity::Part, a: &Analysis, cameras: &mut Vec<Project
                     profile_ends: profile_ends(a, &hole, view, curves),
                 });
                 // Keep the preferred side if it has the ordinary in-face pair.
-                if crate::auxiliary_geometry::has_face_pair(a, feature, toward) {
+                if crate::lint::auxiliary_geometry::has_face_pair(a, feature, toward) {
                     break;
                 }
             }

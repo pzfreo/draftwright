@@ -93,15 +93,20 @@ fn include_bore(a: &Analysis, spec: &Spec, request: &mut Request, f: &Feature) {
         at[0] + radius,
         at[1] + radius,
     ];
-    if !crate::auxiliary_geometry::has_face_pair(a, f, request.camera.toward) {
+    if !crate::lint::auxiliary_geometry::has_face_pair(a, f, request.camera.toward) {
         let toward = request.camera.toward;
         let witnesses = crate::dims::auxiliary_stock_pair(a, spec, f, toward)
             .map(|pair| pair.map(|s| s.points[0]))
             .or_else(|| {
                 let end = bore_end(a, &f.id, toward)?;
                 Some(
-                    crate::auxiliary_geometry::profile_stations(a, f, toward, &end.profile_ends)?
-                        .map(|s| s.points[0]),
+                    crate::lint::auxiliary_geometry::profile_stations(
+                        a,
+                        f,
+                        toward,
+                        &end.profile_ends,
+                    )?
+                    .map(|s| s.points[0]),
                 )
             });
         for witness in witnesses.into_iter().flatten() {
@@ -154,7 +159,7 @@ pub(super) fn profile_parent(
         let height = feature.parameters.get("height")?.as_f64()?;
         let top = holes::to_part(&frame, point);
         let base = std::array::from_fn(|i| top[i] - height * direction[i]);
-        crate::auxiliary_geometry::seat_normal(a, feature, base, direction)
+        crate::lint::auxiliary_geometry::seat_normal(a, feature, base, direction)
     });
     PARENTS
         .into_iter()
@@ -243,8 +248,9 @@ fn opening_face(a: &Analysis, feature: &Feature, axis: Point) -> Option<usize> {
 
 fn measurable(a: &Analysis, spec: &Spec, f: &Feature, end: &BoreEnd) -> bool {
     let toward = end.toward;
-    crate::auxiliary_geometry::has_face_pair(a, f, toward)
-        || crate::auxiliary_geometry::profile_stations(a, f, toward, &end.profile_ends).is_some()
+    crate::lint::auxiliary_geometry::has_face_pair(a, f, toward)
+        || crate::lint::auxiliary_geometry::profile_stations(a, f, toward, &end.profile_ends)
+            .is_some()
         || crate::dims::auxiliary_stock_pair(a, spec, f, toward).is_some()
 }
 
@@ -264,7 +270,7 @@ fn ungrounded_grid_faces(a: &Analysis, needs: &BTreeSet<String>) -> BTreeSet<usi
             let feature = a.features.iter().find(|f| &f.id == id)?;
             let axis = anchor_direction(a, id)?;
             let face = opening_face(a, feature, axis)?;
-            let has_stock_edge = crate::auxiliary_geometry::edge_stations(a, feature, axis)
+            let has_stock_edge = crate::lint::auxiliary_geometry::edge_stations(a, feature, axis)
                 .iter()
                 .any(|station| station.has_stock_edge);
             (!has_stock_edge).then_some(face)
