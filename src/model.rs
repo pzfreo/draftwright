@@ -1277,6 +1277,33 @@ pub struct PlannedSheet {
 
 pub type LinePose = ([f64; 2], Vec<[f64; 2]>);
 
+pub(crate) fn isometric_basis(factor: f64) -> String {
+    if factor == 1.0 {
+        "the isometric, centred in the largest space the other views leave".into()
+    } else {
+        format!(
+            "the isometric, centred in the largest space the other views leave and scaled ×{factor} to fill it (not to scale)"
+        )
+    }
+}
+
+fn describe_capped_isometric(iso: &mut PlannedView, sheet_scale: f64) {
+    let factor = (iso.scale / sheet_scale * 10000.0).round() / 10000.0;
+    let suffix = iso.basis.find("; Spec:").map_or("", |i| &iso.basis[i..]);
+    let description = if iso
+        .basis
+        .starts_with("the automatic orientation view, fitted once")
+    {
+        format!(
+            "the automatic orientation view, fitted once around measured row blocks at {:.4} page mm per model mm (not to scale)",
+            iso.scale
+        )
+    } else {
+        isometric_basis(factor)
+    };
+    iso.basis = description + suffix;
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlannedView {
     #[serde(skip)]
@@ -2636,6 +2663,14 @@ fn drops(plan: &Plan) -> usize {
         .count()
 }
 
+/// Profile-angle losses rank fitting pairs before paper and scale preferences.
+pub(crate) fn angular_losses(plan: &Plan) -> usize {
+    plan.problems
+        .iter()
+        .filter(|p| p.code == "angular_dimension_dropped")
+        .count()
+}
+
 /// Name the reported hard findings counted by the recovery, including the Spec's scale floor.
 pub(crate) fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
     let mut codes = BTreeMap::new();
@@ -2891,8 +2926,8 @@ fn carried(plan: &Plan) -> BTreeSet<(String, String)> {
                 .filter(|n| n.placed.is_some())
                 .flat_map(|n| &n.measurements),
         )
-        // A profile-corner angle is placed only where it is clear and otherwise dropped to a
-        // lint warning: it never makes one sheet or scale less complete than another.
+        // Angle coverage has its own comparison: a later candidate may define a corner
+        // with linear stations instead of an angular measurement.
         .filter(|m| m.parameter != crate::dims::PROFILE_ANGLE)
         .map(|m| (m.feature.clone(), m.parameter.clone()))
         .collect();
@@ -3310,6 +3345,21 @@ pub(crate) const LARGE_SHEET: usize = 2;
 /// before the automatic search admits A2 or larger.
 pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
     let (_, w, h) = first.spec.pages()[LARGE_SHEET - 1];
+    let (row, column, _) = full_size_view_footprints(analysis, first);
+    row <= w - 2.0 * layout::margin() && column <= h - 2.0 * layout::margin()
+}
+
+/// The compact-paper rule is for parts whose principal views already fit full size
+/// on the smallest sheet, with enough unused room to fall below the fill band.
+pub(crate) fn sparse_at_full_size(analysis: &Analysis, plan: &Plan) -> bool {
+    let (_, w, h) = plan.spec.pages()[0];
+    let w = w - 2.0 * layout::margin();
+    let h = h - 2.0 * layout::margin();
+    let (row, column, area) = full_size_view_footprints(analysis, plan);
+    row <= w && column <= h && area < w * h * crate::sheet_fit::FILL_BAND[0]
+}
+
+fn full_size_view_footprints(analysis: &Analysis, plan: &Plan) -> (f64, f64, f64) {
     let size = |v: &PlannedView| {
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
         let view = View::new(v.direction, v.up).expect("planned view");
@@ -3317,24 +3367,26 @@ pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
         if let Some(b) = &v.broken {
             size[b.axis] -= b.reduction();
         }
-        size
+        size.map(|extent| extent + 2.0 * layout::dim_pad())
     };
-    let views: Vec<&PlannedView> = first
+    let views: Vec<_> = plan
         .views
         .iter()
         .filter(|v| v.id != "v:iso" && v.detail.is_none())
+        .map(|v| (v.id.as_str(), size(v)))
         .collect();
     let row: f64 = views
         .iter()
-        .filter(|v| v.id != "v:plan")
-        .map(|v| size(v)[0] + 2.0 * layout::dim_pad())
+        .filter(|(id, _)| *id != "v:plan")
+        .map(|(_, [w, _])| w)
         .sum();
     let column: f64 = views
         .iter()
-        .filter(|v| v.id == "v:plan" || v.id == "v:front")
-        .map(|v| size(v)[1] + 2.0 * layout::dim_pad())
+        .filter(|(id, _)| matches!(*id, "v:plan" | "v:front"))
+        .map(|(_, [_, h])| h)
         .sum();
-    row <= w - 2.0 * layout::margin() && column <= h - 2.0 * layout::margin()
+    let area = views.iter().map(|(_, [w, h])| w * h).sum();
+    (row, column, area)
 }
 
 pub(crate) fn established_key(analysis: &Analysis, spec: &Spec) -> Vec<u8> {
@@ -4101,7 +4153,8 @@ fn recover_paper(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
 /// The automatic enlargement veto on *candidates* beside the smallest sheet's drawing
 /// *reference* (sheet index *sheet*): a candidate on a larger sheet whose established leader
 /// has grown too far ([`grown_callouts`]: doubled at a larger scale, more than 2 mm longer
-/// otherwise) is dropped, and its trace in *tried* says so.
+/// otherwise) is dropped, and its trace in *tried* says so. A live candidate
+/// carrying more required angles keeps its place in the choice.
 fn veto_grown_leaders(
     spec: &Spec,
     candidates: &mut Vec<(crate::sheet_fit::Candidate, Plan)>,
@@ -4109,8 +4162,16 @@ fn veto_grown_leaders(
     sheet: usize,
     reference: &Plan,
 ) {
+    let reference_angle_losses = if crate::nominal::comparison() {
+        0
+    } else {
+        angular_losses(reference)
+    };
     candidates.retain(|(c, p)| {
-        if c.sheet <= sheet || !grown_callouts(p, reference) {
+        if c.sheet <= sheet
+            || c.angular_losses < reference_angle_losses
+            || !grown_callouts(p, reference)
+        {
             return true;
         }
         let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
@@ -4310,6 +4371,17 @@ fn recover_candidates(
     // physically fitting alternative even when source PMI prevents a clean sheet.
     let mut readable_incomplete: Option<((usize, usize, usize, usize), Plan)> = None;
     let mut smallest = None;
+    let mut smallest_angle_losses = 0;
+    let mut found_all_angles = false;
+    let mut full_size_frame_fit = false;
+    let angle_losses = |p: &Plan| {
+        if crate::nominal::comparison() {
+            0
+        } else {
+            angular_losses(p)
+        }
+    };
+    let seed_angle_losses = angle_losses(&first);
     let mut smallest_iso: Option<f64> = None;
     let mut recipes = BTreeMap::new();
     // Exhaust practical single sheets, then R5 allocation, before admitting large paper.
@@ -4342,8 +4414,15 @@ fn recover_candidates(
             for scale in spec.scales().iter().copied().filter(|s| {
                 *s >= min_legible_scale && established_scale.is_none_or(|cap| *s <= cap)
             }) {
-                // On the one larger sheet only an enlargement of the smallest fit is allowed.
-                if smallest.is_some_and(|fit| !crate::sheet_fit::allowed(fit, i, scale)) {
+                if smallest.is_some_and(|fit: (usize, f64)| {
+                    if i == fit.0 {
+                        false
+                    } else if smallest_angle_losses > 0 {
+                        found_all_angles || scale != fit.1
+                    } else {
+                        !crate::sheet_fit::allowed(fit, i, scale)
+                    }
+                }) {
                     continue;
                 }
                 // A view larger than the usable paper cannot be repaired by annotation placement.
@@ -4430,6 +4509,7 @@ fn recover_candidates(
                             over_views(p),
                             extra_corridors(p),
                             extra_existing_crossings(p),
+                            angle_losses(p),
                             ink_findings(p),
                             feature_crossings(p),
                         )
@@ -4519,6 +4599,7 @@ fn recover_candidates(
                 // Enlargement is for the dimensioned views. On the smallest fit's larger neighbour
                 // the orientation view keeps the smallest fit's paper scale, rather than spending the
                 // extra sheet on decorative growth.
+                let mut orientation_retained = false;
                 if spec.iso_scale_factor.is_none()
                     && !spec.views.contains_key("iso")
                     && let Some((fit, Some(cap))) = smallest.map(|(j, _)| (j, smallest_iso))
@@ -4534,7 +4615,8 @@ fn recover_candidates(
                         iso.at[1] + (iso.scale - cap) * centre[1],
                     ];
                     iso.scale = cap;
-                    iso.basis += "; the smallest fit's orientation scale kept while dimensioned views enlarge";
+                    describe_capped_isometric(iso, p.sheet.scale_factor);
+                    orientation_retained = true;
                 }
                 crate::sheet_fit::correct_estimate(analysis, &mut p);
                 compact_authored_row(analysis, &mut p);
@@ -4551,7 +4633,8 @@ fn recover_candidates(
                         iso.at[k] += (iso.scale - cap) * 0.5 * (b[k] + b[k + 2]);
                     }
                     iso.scale = cap;
-                    iso.basis += "; established orientation scale retained beside the new recess annotations";
+                    describe_capped_isometric(iso, p.sheet.scale_factor);
+                    orientation_retained = true;
                 }
                 crate::iso_caption::refresh(analysis, &mut p);
                 // An estimate's iso budget can refuse a sheet whose finished drawing fits.
@@ -4608,6 +4691,16 @@ fn recover_candidates(
                 let line_crossings =
                     dimension_line_crossings(&p).saturating_sub(dimension_line_crossings(&first));
                 p.sheet.fill = crate::sheet_fit::fill(analysis, &p);
+                if i == 0
+                    && scale == 1.0
+                    && spec.sheet.size.is_none()
+                    && !crate::nominal::comparison()
+                    && p.sheet.fill < FILL_BAND[0]
+                    && sparse_at_full_size(analysis, &p)
+                {
+                    full_size_frame_fit |=
+                        actual_fit || crate::sheet_fit::inside_frames(analysis, &p);
+                }
                 // A declined optional crop leaves an ordinary drawing. Its refusal must
                 // not veto the small-sheet candidates that F1 would otherwise accept.
                 // An invalid seed's refused crop cannot block a complete ordinary drawing;
@@ -4653,6 +4746,18 @@ fn recover_candidates(
                     ink_findings(&p),
                     p.sheet.arrangement
                 ));
+                if orientation_retained {
+                    tried.last_mut().expect("candidate trace").push_str(
+                        "; orientation scale retained while fitting the dimensioned views",
+                    );
+                }
+                let angular_losses = angle_losses(&p);
+                if angular_losses > 0 {
+                    tried
+                        .last_mut()
+                        .expect("candidate trace")
+                        .push_str(&format!("; {angular_losses} required profile-angle losses"));
+                }
                 if line_crossings > 0 {
                     // Invariant: A candidate trace was pushed immediately before updating its final entry.
                     tried
@@ -4728,18 +4833,24 @@ fn recover_candidates(
                 }
                 if smallest.is_none() {
                     smallest = Some((i, scale));
+                    smallest_angle_losses = angular_losses;
                     smallest_iso = p.views.iter().find(|v| v.id == "v:iso").map(|v| v.scale);
                 }
+                found_all_angles |= angular_losses == 0;
                 candidates.push((
                     crate::sheet_fit::Candidate {
                         sheet: i,
                         scale,
                         width: p.sheet.page[0],
                         fill: selection_fill,
+                        angular_losses,
                         extra_crossings: crossings + line_crossings,
                     },
                     p,
                 ));
+                if smallest_angle_losses > 0 && found_all_angles {
+                    break;
+                }
             }
         }
         if cut && candidates.is_empty() {
@@ -4807,9 +4918,16 @@ fn recover_candidates(
         veto_grown_leaders(spec, &mut candidates, &mut tried, sheet, &reference);
     }
     let keys: Vec<_> = candidates.iter().map(|(c, _)| *c).collect();
-    let Some((choice, (i, s))) =
-        crate::sheet_fit::choose(&keys, spec.sheet.size.is_some(), seed_kept)
-    else {
+    let prefer_full_size = !crate::nominal::comparison()
+        && spec.sheet.size.is_none()
+        && smallest.is_some_and(|(i, scale)| i == 0 && scale < 1.0)
+        && full_size_frame_fit;
+    let Some((choice, (i, s))) = crate::sheet_fit::choose(
+        &keys,
+        spec.sheet.size.is_some(),
+        seed_kept,
+        prefer_full_size,
+    ) else {
         if let Some((_, _, _, mut fitting)) = fitting_incomplete {
             fitting.spec = spec.clone();
             fitting.sheet.default = true;
@@ -4919,7 +5037,12 @@ fn recover_candidates(
             .min_by_key(|(_, (c, p))| (c.sheet, ink_findings(p), feature_crossings(p)))
             .map(|(j, _)| j)
     });
-    let choice = retained.or(choice);
+    let choice = retained
+        .filter(|&i| choice.is_none_or(|j| keys[i].angular_losses <= keys[j].angular_losses))
+        .or(choice);
+    let keeps_angles =
+        choice.is_some_and(|i| seed_kept && keys[i].angular_losses > seed_angle_losses);
+    let choice = choice.filter(|_| !keeps_angles);
     let estimate = format!(
         "first estimate {} at {} ({})",
         first.sheet.size,
@@ -4934,13 +5057,22 @@ fn recover_candidates(
     );
     let (mut chosen, kept) = match choice {
         Some(index) => (candidates.swap_remove(index).1, ""),
+        None if keeps_angles => (
+            first.clone(),
+            "; the first estimate keeps required profile angles lost by the fitting alternatives",
+        ),
         None => (
             first.clone(),
             "; every allowed pair adds material crossings to the valid first estimate, which is kept",
         ),
     };
+    let neighbour = if smallest_angle_losses > 0 {
+        "the neighbouring sheet may recover required angles at the same scale"
+    } else {
+        "at most one larger sheet only with enlargement"
+    };
     chosen.sheet.basis = format!(
-        "smallest fit {} at {}; at most one larger sheet only with enlargement; drawn-item fill {:.1}%, target {:.0}–{:.0}% (validity and completeness first); {estimate}{kept}; candidates: {}",
+        "smallest fit {} at {}; {neighbour}; drawn-item fill {:.1}%, target {:.0}–{:.0}% (validity and completeness first); {estimate}{kept}; candidates: {}",
         spec.pages()[i].0,
         scale_name(s),
         chosen.sheet.fill * 100.0,
@@ -5581,44 +5713,64 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
 // Nominal consolidation can add conflicts after the historical schedule
 // decision. Judge the finished inch ladder too, at its existing paper and scale.
 fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    if spec.units != crate::units::Units::In
+        || spec.hole_table != crate::hole_table::Setting::Auto
+        || crate::nominal::comparison()
+    {
+        return;
+    }
+    let shared_hole_line = plan
+        .problems
+        .iter()
+        .any(|p| p.code == "hole_table_unavailable")
+        && plan.problems.iter().any(|p| {
+            p.code == "dimension_line_shared"
+                && p.subjects.iter().any(|id| {
+                    plan.dimensions.iter().any(|d| {
+                        &d.id == id
+                            && d.measurements.iter().any(|m| {
+                                m.feature.starts_with("f:hole:")
+                                    && m.parameter.starts_with("location.length.")
+                            })
+                    })
+                })
+        });
     // A kept-layout edit must replay the whole automatic presentation, not
     // stop when its first ordinary schedule has returned. The late remedy may
     // have added the other carrying views after nominal consolidation.
     let kept_edit = spec.sheet.keep_layout == Some(true)
         && (!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec));
-    if spec.units != crate::units::Units::In
-        || spec.hole_table != crate::hole_table::Setting::Auto
-        || ((!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec)) && !kept_edit)
-        || crate::nominal::comparison()
-        || !plan.gdt.is_empty()
+    if ((!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec)) && !kept_edit)
+        || (!plan.gdt.is_empty() && !shared_hole_line)
         || (!plan.hole_tables.is_empty() && !kept_edit)
         || crate::hole_table::select(analysis, plan).tables.is_empty()
     {
         return;
     }
     let mut pairs = vec![(plan.sheet.size.clone(), plan.sheet.scale_factor)];
-    // The ANSI B landscape is shallower than A3. If the measured schedule
-    // cannot fit, permit the existing one-sheet enlargement rule: one larger
-    // standard sheet, with the next larger standard scale, never extra paper
-    // merely to spread out the same geometry.
+    // A schedule that clears a shared dimension line earns one larger sheet at
+    // the same readable scale. Other ladders keep the usual enlargement rule.
     if spec.sheet.size.is_none() && spec.sheet.scale.is_none() {
         let pages = spec.pages();
         if let Some(i) = pages.iter().position(|p| p.0 == plan.sheet.size)
             && let Some(next) = pages.get(i + 1)
-            && spec.sheet.preferred_max_size.as_ref().is_none_or(|limit| {
+        {
+            if shared_hole_line {
+                pairs.push((next.0.into(), plan.sheet.scale_factor));
+            } else if spec.sheet.preferred_max_size.as_ref().is_none_or(|limit| {
                 pages
                     .iter()
                     .position(|p| p.0 == limit)
                     .is_some_and(|cap| i < cap)
-            })
-            && let Some(scale) = spec
+            }) && let Some(scale) = spec
                 .scales()
                 .iter()
                 .copied()
                 .filter(|s| *s > plan.sheet.scale_factor)
                 .min_by(f64::total_cmp)
-        {
-            pairs.push((next.0.into(), scale));
+            {
+                pairs.push((next.0.into(), scale));
+            }
         }
     }
     for (size, scale) in pairs {
@@ -5635,6 +5787,16 @@ fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
             continue;
         };
         if candidate.hole_tables.is_empty() {
+            continue;
+        }
+        if shared_hole_line
+            && (candidate
+                .problems
+                .iter()
+                .any(|p| p.code == "dimension_line_shared")
+                || !carries_required(plan, &candidate)
+                || undrawn_gdt(&candidate) > undrawn_gdt(plan))
+        {
             continue;
         }
         if finished_sheets_fit(analysis, &candidate)
@@ -5656,7 +5818,11 @@ fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                     block.default = true;
                 }
             }
-            candidate.sheet.basis += "; the finished inch ladder triggers a hole schedule; one larger sheet is allowed only with standard-scale enlargement and fewer measured conflicts";
+            candidate.sheet.basis += if shared_hole_line {
+                "; the finished inch hole schedule replaces overlapping coordinate dimensions"
+            } else {
+                "; the finished inch ladder triggers a hole schedule; one larger sheet is allowed only with standard-scale enlargement and fewer measured conflicts"
+            };
             *plan = candidate;
             break;
         }
@@ -5764,9 +5930,9 @@ fn with_uncapped<T>(uncapped: bool, run: impl FnOnce() -> T) -> T {
 }
 
 /// Plans the hole schedules' presentation with *plan* and installs the schedules
-/// ([`crate::hole_table::install`]). Where they find no clear place because a slot callout took
-/// the place an origin mark needs, the presentation is planned once more with that place reserved
-/// before the dimensions are laid out ([`crate::hole_table::slot_callout_takes_origin`], CTC-03).
+/// ([`crate::hole_table::install`]). If dimension ink occupies the place an origin mark needs,
+/// the presentation is planned once more with that place reserved
+/// before the dimensions are laid out ([`crate::hole_table::annotation_takes_origin`]).
 /// `None` when the schedules are not installed.
 ///
 /// A row replaces a callout whose size comes from PMI. Where that drawing has an error the plan
@@ -5917,13 +6083,12 @@ fn install_selection_form(
         return Ok(Some(scheduled));
     }
     if !crate::placement_intent::has_pins(&first.spec)
-        && !crate::hole_table::slot_callout_takes_origin(analysis, &first, selection)
+        && !crate::hole_table::annotation_takes_origin(analysis, &first, selection)
     {
         return Ok(None);
     }
-    // A retained view pin re-solves the remaining annotations in fixed frames.
-    // Any of them can occupy the schedule's datum-mark corridor, not only a SLOT
-    // callout. Give the canonical schedule one bounded solve with its origin held.
+    // Give the schedule one bounded solve with its origin held. Retained
+    // view pins can also move annotations into the origin corridor.
     let mut reserved = selection.clone();
     reserved.reserve_origins = true;
     let mut scheduled = plan(&reserved)?;
@@ -7595,6 +7760,18 @@ fn plan_with_presentation(
     let page = page.or_else(|| presentation.map(|p| p.page));
     // A schedule removes annotation demand; it must not shrink or enlarge the proven feature ink.
     let scale = presentation.map(|p| p.scale).or(scale);
+    if !crate::nominal::comparison()
+        && let (Some(page), Some(scale)) = (page, scale)
+        && page[0] > spec.pages()[0].1 + 1e-6
+    {
+        demand
+            .callout_bands
+            .extend(crate::dims::angular::virtual_sharp_bands(
+                analysis,
+                &shown_views,
+                scale,
+            ));
+    }
     let [lo, hi] = analysis.envelope;
     // Sections are marked on the plan; explicit cuts reserve a separate labelled frame.
     let section_label = named_request
@@ -8098,13 +8275,7 @@ fn plan_with_presentation(
                     g.iso_centre,
                     g.iso,
                     pick.scale * iso_factor,
-                    if iso_factor == 1.0 {
-                        "the isometric, centred in the largest space the other views leave".into()
-                    } else {
-                        format!(
-                            "the isometric, centred in the largest space the other views leave and scaled ×{iso_factor} to fill it (not to scale)"
-                        )
-                    },
+                    isometric_basis(iso_factor),
                 ),
             };
             PlannedView {
