@@ -23,7 +23,6 @@ mod corpus;
 #[path = "common/facts.rs"]
 mod facts;
 
-use crate::cache;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
