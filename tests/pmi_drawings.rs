@@ -774,11 +774,17 @@ fn one(file: &str, stem: &str, bytes: &[u8]) -> (Vec<Diff>, usize, String) {
     };
     assert_eq!(ids(&py, "items"), ids(&reading, "records"), "{file}");
     let (part, a) = analysed(file, bytes);
-    // Captured PMI drawing labels, carriers and known differences are metric.
-    let spec = model::Spec {
+    // Keep the captured plate-and-pin schedule as a separate presentation
+    // check. The automatic auxiliary test checks its plate-hole claims too.
+    let mut spec = model::Spec {
         units: draftwright::units::Units::Mm,
         ..Default::default()
     };
+    if file == "assembly_plate_pin.step" {
+        for name in ["aux:f:boss:f20", "aux:f:hole:f23"] {
+            spec.views.entry(name.into()).or_default().omit = true;
+        }
+    }
     let plan = model::plan_recovered(&a, &spec).unwrap();
     let drawing = drawn(&part, &a, &plan);
     let inventory = serde_json::from_str::<Value>(

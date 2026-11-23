@@ -569,6 +569,29 @@ fn automatic_pin_view_shows_inclination_and_axial_height() {
     assert!((dot(measured, span).abs() / dot(span, span).sqrt() / view.scale - 20.).abs() < 1e-6);
     let d = render(&part, &a, &p);
     assert_fidelity(&d, PIN_VIEW);
+
+    // The plate's six toleranced holes retain their complete size statement.
+    let plate_holes = [
+        "f:hole:f6",
+        "f:hole:f7",
+        "f:hole:f8",
+        "f:hole:f9",
+        "f:hole:f10",
+        "f:hole:f12",
+    ];
+    let callout = p
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:f:hole_pattern:f6/bore.diameter")
+        .expect("plate hole size statement");
+    assert_eq!(callout.view, "v:plan");
+    assert_eq!(callout.label, "6× ⌀6.6 +0.09/0 THRU");
+    assert!(callout.placed.is_some());
+    for id in plate_holes {
+        assert!(callout.measurements.iter().any(|m| m.feature == id
+            && m.parameter == "bore.diameter"
+            && (m.value - 6.6).abs() < 1e-9));
+    }
 }
 
 #[test]
