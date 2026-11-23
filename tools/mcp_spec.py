@@ -108,7 +108,7 @@ def auxiliary_request():
     return {**obj({
     'square_to': {**S, 'minLength': 1},
     'edge_on': {**S, 'minLength': 1},
-    **optional({'from': {**S, 'pattern': r'^(v:)?(front|plan|side|aux:.+)$'},
+    **optional({'from': {**S, 'pattern': r'^(v:)?(front|plan|side|aux:.+)(?![\s\S])'},
                 'scale_factor': {**N, 'exclusiveMinimum': 0}}),
     'full': B,
 }), 'description': 'Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.',

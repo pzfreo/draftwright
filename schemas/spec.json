@@ -1500,7 +1500,7 @@
           "anyOf": [
             {
               "type": "string",
-              "pattern": "^(v:)?(front|plan|side|aux:.+)$"
+              "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
             },
             {
               "type": "null"

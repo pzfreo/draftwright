@@ -40,7 +40,7 @@
                   },
                   {
                     "type": "string",
-                    "pattern": "^aux:.+"
+                    "pattern": "^aux:.+(?![\\s\\S])"
                   }
                 ]
               },

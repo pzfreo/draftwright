@@ -21,7 +21,7 @@ def nullable(s):
     return {'anyOf':[s, {'type':'null'}]}
 state={'anyOf':[obj({'kind':{'enum':['shown','omitted_by_user','not_authored']}},['kind']), obj({'kind':{'const':'covered'},'by':S},['kind','by']),obj({'kind':{'const':'not_drawable'},'reason_code':S},['kind','reason_code'])]}
 op={'anyOf':[obj({'op':{'enum':['set','add']},'path':S,'value':{}},['op','path','value']),obj({'op':{'const':'remove'},'path':S},['op','path'])]}
-place=obj({'view':{'anyOf':[{'enum':['front','plan','side',*[f'detail_{c}' for c in 'abcdefgh']]},{'type':'string','pattern':r'^aux:.+'}]},'side':{'enum':['above','below','left','right']},'lane':{'type':'integer','minimum':0,'maximum':1000},'along':{'anyOf':[{'enum':['start','middle','end','outside']},{'type':'number','minimum':0,'maximum':1}]},'offset':arr(N,minItems=2,maxItems=2),'pinned':B})
+place=obj({'view':{'anyOf':[{'enum':['front','plan','side',*[f'detail_{c}' for c in 'abcdefgh']]},{'type':'string','pattern':r'^aux:.+(?![\s\S])'}]},'side':{'enum':['above','below','left','right']},'lane':{'type':'integer','minimum':0,'maximum':1000},'along':{'anyOf':[{'enum':['start','middle','end','outside']},{'type':'number','minimum':0,'maximum':1}]},'offset':arr(N,minItems=2,maxItems=2),'pinned':B})
 compact=obj({'sheet':SHEET,'id':S,'kind':S,'label':nullable(S),'view':nullable(S),'state':ref('state'),'characteristic_numbers':arr(S)},['id','kind','label','view','state'])
 scope={'enum':['local','view','sheet']}
 operation_scopes={'type':'object','additionalProperties':scope}

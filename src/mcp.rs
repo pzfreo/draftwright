@@ -155,6 +155,22 @@ pub fn validate(schema: &Value, value: &Value) -> Result<(), String> {
             last == key
         }
     }
+
+    // These patterns describe view names in the generated MCP documents.
+    fn view_pattern(pattern: &str, name: &str) -> bool {
+        let auxiliary = |name: &str| {
+            crate::auxiliary::is_name(name) && !name.contains(['\n', '\r', '\u{2028}', '\u{2029}'])
+        };
+        match pattern {
+            r"^aux:.+(?![\s\S])" => auxiliary(name),
+            r"^(v:)?(front|plan|side|aux:.+)(?![\s\S])" => {
+                let name = name.strip_prefix("v:").unwrap_or(name);
+                matches!(name, "front" | "plan" | "side") || auxiliary(name)
+            }
+            _ => true,
+        }
+    }
+
     fn visit(root: &Value, s: &Value, v: &Value, path: &str) -> Result<(), String> {
         let bad = || format!("{path}: accepted shape is {s}");
         if let Some(r) = s["$ref"].as_str() {
@@ -167,6 +183,20 @@ pub fn validate(schema: &Value, value: &Value) -> Result<(), String> {
         }
         if let Some(list) = s["anyOf"].as_array()
             && !list.iter().any(|s| visit(root, s, v, path).is_ok())
+        {
+            return Err(bad());
+        }
+        if let Some(list) = s["oneOf"].as_array()
+            && list
+                .iter()
+                .filter(|s| visit(root, s, v, path).is_ok())
+                .count()
+                != 1
+        {
+            return Err(bad());
+        }
+        if s.get("not")
+            .is_some_and(|s| visit(root, s, v, path).is_ok())
         {
             return Err(bad());
         }
@@ -191,6 +221,16 @@ pub fn validate(schema: &Value, value: &Value) -> Result<(), String> {
         }
         if s.get("const").is_some_and(|c| c != v)
             || s["enum"].as_array().is_some_and(|l| !l.contains(v))
+        {
+            return Err(bad());
+        }
+        if let Some(text) = v.as_str()
+            && (s["minLength"]
+                .as_u64()
+                .is_some_and(|n| text.chars().count() < n as usize)
+                || s["pattern"]
+                    .as_str()
+                    .is_some_and(|p| !view_pattern(p, text)))
         {
             return Err(bad());
         }
