@@ -59,7 +59,8 @@ fn accepted_cad_frame_layout(file: &str) {
         // main's three contacts and clears its bore leader crossing.
         "assembly_plate_pin.step" => ("A3", "1:1", [1, 1, 0, 0, 2, 0], [0, 0, 1]),
         "hw_assembly_plate_pin_intent.step" => ("A3", "1:2", [3, 1, 0, 0, 3, 0], [2, 0, 1]),
-        "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
+        // The shorter stock witness leaves one of main's two leader crossings.
+        "specify-main-angle-bracket.step" => ("A4", "1:1", [1, 0, 0, 0, 1, 0], [0, 1, 0]),
         _ => unreachable!(),
     };
     let metric = file.ends_with(":mm");
