@@ -54,11 +54,11 @@ fn accepted_cad_frame_layout(file: &str) {
         // that pair no longer contributes a false label_crowded notice.
         // 2026-11-14: repair preserving shared rows clears 21 crossings and 19 feature contacts.
         "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [33, 0, 6, 1, 1, 0], [1, 5, 26]),
-        // Inclined pin and bore projections, including the labels and leaders
-        // introduced on the new carriers.
-        "assembly_plate_pin.step" => ("A3", "1:1", [1, 1, 0, 0, 3, 0], [0, 0, 1]),
-        "hw_assembly_plate_pin_intent.step" => ("A4", "1:5", [5, 1, 0, 0, 1, 0], [2, 0, 3]),
-        "specify-main-angle-bracket.step" => ("A4", "1:2", [2, 0, 0, 0, 0, 0], [0, 2, 0]),
+        // A2 retains the plate's basic location coverage at 1:1 with both
+        // inclined projections. The handwritten variant fits A4 with compact spacing.
+        "assembly_plate_pin.step" => ("A2", "1:1", [1, 1, 0, 0, 1, 0], [0, 0, 1]),
+        "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [2, 0, 0, 0, 5, 0], [0, 0, 2]),
+        "specify-main-angle-bracket.step" => ("A3", "1:1", [2, 0, 0, 0, 0, 0], [0, 2, 0]),
         _ => unreachable!(),
     };
     let metric = file.ends_with(":mm");
@@ -115,4 +115,31 @@ fn accepted_cad_frame_layout(file: &str) {
         q.code.as_str(),
         "annotation_off_sheet" | "pinned_view_off_sheet"
     )));
+    if file == "specify-main-angle-bracket.step" {
+        let auxiliaries: Vec<_> = p
+            .views
+            .iter()
+            .filter_map(|v| v.auxiliary.as_ref())
+            .collect();
+        assert_eq!(auxiliaries.len(), 1);
+        assert_eq!(auxiliaries[0].anchor, "f:hole:f9");
+        assert_eq!(auxiliaries[0].parent, "v:front");
+        assert!(!auxiliaries[0].edge_on);
+    }
+    if file == "assembly_plate_pin.step" {
+        for face in [6, 7, 8, 9, 10, 12] {
+            for axis in ["x", "y"] {
+                let id = format!("d:f:hole:f{face}/location.length.{axis}");
+                let location = p.omitted.iter().find(|o| o.id == id).expect(&id);
+                let draftwright::items::State::Covered { by } = &location.state else {
+                    panic!("{id} must be covered by a basic dimension");
+                };
+                assert!(
+                    p.dimensions
+                        .iter()
+                        .any(|d| &d.id == by && d.placed.is_some())
+                );
+            }
+        }
+    }
 }

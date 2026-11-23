@@ -487,10 +487,7 @@ fn automatic_corner_cut_locates_and_sizes_the_bore() {
     );
     assert_eq!(p.sheet.size, ordinary.sheet.size);
     assert_eq!(p.sheet.scale, ordinary.sheet.scale);
-    assert_eq!(
-        p.sheet.dimension_spacing,
-        model::DimensionSpacing::Compact
-    );
+    assert_eq!(p.sheet.dimension_spacing, model::DimensionSpacing::Compact);
     let square = p
         .views
         .iter()
