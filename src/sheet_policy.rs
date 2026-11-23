@@ -1415,6 +1415,19 @@ fn select_scales_full(
             let scale = plan.sheet.scale.clone();
             let spacing = plan.sheet.dimension_spacing;
             let result = (|| {
+                if !scales.contains(&scale) {
+                    scales.push(scale.clone());
+                }
+                // Witness and contact finishing cannot add a missing profile angle.
+                // Leave space drops to the schedule retry, which can replan those views.
+                if !crate::nominal::comparison()
+                    && model::findings(&reference).clean()
+                    && actual_space_drops(&plan) == 0
+                    && model::angular_losses(&plan) > model::angular_losses(&reference)
+                {
+                    *outcome = format!("refused at {scale}: required profile angles not carried");
+                    return None;
+                }
                 crate::dims::finish_pmi_witness_routes(fit, &mut plan);
                 if !maximise && plan.sheet.dimension_spacing == model::DimensionSpacing::Compact {
                     let ids = plan
@@ -1439,9 +1452,6 @@ fn select_scales_full(
                             fit, spec, &mut plan, &ids, &reference,
                         );
                     }
-                }
-                if !scales.contains(&plan.sheet.scale) {
-                    scales.push(plan.sheet.scale.clone());
                 }
                 if maximise && let Err(reason) = minimum_reduction_opening(fit, &plan, &reference) {
                     *outcome = reason;
@@ -5472,7 +5482,11 @@ mod compact_sheet_regressions {
     #[test]
     fn ftc08_keeps_its_inch_hole_table_and_avoids_shared_dimension_lines() {
         let file = fixture("sheet-policy/nist_ftc_08_asme1_ap242-e2.stp.gz");
-        let spec = Spec::default();
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": "draftwright.spec/2",
+            "sheet": {"title": {"title": "NIST FTC-08", "number": "NIST-FTC-08"}}
+        }))
+        .unwrap();
         let (part, analysis) = model::analyse_native(&file).unwrap();
         let plan = model::plan_recovered(&analysis, &spec).unwrap();
         assert_eq!(plan.sheet.units, crate::units::Units::In);
@@ -5484,10 +5498,23 @@ mod compact_sheet_regressions {
             .hole_tables
             .iter()
             .chain(&plan.hole_table)
-            .find(|t| t.rows.len() == 20)
-            .expect("the 20-row table is installed");
+            .find(|t| t.rows.len() == 21)
+            .expect("the 21-row table is installed");
         assert!(!table.blocks.is_empty());
         assert!(table.blocks.iter().all(|b| b.placed.is_some()));
+        for row in &table.rows {
+            let id = format!("{}/tag/{}", table.id, row.tag);
+            assert!(
+                plan.balloons.iter().any(|b| {
+                    b.id == id
+                        && b.certifying
+                        && b.features.contains(&row.feature)
+                        && b.state == crate::items::State::Shown
+                }),
+                "missing drawn tag for {}",
+                row.feature
+            );
+        }
         let font =
             crate::text::Font::new(include_bytes!("../fonts/IBMPlexMono-Regular.ttf").to_vec())
                 .unwrap();
