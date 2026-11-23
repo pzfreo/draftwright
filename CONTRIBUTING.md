@@ -62,8 +62,9 @@ entries. Local latency assertions stay enabled.
 - **Release:** the exact tagged commit must have successful **full push-to-main CI**
   before any CLI/WASM assets or crates.io/PyPI packages are published. The release guard
   checks the latest result of every full-tier job, including carried-over rerun successes; PR/dispatch success or a historic
-  lint-only run does not qualify. Each publishing workflow also requires the five
-  `release-only` nextest checks to pass on that tag.
+  lint-only run does not qualify. The **Pre-publication tests** workflow runs the five
+  `release-only` nextest checks once for the release event. All four publishers wait
+  for the same first attempt on the tagged commit.
 
 Counts above cover `ci.yml`; the existing path-filtered wheel,
 crate-package and CLI workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
@@ -71,6 +72,11 @@ crate-package and CLI workflows retain their own PR checks. Hosted wall times ar
 ## Releasing
 
 Publish a release only after main CI is green; the guard waits up to 45 minutes for a run in progress.
+
+For a backfill without an automatic gate run, dispatch **Pre-publication tests** on main
+with the existing tag and its full commit SHA. Use that run's ID in `release_checks_run`
+when manually dispatching each publisher. To recover from a failed gate, use the same
+successful `run ID/attempt` for all manual publishing runs.
 
 The repository is `pzfreo/draftwright`; `pzfreo/draftwright-python` is the earlier
 Python implementation, being retired.
