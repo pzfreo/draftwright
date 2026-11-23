@@ -58,7 +58,7 @@ fn accepted_cad_frame_layout(file: &str) {
         // the ordinary scale. The handwritten variant uses compact spacing.
         "assembly_plate_pin.step" => ("A3", "1:1", [1, 1, 0, 0, 2, 0], [0, 0, 1]),
         "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [2, 0, 0, 0, 5, 0], [0, 0, 2]),
-        "specify-main-angle-bracket.step" => ("A3", "1:1", [2, 0, 0, 0, 0, 0], [0, 2, 0]),
+        "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
         _ => unreachable!(),
     };
     let metric = file.ends_with(":mm");
@@ -125,6 +125,14 @@ fn accepted_cad_frame_layout(file: &str) {
         assert_eq!(auxiliaries[0].anchor, "f:hole:f9");
         assert_eq!(auxiliaries[0].parent, "v:front");
         assert!(!auxiliaries[0].edge_on);
+        assert!(p.problems.iter().any(|q| {
+            q.code == "label_crowded"
+                && q.subjects
+                    == [
+                        "d:pmi:dimension.linear.basic:f1,9/linear.basic",
+                        "d:pmi:dimension.linear:f1,3/linear",
+                    ]
+        }));
     }
     if file == "assembly_plate_pin.step" {
         for (faces, label) in [

@@ -480,7 +480,24 @@ pub(crate) fn reserve(mut scaled: Scaled, requests: &[Request], scale: f64) -> S
             // This parent carries a caption and the secondary arrow, but no dimensions.
             (r.name.clone(), (w + 16.).max(24.), h + 24.)
         } else {
-            (r.name.clone(), (w + 2. * PAD[0]).max(65.), h + 2. * PAD[1])
+            let vertical = if crate::dims::compact()
+                && r.automatic
+                && !r.meta.edge_on
+                && !r.meta.full
+                && !r.meta.parent.starts_with("v:aux:")
+                && r.meta.members.is_empty()
+            {
+                // A single primary true-shape crop needs one compact dimension
+                // lane and room for the caption. Keep full width for its callout.
+                15.
+            } else {
+                PAD[1]
+            };
+            (
+                r.name.clone(),
+                (w + 2. * PAD[0]).max(65.),
+                h + 2. * vertical,
+            )
         }
     }));
     scaled.derived_projections.extend(
