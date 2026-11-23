@@ -4,7 +4,7 @@ use crate::{
     model::{Invalid, Problem, Spec},
 };
 
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
 pub(super) fn apply(
     spec: &Spec,

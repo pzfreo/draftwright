@@ -673,7 +673,7 @@ pub(crate) fn notch_reservations(
 pub(super) fn place(
     frames: &std::collections::BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     sides: &[Option<super::placement::Side>],
     fixed: &[bool],
     obstacles: &[super::PlannedDimension],
@@ -978,7 +978,7 @@ pub(super) fn place_profile(
     analysis: &crate::model::Analysis,
     frames: &std::collections::BTreeMap<&str, Frame>,
     items: &[Want],
-    views_of: &[Option<&'static str>],
+    views_of: &[Option<&str>],
     obstacles: &[super::PlannedDimension],
     placed: &mut [Option<Placed>],
     page: &Page,

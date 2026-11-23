@@ -8,8 +8,11 @@ mod corpus;
 #[path = "common/facts.rs"]
 mod facts;
 
+#[path = "trust_rules/edit_locality.rs"]
+mod edit_locality;
+
 use crate::cache;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -71,19 +74,23 @@ fn sampled() -> Vec<(String, Analysis)> {
     names
         .into_iter()
         .map(|name| {
-            let f = facts::load(&name);
-            let mut json = String::new();
-            flate2::read::GzDecoder::new(
-                std::fs::File::open(fixture(&format!("recognition/sheets/{name}.json.gz")))
-                    .unwrap(),
-            )
-            .read_to_string(&mut json)
-            .unwrap();
-            let (part, mut a) = model::analyse(&dir.join(&f.binding.file)).unwrap();
-            model::recognise(&part, &mut a, &json).unwrap_or_else(|e| panic!("{name}: {e}"));
-            (name, a)
+            let analysis = sampled_analysis(&dir, &name);
+            (name, analysis)
         })
         .collect()
+}
+
+fn sampled_analysis(dir: &Path, name: &str) -> Analysis {
+    let f = facts::load(name);
+    let mut json = String::new();
+    flate2::read::GzDecoder::new(
+        std::fs::File::open(fixture(&format!("recognition/sheets/{name}.json.gz"))).unwrap(),
+    )
+    .read_to_string(&mut json)
+    .unwrap();
+    let (part, mut analysis) = model::analyse(&dir.join(&f.binding.file)).unwrap();
+    model::recognise(&part, &mut analysis, &json).unwrap_or_else(|e| panic!("{name}: {e}"));
+    analysis
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -617,155 +624,258 @@ fn an_omission_is_never_reported_as_a_drop() {
 /// alone, so any dimension dropped can be added back.
 #[test]
 fn every_planned_dimension_can_be_addressed() {
-    let mut parts = fixtures();
-    parts.extend(
-        sampled()
-            .into_iter()
-            .filter(|(n, _)| ["cgb245", "ftc06", "m10127"].contains(&n.as_str())),
-    );
-    for (name, analysis) in &parts {
+    let mut edits = 0;
+    let mut shared = 0;
+    let mut check_locality = |name: &str, analysis: &Analysis, addressability: bool| {
         let plan = cache::default_plan(analysis, false);
         let all = ids(&plan);
-        assert!(!all.is_empty(), "{name}");
-        for id in &all {
-            let without = model::plan(analysis, &omitting(&[id])).unwrap();
-            // ARCH0015-2 (stream K6): omitting a ladder rung omits its whole set (the height
-            // ladder, or the shoulders along one axis), each recorded as omitted with it.
-            let set = |i: &str| {
-                let heights = "d:step_level/step_height.length";
-                if i.starts_with(heights) {
-                    return Some(heights.to_string());
-                }
-                analysis
-                    .ladder_axis(i.strip_prefix("d:step_level/")?)
-                    .map(|axis| format!("shoulders:{axis}"))
-            };
-            let with: Vec<&str> = all
-                .iter()
-                .copied()
-                .filter(|i| i != id && set(i).is_some() && set(i) == set(id))
-                .collect();
-            for i in &with {
-                assert!(
-                    without
-                        .omitted
-                        .iter()
-                        .any(|o| o.id == *i && o.state == draftwright::items::State::OmittedByUser),
-                    "{name}: omitting {id} omits {i} with its set"
-                );
-            }
-            let expected: Vec<&str> = all
-                .iter()
-                .copied()
-                .filter(|i| i != id && !with.contains(i))
-                .collect();
-            let mut promoted: Vec<&str> = plan
-                .omitted
-                .iter()
-                .filter(|o| {
-                    o.basis.starts_with(&format!("conveyed by {id}: "))
-                        || o.basis
-                            .split_once("; dependencies: ")
-                            .is_some_and(|(_, owners)| owners.split(", ").any(|owner| owner == *id))
-                })
-                .map(|o| o.id.as_str())
-                .collect();
-            for note in plan.notes.iter().filter(|n| {
-                n.placed.is_some()
-                    && !n.measurements.is_empty()
-                    && without.notes.iter().any(|changed| {
-                        changed.id == n.id
-                            && matches!(
-                                changed.state,
-                                draftwright::items::State::NotDrawable { .. }
-                            )
-                    })
-            }) {
-                assert!(note.text.starts_with("ALL UNSPECIFIED RADII R"));
-                let exception = plan.dimensions.iter().find(|d| d.id == *id).unwrap();
-                assert!(exception.measurements.iter().any(|m| {
-                    matches!(m.parameter.as_str(), "blend.radius" | "fillet.radius")
-                        && draftwright::dims::fmt(m.value)
-                            != draftwright::dims::fmt(note.measurements[0].value)
-                }));
-                assert!(
-                    without
-                        .problems
-                        .iter()
-                        .any(|p| { p.code == "notes_not_placed" && p.subjects.contains(&note.id) })
-                );
-                let hidden = model::edit(&Spec::default(), &json!([{
-                    "op":"set", "path":format!("annotations/{}/omit", draftwright::items::key(&note.id)), "value":true
-                }])).unwrap();
-                let hidden = model::plan(analysis, &hidden).unwrap();
-                for item in plan.omitted.iter().filter(|o| {
-                    matches!(&o.state, draftwright::items::State::Covered { by } if by == &note.id)
-                }) {
-                    let restored = without.dimensions.iter().find(|d| d.id == item.id).unwrap();
-                    assert!(restored.placed.is_some());
-                    assert_eq!(restored.label, item.label);
-                    assert_eq!(
-                        restored.placed,
-                        hidden.dimensions.iter().find(|d| d.id == item.id).unwrap().placed,
-                        "a dependent radius uses its established geometry"
+        let mut hidden_notes = BTreeMap::new();
+        if addressability {
+            assert!(!all.is_empty(), "{name}");
+        }
+        let (part_edits, part_shared) = edit_locality::check(
+            name,
+            analysis,
+            &plan,
+            &mut hidden_notes,
+            |id, without, hidden| {
+                if addressability {
+                    check_dimension_addressability(
+                        name, analysis, &plan, &all, id, without, hidden,
                     );
-                    promoted.push(item.id.as_str());
                 }
-            }
-            let kept: Vec<&str> = ids(&without)
-                .into_iter()
-                .filter(|i| !promoted.contains(i))
-                .collect();
-            assert_eq!(kept, expected, "{name}: omitting {id}");
-            // What it conveyed comes back: each item drawn again, or conveyed by one that is
-            // (a size it shared among three or more is shared again by the rest, src/dims/mod.rs
-            // ::share).
-            let back: Vec<&str> = ids(&without)
-                .into_iter()
-                .filter(|i| promoted.contains(i))
-                .collect();
-            for p in promoted.iter().filter(|p| !back.contains(p)) {
-                assert!(
-                    without.omitted.iter().any(|o| o.id == *p
-                        && back
-                            .iter()
-                            .any(|b| o.basis.starts_with(&format!("conveyed by {b}: ")))),
-                    "{name}: omitting {id} brings back {p}, or one that conveys it"
-                );
-            }
-            assert!(
-                promoted.is_empty() || !back.is_empty(),
-                "{name}: omitting {id} brings back what it conveyed"
-            );
-            assert_eq!(
-                without.omitted.len(),
-                1 + with.len() + plan.omitted.len() - back.len(),
-                "{name}: {id}"
-            );
+            },
+        );
+        edits += part_edits;
+        shared += part_shared;
+    };
 
-            let mut alone = Spec {
-                dimension_source: DimensionSource::Authored,
-                ..Spec::default()
-            };
-            alone
-                .dimensions
-                .insert(id.to_string(), DimensionSpec::default());
-            let alone = model::plan(analysis, &alone).unwrap();
-            // An authored set listing one rung approves its whole set (ARCH0015-2): every
-            // member is drawn, those the default plan covers by another item included, since
-            // that owner is not in this set.
-            let drawn = ids(&alone);
-            assert!(drawn.contains(id), "{name}: {id}");
-            for i in &with {
-                assert!(drawn.contains(i), "{name}: listing {id} approves {i}");
+    for (name, analysis) in fixtures() {
+        check_locality(&name, &analysis, true);
+    }
+    let (_, boss) = analysed_with("boss_circle", &recognition("boss_circle"));
+    check_locality("boss_circle", &boss, false);
+
+    if let Some(dir) = corpus::dir() {
+        let hanger = facts::load("hanger");
+        let (_, analysis) = corpus::analyse(&dir, &hanger.binding.file, "hanger");
+        check_locality("hanger", &analysis, false);
+
+        for name in ["cgb245", "ftc06", "m10127"] {
+            let analysis = sampled_analysis(&dir, name);
+            if name != "cgb245" {
+                let file = facts::load(name).binding.file;
+                let (_, placement) = corpus::analyse(&dir, &file, name);
+                // The two Python captures currently differ only in version provenance.
+                // Keep their original assertions on separate plans if their inputs diverge.
+                if same_omission_input(&analysis, &placement) {
+                    check_locality(name, &analysis, true);
+                    continue;
+                }
+                check_locality(name, &placement, false);
             }
-            for d in &drawn {
-                assert!(
-                    d == id || (set(d).is_some() && set(d) == set(id)),
-                    "{name}: listing {id} draws {d}"
+            let plan = cache::default_plan(&analysis, false);
+            let all = ids(&plan);
+            assert!(!all.is_empty(), "{name}");
+            let mut hidden_notes = BTreeMap::new();
+            for id in &all {
+                let without = model::plan(&analysis, &omitting(&[id])).unwrap();
+                check_dimension_addressability(
+                    name,
+                    &analysis,
+                    &plan,
+                    &all,
+                    id,
+                    &without,
+                    &mut hidden_notes,
                 );
             }
         }
+    }
+    eprintln!(
+        "{edits} single-dimension edits, none moving another item; {shared} items brought back in \
+         their survivor's lane"
+    );
+    assert!(shared > 0, "no item merged away was brought back");
+}
+
+fn same_omission_input(a: &Analysis, b: &Analysis) -> bool {
+    let (Some(a_recognition), Some(b_recognition)) = (&a.recognition, &b.recognition) else {
+        return false;
+    };
+    if !a_recognition.recogniser.starts_with("quiddity ")
+        || !b_recognition.recogniser.starts_with("quiddity ")
+    {
+        return false;
+    }
+    let mut b = b.clone();
+    b.recognition.as_mut().unwrap().recogniser = a_recognition.recogniser.clone();
+    serde_json::to_vec(a).unwrap() == serde_json::to_vec(&b).unwrap()
+}
+
+// Compare restored radii against an explicit omission of the blanket note.
+fn without_note<'a>(
+    analysis: &Analysis,
+    note: &str,
+    plans: &'a mut BTreeMap<String, Plan>,
+) -> &'a Plan {
+    plans.entry(note.to_owned()).or_insert_with(|| {
+        let spec = model::edit(
+            &Spec::default(),
+            &json!([{
+                "op": "set",
+                "path": format!("annotations/{}/omit", draftwright::items::key(note)),
+                "value": true,
+            }]),
+        )
+        .unwrap();
+        model::plan(analysis, &spec).unwrap()
+    })
+}
+
+fn check_dimension_addressability(
+    name: &str,
+    analysis: &Analysis,
+    plan: &Plan,
+    all: &[&str],
+    id: &str,
+    without: &Plan,
+    hidden_notes: &mut BTreeMap<String, Plan>,
+) {
+    // ARCH0015-2 (stream K6): omitting a ladder rung omits its whole set (the height
+    // ladder, or the shoulders along one axis), each recorded as omitted with it.
+    let set = |i: &str| {
+        let heights = "d:step_level/step_height.length";
+        if i.starts_with(heights) {
+            return Some(heights.to_string());
+        }
+        analysis
+            .ladder_axis(i.strip_prefix("d:step_level/")?)
+            .map(|axis| format!("shoulders:{axis}"))
+    };
+    let with: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|i| *i != id && set(i).is_some() && set(i) == set(id))
+        .collect();
+    for i in &with {
+        assert!(
+            without
+                .omitted
+                .iter()
+                .any(|o| o.id == *i && o.state == draftwright::items::State::OmittedByUser),
+            "{name}: omitting {id} omits {i} with its set"
+        );
+    }
+    let expected: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|i| *i != id && !with.contains(i))
+        .collect();
+    let mut promoted: Vec<&str> = plan
+        .omitted
+        .iter()
+        .filter(|o| {
+            o.basis.starts_with(&format!("conveyed by {id}: "))
+                || o.basis
+                    .split_once("; dependencies: ")
+                    .is_some_and(|(_, owners)| owners.split(", ").any(|owner| owner == id))
+        })
+        .map(|o| o.id.as_str())
+        .collect();
+    for note in plan.notes.iter().filter(|n| {
+        n.placed.is_some()
+            && !n.measurements.is_empty()
+            && without.notes.iter().any(|changed| {
+                changed.id == n.id
+                    && matches!(changed.state, draftwright::items::State::NotDrawable { .. })
+            })
+    }) {
+        assert!(note.text.starts_with("ALL UNSPECIFIED RADII R"));
+        let exception = plan.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert!(exception.measurements.iter().any(|m| {
+            matches!(m.parameter.as_str(), "blend.radius" | "fillet.radius")
+                && draftwright::dims::fmt(m.value)
+                    != draftwright::dims::fmt(note.measurements[0].value)
+        }));
+        assert!(
+            without
+                .problems
+                .iter()
+                .any(|p| { p.code == "notes_not_placed" && p.subjects.contains(&note.id) })
+        );
+        let hidden = without_note(analysis, &note.id, hidden_notes);
+        for item in plan.omitted.iter().filter(
+            |o| matches!(&o.state, draftwright::items::State::Covered { by } if by == &note.id),
+        ) {
+            let restored = without.dimensions.iter().find(|d| d.id == item.id).unwrap();
+            assert!(restored.placed.is_some());
+            assert_eq!(restored.label, item.label);
+            assert_eq!(
+                restored.placed,
+                hidden
+                    .dimensions
+                    .iter()
+                    .find(|d| d.id == item.id)
+                    .unwrap()
+                    .placed,
+                "a dependent radius uses its established geometry"
+            );
+            promoted.push(item.id.as_str());
+        }
+    }
+    let kept: Vec<&str> = ids(without)
+        .into_iter()
+        .filter(|i| !promoted.contains(i))
+        .collect();
+    assert_eq!(kept, expected, "{name}: omitting {id}");
+    // What it conveyed comes back: each item drawn again, or conveyed by one that is
+    // (a size it shared among three or more is shared again by the rest, src/dims/mod.rs
+    // ::share).
+    let back: Vec<&str> = ids(without)
+        .into_iter()
+        .filter(|i| promoted.contains(i))
+        .collect();
+    for p in promoted.iter().filter(|p| !back.contains(p)) {
+        assert!(
+            without.omitted.iter().any(|o| o.id == *p
+                && back
+                    .iter()
+                    .any(|b| o.basis.starts_with(&format!("conveyed by {b}: ")))),
+            "{name}: omitting {id} brings back {p}, or one that conveys it"
+        );
+    }
+    assert!(
+        promoted.is_empty() || !back.is_empty(),
+        "{name}: omitting {id} brings back what it conveyed"
+    );
+    assert_eq!(
+        without.omitted.len(),
+        1 + with.len() + plan.omitted.len() - back.len(),
+        "{name}: {id}"
+    );
+
+    let mut alone = Spec {
+        dimension_source: DimensionSource::Authored,
+        ..Spec::default()
+    };
+    alone
+        .dimensions
+        .insert(id.to_string(), DimensionSpec::default());
+    let alone = model::plan(analysis, &alone).unwrap();
+    // An authored set listing one rung approves its whole set (ARCH0015-2): every
+    // member is drawn, those the default plan covers by another item included, since
+    // that owner is not in this set.
+    let drawn = ids(&alone);
+    assert!(drawn.contains(&id), "{name}: {id}");
+    for i in &with {
+        assert!(drawn.contains(i), "{name}: listing {id} approves {i}");
+    }
+    for d in &drawn {
+        assert!(
+            *d == id || (set(d).is_some() && set(d) == set(id)),
+            "{name}: listing {id} draws {d}"
+        );
     }
 }
 

@@ -5073,7 +5073,8 @@ up to about 90x, Analysis documents up to 106 MB, and unrecorded acceptance gaps
 - **Interior leaders over material.** The callout's feature-crossing check no longer counts
   the view's own material (`Footprints::crosses_feature`); running over material is what an
   interior leader does, and the ink proof keeps it off every edge.
-- **Omission test.** `tests/placement.rs::omitting_one_dimension_moves_no_other` expected a
+- **Omission test.** The locality check, now in
+  `tests/trust_rules.rs::every_planned_dimension_can_be_addressed`, expected a
   promoted item to take the omitted item's lane. On two_grids the omitted pitch had been
   retried inside its view because its own exterior witness crossed the other pattern; the
   promoted pitch's witness crosses nothing, so it stays outside on its own merits. The test
@@ -7850,9 +7851,9 @@ known sandbox socket-bind failures; all remaining integration binaries pass.
   as logged: in `auto`, omitting one rung omits the whole ladder (ARCH0015-2's literal reading;
   the alternative, refusing the partial omission and drawing the whole set, is the maintainer's
   to choose).
-- **Integration (PR #57, overturnable judgement calls):** CI's `tests/placement.rs::
-  omitting_one_dimension_moves_no_other` (ARCH0003-2 edit locality, not run by the stream)
-  failed on ftc06 for two reasons.
+- **Integration (PR #57, overturnable judgement calls):** CI's ARCH0003-2 edit-locality check, now in
+  `tests/trust_rules.rs::every_planned_dimension_can_be_addressed`, failed on ftc06 for two reasons.
+  The stream had not run that check.
   (a) Leaving the envelope height, and the h215_9 rung it conveys, out of an authored set brought
   h215_9 back through the ladder's whole-set approval. Main's rule that an item left out of an
   authored set, with what it conveys, brings nothing back now wins. `correlated_sets` no longer

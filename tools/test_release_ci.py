@@ -111,7 +111,90 @@ class ReleaseCI(unittest.TestCase):
             guarded = text[text.index('          path: .release-ci-guard'):]
             self.assertIn('ref: ${{ github.workflow_sha }}', text)
             self.assertIn('actions: read', text)
-            self.assertLess(guarded.index('check_release_ci.py --tag "$TAG"'), guarded.index(write))
+            self.assertNotIn('uses: ./.github/workflows/release-checks.yml', text)
+            command = 'check_release_ci.py --tag "$TAG" --require-release-checks'
+            self.assertLess(guarded.index(command), guarded.index(write))
+
+
+class SharedReleaseGate(unittest.TestCase):
+    def setUp(self):
+        self.run = dict(id=42, run_attempt=1, path=guard.RELEASE_WORKFLOW,
+                        head_sha='abc123', head_branch='v1.0', event='release',
+                        display_title='Release checks for v1.0 (release 17)',
+                        status='completed', conclusion='success')
+        self.job = dict(name='release-only', status='completed', conclusion='success')
+        self.calls = []
+
+    def fetch(self, endpoint):
+        self.calls.append(endpoint)
+        if '/releases/tags/' in endpoint:
+            return [{'id': 17}]
+        if '/workflows/' in endpoint:
+            # The latest attempt can change while the four publishers are waiting.
+            other = {**self.run, 'id': 41, 'display_title': 'Release checks for v1.0 (release 16)'}
+            return [{'workflow_runs': [other]}, {'workflow_runs': [{**self.run, 'run_attempt': 2}]}]
+        if '/jobs?' in endpoint:
+            return [{'jobs': [self.job]}]
+        if '/commits/' in endpoint:
+            return [{'sha': 'abc123'}]
+        return [self.run]
+
+    def check(self, **kwargs):
+        guard.check_release_gate('owner/repo', 'v1.0', 'abc123', fetch=self.fetch, **kwargs)
+
+    def test_publishing_uses_the_same_first_attempt_even_after_a_rerun(self):
+        self.check(release_id=17)
+        self.assertIn('head_sha=abc123&event=release', self.calls[0])
+        self.assertIn('/runs/42/attempts/1', self.calls[1])
+        self.run.update(conclusion='failure')
+        with self.assertRaisesRegex(ValueError, 'gate 42/1 failed'):
+            self.check(release_id=17)
+
+    def test_dispatch_can_name_a_shared_attempt_for_the_exact_tag_and_commit(self):
+        self.run.update(event='workflow_dispatch', head_branch='main', run_attempt=2,
+                        head_sha='dispatch-commit', display_title='Release checks for v1.0 at abc123')
+        self.check(selected_run='42/2')
+        self.assertIn('/runs/42/attempts/2', self.calls[1])
+        for key, value in [('display_title', 'Release checks for v1.0 at wrong-commit'),
+                           ('path', '.github/workflows/another.yml'), ('head_branch', 'feature')]:
+            with self.subTest(key=key), patch.dict(self.run, {key: value}):
+                with self.assertRaisesRegex(ValueError, 'is not for this release'):
+                    self.check(selected_run='42/2')
+
+    def test_queued_attempt_waits_and_a_skipped_gate_refuses_publication(self):
+        self.run.update(status='queued', conclusion=None)
+        waits = []
+        def sleep(seconds):
+            waits.append(seconds)
+            self.run.update(status='completed', conclusion='success')
+        self.check(release_id=17, sleep=sleep)
+        self.assertEqual(waits, [30])
+        self.job['conclusion'] = 'skipped'
+        with self.assertRaisesRegex(ValueError, 'gate 42/1 failed'):
+            self.check(release_id=17)
+
+    def test_waits_for_the_release_run_to_be_registered(self):
+        elapsed = [0]
+        def fetch(endpoint):
+            if '/workflows/' in endpoint and not elapsed[0]:
+                return [{'workflow_runs': []}]
+            return self.fetch(endpoint)
+        def sleep(seconds):
+            elapsed[0] += seconds
+        guard.check_release_gate('owner/repo', 'v1.0', 'abc123', 17, fetch=fetch,
+                                 sleep=sleep, monotonic=lambda: elapsed[0])
+        self.assertEqual(elapsed[0], 30)
+
+        elapsed[0] = 0
+        with self.assertRaisesRegex(ValueError, 'timed out.*publication refused'):
+            guard.check_release_gate('owner/repo', 'v1.0', 'abc123', 17, fetch=fetch,
+                                     wait_seconds=0, monotonic=lambda: 0)
+
+    def test_gate_refuses_a_tag_that_moves_after_testing(self):
+        def fetch(endpoint):
+            return [{'sha': 'moved'}] if '/commits/' in endpoint else self.fetch(endpoint)
+        with self.assertRaisesRegex(ValueError, 'tag moved'):
+            guard.check_release_gate('owner/repo', 'v1.0', 'abc123', 17, fetch=fetch)
 
 
 if __name__ == '__main__':

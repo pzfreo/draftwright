@@ -1436,10 +1436,9 @@ fn pack_reserved_at(
             "title_field_overflow" | "general_tolerance_missing"
         ) && !q.refs.iter().any(|r| r.starts_with("title_block/"))
     });
-    p.problems.extend(crate::title_block::problems(
-        &p.sheet.title_cells,
-        p.sheet.page,
-    ));
+    let title_problems = crate::title_block::problems(&p.sheet.title_cells, p.sheet.page);
+    crate::title_block::tolerance_state(&mut p.requirements, &p.sheet.title_cells, &title_problems);
+    p.problems.extend(title_problems);
     p.problems.retain(|q| {
         !matches!(
             q.code.as_str(),
@@ -1655,7 +1654,7 @@ pub(crate) fn reserve_bounds(
                     v.at[1] + v.scale * analysis.drawing_iso_bounds()[3],
                 ]
             } else {
-                let size = if v.detail.is_some() || v.broken.is_some() {
+                let size = if v.detail.is_some() || v.auxiliary.is_some() || v.broken.is_some() {
                     // A crop owns only its enlarged local outline. Reserving the
                     // whole part at the detail scale strands neighbouring bands.
                     crate::detail::crop_extent(analysis, v).0

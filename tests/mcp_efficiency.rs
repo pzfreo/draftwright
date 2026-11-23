@@ -595,6 +595,8 @@ fn compact_nullable_schema_types_keep_validation_strict() {
 
 #[test]
 fn shared_schema_types_preserve_state_alternatives_and_detail_placements() {
+    mcp::validate(&json!({"type":"string","minLength":1}), &json!(""))
+        .expect("unrelated schemas keep the legacy string preflight");
     let schema = mcp::schema("list_items", false).unwrap();
     for state in [
         Value::Null,
@@ -627,12 +629,41 @@ fn shared_schema_types_preserve_state_alternatives_and_detail_placements() {
     let schema = mcp::schema("item_options", true).unwrap();
     let mut options = json!({"id":"dimension", "operations":[], "placements":[],
         "view_anchors":[], "scales":[], "settable":{}});
-    for view in ["front", "side", "detail_a", "detail_h"] {
+    for view in [
+        "front",
+        "side",
+        "detail_a",
+        "detail_h",
+        "aux:f:hole:f10",
+        "aux:face:4/edge",
+    ] {
         options["placements"] = json!([{"view":view, "side":"above"}]);
         mcp::validate(&schema, &options).unwrap();
     }
-    options["placements"] = json!([{"view":"detail_i", "side":"above"}]);
-    assert!(mcp::validate(&schema, &options).is_err());
+    for view in ["detail_i", "aux:", "aux:face:4\n"] {
+        options["placements"] = json!([{"view":view, "side":"above"}]);
+        assert!(mcp::validate(&schema, &options).is_err());
+    }
+
+    let preflight: Value =
+        serde_json::from_str(include_str!("../schemas/mcp-validation.json")).unwrap();
+    let request = |auxiliary| json!({"part_ref":"part", "spec":{"views":{"aux:face:4":{"auxiliary":auxiliary}}}});
+    assert!(preflight["inspect_part"]["$defs"]["auxiliary_request"].is_object());
+    mcp::validate(&preflight["inspect_part"], &request(Value::Null)).unwrap();
+    mcp::validate(
+        &preflight["inspect_part"],
+        &request(json!({"square_to":"face:4", "from":"v:aux:face:5/edge"})),
+    )
+    .unwrap();
+    for auxiliary in [
+        json!({}),
+        json!({"square_to":""}),
+        json!({"square_to":"face:4", "edge_on":"face:4"}),
+        json!({"edge_on":"face:4", "from":"detail_i"}),
+        json!({"edge_on":"face:4", "from":"front\n"}),
+    ] {
+        assert!(mcp::validate(&preflight["inspect_part"], &request(auxiliary)).is_err());
+    }
 }
 
 #[test]

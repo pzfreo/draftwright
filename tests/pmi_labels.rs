@@ -214,6 +214,18 @@ fn sheet_requirements_are_on_the_title_block_beside_it_and_in_the_notes() {
     assert!(finish.glyph[1] > draftwright::title_block::top(block));
     let d = model::render(&part, &a, &plan, &font()).unwrap();
     let text = written(&d);
+    let tolerance: Vec<_> = d
+        .text
+        .iter()
+        .filter(|run| run.text == "ISO 2768-m")
+        .collect();
+    let [run] = tolerance[..] else {
+        panic!("one ISO 2768 class run")
+    };
+    let [x0, y0, x1, y1] = cell.cell;
+    assert_eq!(run.at, [(x0 + x1) / 2.0, (y0 + y1) / 2.0]);
+    assert_eq!(run.size, draftwright::title_block::TEXT);
+    assert_eq!(dxf_tolerance_lines(&d), ["ISO 2768-m"]);
     for q in &plan.requirements {
         let read = runs(&d, &q.id).join(" ");
         assert!(read.contains(&q.text), "{}: {read:?}", q.id);
@@ -221,6 +233,268 @@ fn sheet_requirements_are_on_the_title_block_beside_it_and_in_the_notes() {
     assert!(text.iter().any(|t| t == "Ra 3.2"));
     assert!(text.iter().any(|t| t == "ISO 2768-m"));
     assert!(text.iter().any(|t| t == "1  Break sharp edges 0.2 max"));
+}
+
+fn dxf_tolerance_lines(d: &draftwright::output::Drawing) -> Vec<String> {
+    let file = dxf::Drawing::load(&mut std::io::Cursor::new(d.dxf())).unwrap();
+    let title = file
+        .entities()
+        .find_map(|e| match &e.specific {
+            dxf::entities::EntityType::Insert(insert) if insert.name == "TITLE_BLOCK" => {
+                Some(insert)
+            }
+            _ => None,
+        })
+        .unwrap();
+    title
+        .attributes()
+        .filter(|a| a.attribute_tag.starts_with("GENERAL_TOLERANCE"))
+        .map(|a| a.value.replace("%%p", "±").replace("%%d", "°"))
+        .collect()
+}
+
+#[test]
+fn specify_tolerance_tables_keep_the_stated_measures_and_share_the_title_block_layout() {
+    use draftwright::haecceity::pmi::{CellValue, LengthUnit};
+    use draftwright::pmi::{Field, Reading};
+    use draftwright::title_block;
+
+    for (stem, unit, values, rows) in [
+        (
+            "tolerance-inch",
+            LengthUnit::Inch,
+            &[(2, 0.01), (3, 0.005)][..],
+            &[".XX ±.01", ".XXX ±.005", "angles ±1°"][..],
+        ),
+        (
+            "tolerance-metric",
+            LengthUnit::Millimetre,
+            &[(0, 0.5), (1, 0.2), (2, 0.05)][..],
+            &["X ±0.5", "X.X ±0.2", "X.XX ±0.05", "angles ±0°30'"][..],
+        ),
+    ] {
+        let path = root()
+            .join("tests/fixtures/pmi/general-tolerance")
+            .join(format!("{stem}.step.gz"));
+        let (part, a) = model::analyse_native(&path).unwrap();
+        let Some(Reading::Read(report)) = &a.pmi else {
+            panic!("{stem}: unread PMI")
+        };
+        let records: Vec<_> = report
+            .records
+            .iter()
+            .filter(|r| r.kind == "general_tolerances")
+            .collect();
+        let [record] = records[..] else {
+            panic!("{stem}: expected one general tolerance")
+        };
+        let Some((_, Field::ToleranceCells(cells))) = record
+            .fields
+            .iter()
+            .find(|(name, _)| name == "tolerance table")
+        else {
+            panic!("{stem}: missing typed cells")
+        };
+        assert_eq!(cells.len(), values.len());
+        for (cell, &(places, value)) in cells.iter().zip(values) {
+            assert!(cell.items.iter().any(|(key, item)| {
+                key == "significant number of digits"
+                    && matches!(item, CellValue::Count(n) if n.to_f64() == f64::from(places))
+            }));
+            assert!(cell.items.iter().any(|(key, item)| {
+                key == "plus minus tolerance value"
+                    && matches!(item, CellValue::Value(n) if n.as_length().is_some_and(|l| l.unit == unit && l.value.to_f64() == value))
+            }));
+        }
+        assert!(record.fields.contains(&(
+            "tolerance note".into(),
+            Field::Text(rows.last().unwrap().to_string())
+        )));
+        let plan = cache::default_plan(&a, true);
+        let requirement = plan
+            .requirements
+            .iter()
+            .find(|q| q.kind == "general_tolerance")
+            .unwrap();
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "sheet": { "title": { "tolerance": rows.join(" · ").replace("'", "′") } }
+        }))
+        .unwrap();
+        let repeated = model::plan(&a, &spec).unwrap();
+        assert!(
+            !repeated
+                .problems
+                .iter()
+                .any(|p| { p.code == "step_general_tolerance_disagreement" }),
+            "{stem}: Specify's read-back must match the STEP tolerance"
+        );
+        assert!(repeated.requirements.iter().any(|q| q.id == requirement.id));
+        assert_eq!(requirement.text.lines().collect::<Vec<_>>(), rows);
+        assert!(!plan.problems.iter().any(|p| matches!(
+            p.code.as_str(),
+            "general_tolerance_missing" | "title_field_overflow"
+        )));
+        let drawing = model::render(&part, &a, &plan, &font()).unwrap();
+        let exported = written(&drawing);
+        let annotation = drawing
+            .annotations
+            .iter()
+            .find(|a| a.name == requirement.id)
+            .unwrap();
+        let lines: Vec<_> = annotation
+            .runs
+            .iter()
+            .map(|&i| exported[i].as_str())
+            .collect();
+        assert!(lines.len() > 1, "{stem}: expected wrapping");
+        assert_eq!(
+            lines
+                .iter()
+                .flat_map(|line| line.split(" · "))
+                .collect::<Vec<_>>(),
+            rows
+        );
+        assert_eq!(dxf_tolerance_lines(&drawing), lines);
+
+        let field = drawing
+            .sheet
+            .fields
+            .iter()
+            .find(|f| f.field == "general_tolerance")
+            .unwrap();
+        let cell = plan
+            .sheet
+            .title_cells
+            .iter()
+            .find(|s| s.field == field.field)
+            .unwrap();
+        let label = title_block::measure(&cell.label)
+            .map(|extent| extent * title_block::LABEL_TEXT / title_block::TEXT);
+        let [x0, y0, x1, y1] = field.cell;
+        let mut bottom = y1;
+        for &i in &annotation.runs {
+            let run = &drawing.text[i];
+            let ink = title_block::lay(&run.text, run.size);
+            let [x, y] = run.at;
+            assert!(x + ink.min[0] > x0 && x + ink.max[0] < x1);
+            assert!(y + ink.min[1] > y0 && y + ink.max[1] < bottom);
+            assert!(
+                x + ink.min[0] > x0 + title_block::LABEL_PAD + label[0]
+                    || y + ink.min[1] > y0 + title_block::LABEL_PAD + label[1]
+            );
+            bottom = y + ink.min[1];
+        }
+    }
+}
+
+#[test]
+fn specify_tolerance_notes_supply_the_title_block_without_a_table() {
+    let path = root().join("tests/fixtures/pmi/general-tolerance/tolerance-angular.step.gz");
+    let mut step = String::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path).unwrap())
+        .read_to_string(&mut step)
+        .unwrap();
+    let plain = step.replacen(
+        r"angles \X2\00B1\X0\1\X2\00B0\X0\",
+        r"\X2\00B1\X0\0.3 mm",
+        1,
+    );
+    assert_ne!(step, plain);
+    for (name, source, expected) in [
+        ("angular.step", step, "angles ±1°"),
+        ("plain.step", plain, "±0.3 mm"),
+    ] {
+        let (part, analysis) = model::analyse_native_bytes(name, source.as_bytes()).unwrap();
+        let plan = cache::default_plan(&analysis, true);
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "general_tolerance_missing"),
+            "{name}: a standalone STEP tolerance note states a general tolerance"
+        );
+        let requirement = plan
+            .requirements
+            .iter()
+            .find(|q| q.kind == "general_tolerance")
+            .unwrap();
+        assert_eq!(requirement.text, expected);
+        let drawing = model::render(&part, &analysis, &plan, &font()).unwrap();
+        let annotation = drawing
+            .annotations
+            .iter()
+            .find(|a| a.name == requirement.id)
+            .unwrap();
+        let [run] = annotation.runs.as_slice() else {
+            panic!("{name}: expected one printed tolerance")
+        };
+        assert_eq!(drawing.text[*run].text, expected);
+    }
+}
+
+#[test]
+fn tolerance_table_ranges_and_signed_limits_use_the_stated_values() {
+    use draftwright::haecceity::pmi::{CellValue, Decimal, LengthUnit, ToleranceCell, Value};
+    use draftwright::pmi::{Field, Reading};
+
+    let path = root().join("tests/fixtures/pmi/general-tolerance/tolerance-metric.step.gz");
+    let (_, mut analysis) = model::analyse_native(&path).unwrap();
+    let Some(Reading::Read(report)) = &mut analysis.pmi else {
+        panic!("unread PMI")
+    };
+    let record = report
+        .records
+        .iter_mut()
+        .find(|r| r.kind == "general_tolerances")
+        .unwrap();
+    let length = |key: &str, number, unit| {
+        (
+            key.into(),
+            CellValue::Value(Value::length(Decimal::parse(number).unwrap(), unit)),
+        )
+    };
+    let mm = LengthUnit::Millimetre;
+    record.fields = vec![(
+        "tolerance table".into(),
+        Field::ToleranceCells(vec![
+            ToleranceCell {
+                items: vec![
+                    length("upper limit", "6.", mm.clone()),
+                    length("plus minus tolerance value", "0.1", mm.clone()),
+                    length("lower limit", "0.", mm.clone()),
+                    (
+                        "cell description".into(),
+                        CellValue::Text("first band".into()),
+                    ),
+                ],
+            },
+            ToleranceCell {
+                items: vec![
+                    length("lower tolerance value", "-0.1", mm.clone()),
+                    length("lower limit", "6.", mm.clone()),
+                    length("upper tolerance value", "0.2", mm.clone()),
+                    length("upper limit", "30.", mm),
+                ],
+            },
+            ToleranceCell {
+                items: vec![
+                    length("lower limit", "0.", LengthUnit::Inch),
+                    length("upper limit", "1.", LengthUnit::Inch),
+                    length("plus minus tolerance value", "0.01", LengthUnit::Inch),
+                ],
+            },
+        ]),
+    )];
+    let plan = model::plan(&analysis, &Spec::default()).unwrap();
+    let requirement = plan
+        .requirements
+        .iter()
+        .find(|q| q.kind == "general_tolerance")
+        .unwrap();
+    assert_eq!(
+        requirement.text,
+        "0 to 6 ±0.1\n6 to 30 +0.2/-0.1\n0 in to 1 in ±.01 in"
+    );
 }
 
 /// GRM-03 presents its general tolerance and default finish on the part's own solid (#15, its

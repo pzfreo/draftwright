@@ -88,6 +88,9 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `assembly_principal_drawn` | advisory | information | The assembly's largest part, holding the others, was drawn alone; the others are not drawn. |
 | `authored_dimension_invalid` | decision | fix_before_printing | The authored dimension needs a valid user definition. |
 | `automatic_scale_limited` | advisory | information | Larger automatic scales were refused for the reported fit or readability reasons. |
+| `auxiliary_anchor_unapplied` | decision | tidy | The requested auxiliary view needs a current planar face or feature axis. |
+| `auxiliary_parent_unapplied` | decision | tidy | The requested auxiliary view needs a visible parent view. |
+| `auxiliary_unplaceable` | readability | tidy | A requested auxiliary view has no room in the drawing. |
 | `axial_length_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state the axial length. |
 | `balloon_dropped` | incomplete | fix_before_printing (information when severity=info) | A required drawing item was dropped before it could be stated. |
 | `blend_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
@@ -187,6 +190,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `hole_table_escalated` | advisory | information | A hole table replaced crowded individual callouts. |
 | `hole_table_tag_order_retained` | advisory | information | Legacy tags retain the finished geometry when spatial relabelling would collide or detach a row leader. |
 | `hole_table_unavailable` | decision | tidy | An explicit table request was not met; individual dimensions remain. |
+| `hole_tangent_note_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The printed tangency and edge count are unsupported by the bore opening. |
 | `id_not_migrated` | advisory | information | A saved legacy identity has no exact current match; its key and intent are retained. |
 | `inch_design_detected` | advisory | information | Model sizes closely follow sixteenth-inch or decimal-inch grids; units remain unchanged. |
 | `interior_void` | advisory | information | A factual inventory of an internal cavity; its faces do not establish a hole opening. |

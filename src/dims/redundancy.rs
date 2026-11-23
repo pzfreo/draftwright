@@ -5,7 +5,7 @@ use crate::items::State;
 use crate::lint::redundancy::{Span, TOL, path, walkable, walked};
 use crate::model::{Analysis, Spec};
 
-type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
+type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
 /// The reference dimensions [`consolidate`] made, each by its ID with the IDs of the dimensions
 /// that determine it, in the order its basis names them (#26: the plan's `determined_by`).

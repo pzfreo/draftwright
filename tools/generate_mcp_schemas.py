@@ -2,7 +2,7 @@
 import json
 import re
 from copy import deepcopy
-from mcp_spec import document, outline, pictorial_fields, PAPER_SIZES
+from mcp_spec import auxiliary_request, document, outline, pictorial_fields, PAPER_SIZES
 from pathlib import Path
 MAX_OPS = int(re.search(r'pub const MAX_OPS: usize = (\d+);', (Path(__file__).resolve().parent.parent / 'src/stateless.rs').read_text())[1])
 S = {'type': 'string'}
@@ -21,7 +21,7 @@ def nullable(s):
     return {'anyOf':[s, {'type':'null'}]}
 state={'anyOf':[obj({'kind':{'enum':['shown','omitted_by_user','not_authored']}},['kind']), obj({'kind':{'const':'covered'},'by':S},['kind','by']),obj({'kind':{'const':'not_drawable'},'reason_code':S},['kind','reason_code'])]}
 op={'anyOf':[obj({'op':{'enum':['set','add']},'path':S,'value':{}},['op','path','value']),obj({'op':{'const':'remove'},'path':S},['op','path'])]}
-place=obj({'view':{'enum':['front','plan','side',*[f'detail_{c}' for c in 'abcdefgh']]},'side':{'enum':['above','below','left','right']},'lane':{'type':'integer','minimum':0,'maximum':1000},'along':{'anyOf':[{'enum':['start','middle','end','outside']},{'type':'number','minimum':0,'maximum':1}]},'offset':arr(N,minItems=2,maxItems=2),'pinned':B})
+place=obj({'view':{'anyOf':[{'enum':['front','plan','side',*[f'detail_{c}' for c in 'abcdefgh']]},{'type':'string','pattern':r'^aux:.+(?![\s\S])'}]},'side':{'enum':['above','below','left','right']},'lane':{'type':'integer','minimum':0,'maximum':1000},'along':{'anyOf':[{'enum':['start','middle','end','outside']},{'type':'number','minimum':0,'maximum':1}]},'offset':arr(N,minItems=2,maxItems=2),'pinned':B})
 compact=obj({'sheet':SHEET,'id':S,'kind':S,'label':nullable(S),'view':nullable(S),'state':ref('state'),'characteristic_numbers':arr(S)},['id','kind','label','view','state'])
 scope={'enum':['local','view','sheet']}
 operation_scopes={'type':'object','additionalProperties':scope}
@@ -346,6 +346,13 @@ for mode in ('validation', 'published'):
             else:
                 total += compact_size(schema)
                 Path(f'schemas/mcp/{tool}.{kind}.json').write_text(json.dumps(schema,indent=2)+'\n')
+# Add the auxiliary property after compaction to preserve the existing preflight
+# shapes and corrective messages. The private document's root lists tools only.
+for schema in validation.values():
+    views = schema['properties']['spec']['properties']['views']
+    views['additionalProperties']['properties']['auxiliary'] = nullable(
+        ref('inspect_part/$defs/auxiliary_request'))
+validation['inspect_part']['$defs'] = {'auxiliary_request': auxiliary_request()}
 Path('schemas/mcp-validation.json').write_text(json.dumps(validation, indent=2) + '\n')
 # Context ceiling, shared with tests/engine_version.rs. Nested Spec growth is free;
 # detail placement view names (detail_a…) add 88 bytes to item_options.

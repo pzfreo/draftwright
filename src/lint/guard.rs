@@ -10,7 +10,7 @@
 //!   features (`crate::bridge`), the Analysis's PMI reading (`crate::pmi`) and its lowering
 //!   (`crate::pmi_lowering`, a function of the Analysis alone), the material re-entry predicate
 //!   it shares with the leader router (`crate::material`, a function of the Analysis's solids
-//!   and a page projection alone, so the guard reads that file too), and the rendered drawing
+//!   and a page projection alone), and the rendered drawing
 //!   (`crate::output`) and the independent scope vocabulary/default (`crate::remedy_scope`,
 //!   whose source is audited by this guard too).
 
