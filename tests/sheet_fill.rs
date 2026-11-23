@@ -329,10 +329,11 @@ fn manufacturing_plate_keeps_all_requirements_on_the_accepted_paper() {
     let a = manufacturing_plate();
     let p = model::plan_recovered(&a, &Spec::default()).unwrap();
     sheet_rule::assert_rule("manufacturing-pmi", &p);
-    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    // The small, below-band plate can carry its note and all six frames at 2:1.
+    // The full-size rule now restores the A3 drawing lost in #452.
     assert_eq!(
         (p.sheet.size.as_str(), p.sheet.scale.as_str()),
-        ("A4", "1:2")
+        ("A3", "2:1")
     );
     // #127's fixed-size source note must remain drawn, without rewarding a
     // compact 1:5 diagram after PMI covers the generated dimensions.
