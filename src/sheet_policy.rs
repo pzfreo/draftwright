@@ -1345,6 +1345,9 @@ fn select_scales_full(
     // Unset spacing may fall back to compact lanes; an explicit choice holds for every trial.
     let fallback = spec.sheet.dimension_spacing.is_none();
     let hard = spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9);
+    let reference_angles =
+        (!crate::nominal::comparison()).then(|| model::angular_losses(&reference));
+    let reference_fits = std::cell::OnceCell::new();
     let mut candidates = Vec::new();
     let mut search_trace = Vec::new();
     let mut best = sheet_fit::inside_frames(fit, &baseline).then(|| baseline.clone());
@@ -1420,10 +1423,12 @@ fn select_scales_full(
                 }
                 // Witness and contact finishing cannot add a missing profile angle.
                 // Leave space drops to the schedule retry, which can replan those views.
-                if !crate::nominal::comparison()
-                    && model::findings(&reference).clean()
+                if reference_angles.is_some_and(|n| model::angular_losses(&plan) > n)
+                    && *reference_fits.get_or_init(|| {
+                        model::findings(&reference).clean()
+                            && sheet_fit::inside_frames(fit, &reference)
+                    })
                     && actual_space_drops(&plan) == 0
-                    && model::angular_losses(&plan) > model::angular_losses(&reference)
                 {
                     *outcome = format!("refused at {scale}: required profile angles not carried");
                     return None;
