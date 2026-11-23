@@ -187,7 +187,8 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                         &mut rounded,
                         drawing.sheet.units,
                     ));
-                } else if (d.lines.len() == 3 || !angular_label(text))
+                } else if (d.lines.len() == 3
+                    || (view.is_some_and(|v| v.starts_with("v:aux:")) && !angular_label(text)))
                     && let Some(span) = aligned_span(&d.lines)
                 {
                     let unfolded = frame.broken.is_some();
