@@ -92,6 +92,39 @@ fn profile_parent(
         .map(|(name, direction)| (format!("v:{name}"), direction))
 }
 
+fn opening_face(a: &Analysis, feature: &Feature, axis: Point) -> Option<usize> {
+    support(a, feature, axis)?
+        .0
+        .membership()
+        .faces
+        .first()
+        .copied()
+}
+
+/// Stage 1 can measure from edges on a grid's support, but cannot establish
+/// a grid's own datum on an unlocated face. Keep its existing authored remedy.
+fn ungrounded_grid_faces(a: &Analysis, needs: &BTreeSet<String>) -> BTreeSet<usize> {
+    let Some(recognition) = &a.recognition else {
+        return BTreeSet::new();
+    };
+    recognition
+        .patterns
+        .iter()
+        .filter(|p| p.arrangement == "grid")
+        .flat_map(|p| &p.members)
+        .filter(|id| needs.contains(*id))
+        .filter_map(|id| {
+            let feature = a.features.iter().find(|f| &f.id == id)?;
+            let axis = anchor_direction(a, id)?;
+            let face = opening_face(a, feature, axis)?;
+            let has_stock_edge = crate::auxiliary_geometry::edge_stations(a, feature, axis)
+                .iter()
+                .any(|station| station.has_stock_edge);
+            (!has_stock_edge).then_some(face)
+        })
+        .collect()
+}
+
 pub(super) fn append(
     a: &Analysis,
     spec: &Spec,
@@ -119,6 +152,7 @@ pub(super) fn append(
         .iter()
         .filter_map(|&n| Some((format!("v:{n}"), principal(n)?.toward)))
         .collect();
+    let grid_faces = ungrounded_grid_faces(a, &needs);
     let mut omitted = Vec::new();
 
     // Profile cameras come first so a coaxial bore can use one as its parent.
@@ -131,6 +165,12 @@ pub(super) fn append(
             let Some(axis) = anchor_direction(a, id) else {
                 continue;
             };
+            if !edge
+                && !grid_faces.is_empty()
+                && opening_face(a, feature, axis).is_some_and(|face| grid_faces.contains(&face))
+            {
+                continue;
+            }
             let already_shown = principals
                 .iter()
                 .map(|(_, d)| d)

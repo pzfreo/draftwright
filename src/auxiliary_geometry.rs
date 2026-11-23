@@ -196,6 +196,7 @@ pub(crate) struct EdgeStation {
     pub points: [Point; 2],
     pub direction: Point,
     pub length: f64,
+    pub has_stock_edge: bool,
 }
 
 pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -> Vec<EdgeStation> {
@@ -211,7 +212,7 @@ pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -
         };
         for edge in m.edges.iter().flatten() {
             let Some(key) = &edge.reference else { continue };
-            let Ok(Reference::Edge { ends, .. }) = a.dimension_reference(key) else {
+            let Ok(Reference::Edge { ends, membership }) = a.dimension_reference(key) else {
                 continue;
             };
             let span = sub(ends[1], ends[0]);
@@ -237,6 +238,7 @@ pub(crate) fn edge_stations(a: &Analysis, feature: &Feature, direction: Point) -
                 points: [anchor, at],
                 direction: normal,
                 length: dot(delta, normal),
+                has_stock_edge: !membership.stock_sides.is_empty(),
             });
         }
     }
