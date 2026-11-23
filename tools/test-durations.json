@@ -2086,7 +2086,6 @@
 "draftwright::rendering placement::a_merge_the_spec_breaks_draws_both_in_their_own_lanes": 13.8,
 "draftwright::rendering placement::a_starved_overall_extent_has_first_claim_on_the_opposite_strip": 13.2,
 "draftwright::rendering placement::a_strip_without_room_falls_through_to_the_opposite_strip": 1.6,
-"draftwright::rendering placement::omitting_one_dimension_moves_no_other": 82.8,
 "draftwright::rendering placement::placed_ink_lies_in_its_views_area_or_is_reported": 3.4,
 "draftwright::rendering placement::placement_problems_are_known": 14.6,
 "draftwright::rendering placement::what_does_not_fit_the_page_is_reported": 14.2,
