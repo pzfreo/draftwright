@@ -1238,7 +1238,12 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
-                if shorten {
+                if across_ids.contains(&id) && new_contacts.is_none() {
+                    // Prefer a short exit from the bore. The inventory score puts ink
+                    // inside its estimated annotation band first, but the settled
+                    // repair below can grow that band into clear paper.
+                    candidates.sort_by(|a, b| route_length(a).total_cmp(&route_length(b)));
+                } else if shorten {
                     // Keep the held corridor's local refinements ahead of the
                     // broad sweep: its shortest rays may all fail a later audit.
                     let local = candidates.len().min(20);
