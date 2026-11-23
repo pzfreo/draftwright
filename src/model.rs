@@ -5760,9 +5760,9 @@ fn with_uncapped<T>(uncapped: bool, run: impl FnOnce() -> T) -> T {
 }
 
 /// Plans the hole schedules' presentation with *plan* and installs the schedules
-/// ([`crate::hole_table::install`]). Where they find no clear place because a slot callout took
-/// the place an origin mark needs, the presentation is planned once more with that place reserved
-/// before the dimensions are laid out ([`crate::hole_table::slot_callout_takes_origin`], CTC-03).
+/// ([`crate::hole_table::install`]). If dimension ink occupies the place an origin mark needs,
+/// the presentation is planned once more with that place reserved
+/// before the dimensions are laid out ([`crate::hole_table::annotation_takes_origin`]).
 /// `None` when the schedules are not installed.
 ///
 /// A row replaces a callout whose size comes from PMI. Where that drawing has an error the plan
@@ -5913,13 +5913,12 @@ fn install_selection_form(
         return Ok(Some(scheduled));
     }
     if !crate::placement_intent::has_pins(&first.spec)
-        && !crate::hole_table::slot_callout_takes_origin(analysis, &first, selection)
+        && !crate::hole_table::annotation_takes_origin(analysis, &first, selection)
     {
         return Ok(None);
     }
-    // A retained view pin re-solves the remaining annotations in fixed frames.
-    // Any of them can occupy the schedule's datum-mark corridor, not only a SLOT
-    // callout. Give the canonical schedule one bounded solve with its origin held.
+    // Give the schedule one bounded solve with its origin held. Retained
+    // view pins can also move annotations into the origin corridor.
     let mut reserved = selection.clone();
     reserved.reserve_origins = true;
     let mut scheduled = plan(&reserved)?;

@@ -649,14 +649,16 @@ pub fn principal_axes(c: &Corner) -> Option<(usize, usize)> {
 
 /// Whether *text* is a chamfer callout of size *leg*: `C<leg>`, optionally counted (`4× C21.075`).
 pub fn states_chamfer(text: &str, leg: f64) -> bool {
+    chamfer_size(text).is_some_and(|v| holes::states(v, leg))
+}
+
+fn chamfer_size(text: &str) -> Option<&str> {
     let t = text.trim();
     let t = t
         .split_once("× ")
         .filter(|(n, _)| n.parse::<usize>().is_ok())
         .map_or(t, |(_, rest)| rest);
-    t.strip_prefix('C')
-        .filter(|v| v.parse::<f64>().is_ok())
-        .is_some_and(|v| holes::states(v, leg))
+    t.strip_prefix('C').filter(|v| v.parse::<f64>().is_ok())
 }
 
 /// Whether some mark claims corner *c*'s angle with a chamfer callout of size *leg*.
@@ -665,7 +667,7 @@ fn chamfer_called(c: &Corner, leg: f64, marks: &[Mark]) -> bool {
         m.claims
             .iter()
             .any(|cl| cl.feature == c.feature && cl.parameter == "profile_angle.angle")
-            && states_chamfer(&m.text, m.units.from_mm(leg))
+            && chamfer_size(&m.text).is_some_and(|v| m.states_text(v, leg))
     })
 }
 
@@ -875,6 +877,32 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_counted_profile_chamfer_reads_the_inch_decimal() {
+        let corner = Corner {
+            feature: "outer_profile:f1:e1:e2".into(),
+            axis: 2,
+            vertex: [0.; 3],
+            first: [-1., 0., 0.],
+            second: [1., 1., 0.],
+            virtual_vertex: false,
+            ends: [[-1., 0., 0.], [1., 1., 0.]],
+        };
+        let mark = Mark {
+            precision: None,
+            units: crate::units::Units::In,
+            name: "profile chamfer".into(),
+            view: Some("v:plan".into()),
+            text: "4× C.830".into(),
+            claims: vec![crate::output::Claim {
+                feature: corner.feature.clone(),
+                parameter: crate::dims::PROFILE_ANGLE.into(),
+            }],
+        };
+        assert!(chamfer_called(&corner, 21.075, std::slice::from_ref(&mark)));
+        assert!(!chamfer_called(&corner, 21.125, &[mark]));
+    }
 
     #[test]
     fn profile_angles_support_walk_stops_at_non_tangent_arcs() {

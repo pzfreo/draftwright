@@ -2422,8 +2422,8 @@ pub(crate) struct Selection {
     pub iso: Option<PlannedView>,
     pub replaced: BTreeSet<String>,
     /// Whether the dimensions laid out with the schedules keep off the places their origin
-    /// marks need ([`origin_reservations`]): set for a second attempt, when a slot callout took
-    /// such a place in the first ([`slot_callout_takes_origin`]).
+    /// marks need ([`origin_reservations`]): set for a second attempt when dimension ink took
+    /// such a place in the first ([`annotation_takes_origin`]).
     pub reserve_origins: bool,
     /// A bounded layout trial; an authored column count takes precedence.
     pub columns: Option<usize>,
@@ -3531,29 +3531,26 @@ fn origin_places(
     out
 }
 
-/// Whether a slot callout (`N× SLOT W × L`, `dims::slots`) laid out with the schedules of a plan
-/// that failed to install them takes the place a schedule's origin mark needs ([`origin_places`]).
-/// Its wide label seeks the free space a datum corner leaves once the hole callouts go to the
-/// schedule (CTC-03), so that plan is laid out again with the place reserved
-/// ([`origin_reservations`]). Other failures keep the original dimensions as before.
-pub(crate) fn slot_callout_takes_origin(
+/// Whether annotation ink occupies a schedule's origin mark or its route from the datum corner.
+/// The table installer checks labels across the sheet, including those from neighbouring views.
+pub(crate) fn annotation_takes_origin(
     analysis: &Analysis,
     plan: &Plan,
     selection: &Selection,
 ) -> bool {
     origin_places(analysis, selection, plan.sheet.page, &plan.views)
         .into_iter()
-        .any(|(_, view, origin, at)| {
+        .any(|(_, _, origin, at)| {
             let mark = origin_box(at);
-            plan.dimensions.iter().any(|d| {
-                d.view == view
-                    && d.terms.get(1).is_some_and(|t| t == "SLOT")
-                    && d.placed.as_ref().is_some_and(|p| {
-                        overlap(mark, p.label_box)
-                            || crosses([origin, at], p.label_box)
-                            || p.lines.iter().any(|l| crosses(*l, mark))
-                    })
-            })
+            let blocks = |d: &PlannedDimension| {
+                d.placed.as_ref().is_some_and(|p| {
+                    overlap(mark, p.label_box)
+                        || crosses([origin, at], p.label_box)
+                        || p.lines.iter().chain(&p.arrows).any(|l| crosses(*l, mark))
+                })
+            };
+            plan.dimensions.iter().any(blocks)
+                || plan.gdt.iter().filter_map(crate::dims::gdt::proxy).any(|d| blocks(&d))
         })
 }
 
