@@ -1744,12 +1744,14 @@ fn select_scales_full(
             })
             .collect();
         // The next sheet already proves this small part reads at full size or
-        // larger. On the smaller sheet keep looking for full-size ink.
+        // larger. Keep looking for full-size ink on the smaller sheet when
+        // its annotation bands also fit there at 1:1.
         let full_size_neighbour = !crate::nominal::comparison()
             && size == spec.pages()[0].0
             && baseline.sheet.size == spec.pages()[1].0
             && baseline.sheet.scale_factor >= 1.0
             && baseline.sheets.is_empty()
+            && estimate.shortfall(size, max, 1.0).is_none()
             && model::sparse_at_full_size(fit, &baseline);
         // A conservative band estimate cannot discard the drawing already
         // proved by the inner planner. Recheck its finished ink at this pair.
