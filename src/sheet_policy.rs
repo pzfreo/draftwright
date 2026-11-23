@@ -5455,7 +5455,11 @@ mod compact_sheet_regressions {
     #[test]
     fn gantry_plate_uses_two_to_one_without_new_layout_warnings() {
         let file = fixture("sheet-policy/gantry-plate.step.gz");
-        let spec = Spec::default();
+        let spec = serde_json::from_value(serde_json::json!({
+            "schema": "draftwright.spec/2",
+            "sheet": {"title": {"title": "Gantry plate 20 mm V-slot", "number": "FC-GANTRY-PLATE"}}
+        }))
+        .unwrap();
         let plan = crate::api::plan(&file, None, &spec).unwrap();
         assert_eq!(plan.sheet.scale, "2:1", "{}", plan.sheet.basis);
         assert!(matches!(plan.sheet.size.as_str(), "A4" | "A3"));
