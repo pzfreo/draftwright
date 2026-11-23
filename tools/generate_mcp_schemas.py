@@ -53,7 +53,7 @@ spec['properties']['sheet']['properties']['balloons'] = {'enum':['off','all']}
 spec['properties']['sheet']['properties']['keep_layout'] = nullable(B)
 spec['properties']['sheet']['properties']['zones'] = nullable(B)
 spec['properties']['sheet']['properties']['table_columns'] = {'type':'object','additionalProperties':{'type':'integer','minimum':1,'maximum':4}}
-spec['properties']['views']['additionalProperties'] = obj({**line_fields, **pictorial_fields(), 'half_section':nullable(B), 'break':nullable(obj({'axis':{'enum':['x','y','z']},'remove':arr(N,minItems=2,maxItems=2),'gap':{**N,'exclusiveMinimum':0,'description':'Retained gap in paper mm at every scale; default 6.'},'aligned':B})), 'detail':nullable(detail), 'auxiliary':nullable(auxiliary_request())}, extra=True)
+spec['properties']['views']['additionalProperties'] = obj({**line_fields, **pictorial_fields(), 'half_section':nullable(B), 'break':nullable(obj({'axis':{'enum':['x','y','z']},'remove':arr(N,minItems=2,maxItems=2),'gap':{**N,'exclusiveMinimum':0,'description':'Retained gap in paper mm at every scale; default 6.'},'aligned':B})), 'detail':nullable(detail), 'auxiliary':nullable(ref('auxiliary_request'))}, extra=True)
 spec['properties']['views']['properties'] = {'sections': arr(obj({
     'id': {**S, 'pattern': '^[A-H]$'}, 'through': {**S, 'minLength': 1}}, ['id', 'through']))}
 # Share the base map/list shapes while retaining each view/declaration constraint.
@@ -70,7 +70,7 @@ del spec['properties']['feature_declarations']['type']
 del spec['properties']['feature_declarations']['items']['type']
 # The shared map pattern already requires dimensions and every entry to be objects.
 spec_read={**spec,'properties':{**spec['properties'],'dimensions':{'additionalProperties':{k:v for k,v in dimension.items() if k != 'type'}},'annotations':{'additionalProperties':{'properties':{'text':ref('x')}}}}}
-defs={'x':label_text,'state':state,'spec':spec,'spec_read':spec_read,'op':op,'item':item,'compact':compact,'problem':problem,'error':obj({'code':{'enum':['invalid','failed']},'message':S,'choices':arr(S),'path':S},['code','message'])}
+defs={'auxiliary_request':auxiliary_request(),'x':label_text,'state':state,'spec':spec,'spec_read':spec_read,'op':op,'item':item,'compact':compact,'problem':problem,'error':obj({'code':{'enum':['invalid','failed']},'message':S,'choices':arr(S),'path':S},['code','message'])}
 stub=obj({'id':nullable(S),'detail_ref':S,'tier':tier},['id','detail_ref'])
 problem_small=obj({**labels,'id':S,'code':S,'severity':S,'subjects':arr(S),'fix':arr(ref('op')),'fixes':arr(fix),'detail_ref':S,'scope':scope,'description':S},['id','code','severity','subjects'])
 defs.update({'stub':stub, 'problem_small':problem_small})
@@ -296,7 +296,16 @@ def short_names(schema):
 
 # Keep preflight validation identical to main, including its corrective shape messages.
 # These private schemas are never advertised in tools/list.
-validation = {}
+validation = {'$defs': {'auxiliary_request': defs['auxiliary_request']}}
+def shared_auxiliary(value):
+    if isinstance(value, dict):
+        if value.get('$ref') == '#/auxiliary_request':
+            return ref('$defs/auxiliary_request')
+        return {key: shared_auxiliary(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [shared_auxiliary(child) for child in value]
+    return value
+
 full_spec = document()
 Path('schemas/spec.json').write_text(json.dumps(full_spec, indent=2) + '\n')
 total = 0
@@ -324,7 +333,7 @@ for mode in ('validation', 'published'):
             # MCP defaults to 2020-12; local refs need no repeated canonical $id URL.
             schema={**schema,'$defs':used}
             # Single-use operation shapes can be inlined just like other shapes.
-            keep = ()
+            keep = ('auxiliary_request',) if mode == 'validation' else ()
             # An anyOf branch inherits its parent's type; omit only redundant types.
             for branch in schema.get('anyOf', []):
                 if branch.get('type') == schema.get('type'):
@@ -342,7 +351,8 @@ for mode in ('validation', 'published'):
             schema.update(schema.pop('$defs'))
             if mode == 'validation':
                 if kind == 'input' and tool not in ('spec_schema', 'analyse', 'parts'):
-                    validation[tool] = schema
+                    schema.pop('auxiliary_request', None)
+                    validation[tool] = shared_auxiliary(schema)
             else:
                 total += compact_size(schema)
                 Path(f'schemas/mcp/{tool}.{kind}.json').write_text(json.dumps(schema,indent=2)+'\n')

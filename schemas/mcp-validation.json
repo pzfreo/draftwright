@@ -1,4 +1,68 @@
 {
+  "$defs": {
+    "auxiliary_request": {
+      "type": "object",
+      "properties": {
+        "square_to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "edge_on": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scale_factor": {
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "full": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
+      "oneOf": [
+        {
+          "required": [
+            "square_to"
+          ],
+          "not": {
+            "required": [
+              "edge_on"
+            ]
+          }
+        },
+        {
+          "required": [
+            "edge_on"
+          ],
+          "not": {
+            "required": [
+              "square_to"
+            ]
+          }
+        }
+      ]
+    }
+  },
   "inspect_part": {
     "type": "object",
     "properties": {
@@ -271,67 +335,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "$ref": "#/C"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -776,65 +787,12 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "square_to": {
-                      "$ref": "#/D"
-                    },
-                    "edge_on": {
-                      "$ref": "#/D"
-                    },
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "$ref": "#/H"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
                   ]
                 }
@@ -1378,67 +1336,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "$ref": "#/C"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -1875,67 +1780,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "$ref": "#/C"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -2390,67 +2242,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -2880,67 +2679,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "$ref": "#/D"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -3420,67 +3166,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "$ref": "#/D"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -3964,67 +3657,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -4486,67 +4126,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -4980,67 +4567,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {
@@ -5465,67 +4999,14 @@
                   "additionalProperties": false
                 },
                 "auxiliary": {
-                  "type": [
-                    "object",
-                    "null"
-                  ],
-                  "properties": {
-                    "from": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "pattern": "^(v:)?(front|plan|side|aux:.+)(?![\\s\\S])"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "scale_factor": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "exclusiveMinimum": 0
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "full": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "Requested auxiliary keyed by aux:<anchor>. Square to a feature axis or face normal, or view a face or axis edge-on. From a principal or primary auxiliary view.",
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "required": [
-                        "square_to"
-                      ],
-                      "not": {
-                        "required": [
-                          "edge_on"
-                        ]
-                      }
+                      "$ref": "#/$defs/auxiliary_request"
                     },
                     {
-                      "required": [
-                        "edge_on"
-                      ],
-                      "not": {
-                        "required": [
-                          "square_to"
-                        ]
-                      }
+                      "type": "null"
                     }
-                  ],
-                  "patternProperties": {
-                    "^(square_to|edge_on)$(?!\n)": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  }
+                  ]
                 }
               },
               "patternProperties": {

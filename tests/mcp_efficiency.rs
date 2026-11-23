@@ -595,6 +595,8 @@ fn compact_nullable_schema_types_keep_validation_strict() {
 
 #[test]
 fn shared_schema_types_preserve_state_alternatives_and_detail_placements() {
+    mcp::validate(&json!({"type":"string","minLength":1}), &json!(""))
+        .expect("unrelated schemas keep the legacy string preflight");
     let schema = mcp::schema("list_items", false).unwrap();
     for state in [
         Value::Null,
@@ -646,6 +648,8 @@ fn shared_schema_types_preserve_state_alternatives_and_detail_placements() {
     let preflight: Value =
         serde_json::from_str(include_str!("../schemas/mcp-validation.json")).unwrap();
     let request = |auxiliary| json!({"part_ref":"part", "spec":{"views":{"aux:face:4":{"auxiliary":auxiliary}}}});
+    assert!(preflight["$defs"]["auxiliary_request"].is_object());
+    mcp::validate(&preflight["inspect_part"], &request(Value::Null)).unwrap();
     mcp::validate(
         &preflight["inspect_part"],
         &request(json!({"square_to":"face:4", "from":"v:aux:face:5/edge"})),

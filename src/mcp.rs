@@ -123,6 +123,20 @@ pub fn schema(tool: &str, output: bool) -> Option<Value> {
     )?;
     Some(serde_json::from_str(text).expect("published schema"))
 }
+const AUXILIARY_REQUEST: &str = "#/$defs/auxiliary_request";
+
+fn auxiliary_name(name: &str) -> bool {
+    crate::auxiliary::is_name(name) && !name.contains(['\n', '\r', '\u{2028}', '\u{2029}'])
+}
+
+fn preflight() -> &'static Value {
+    static VALIDATION: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    VALIDATION.get_or_init(|| {
+        serde_json::from_str(include_str!("../schemas/mcp-validation.json"))
+            .expect("private input validation schemas")
+    })
+}
+
 /// Validate the vocabulary used by our standalone draft-2020-12 schemas.
 pub fn validate(schema: &Value, value: &Value) -> Result<(), String> {
     // The generator emits finite literal choices, optionally sharing underscore
@@ -156,24 +170,24 @@ pub fn validate(schema: &Value, value: &Value) -> Result<(), String> {
         }
     }
 
-    // These patterns describe view names in the generated MCP documents.
-    fn view_pattern(pattern: &str, name: &str) -> bool {
-        let auxiliary = |name: &str| {
-            crate::auxiliary::is_name(name) && !name.contains(['\n', '\r', '\u{2028}', '\u{2029}'])
-        };
-        match pattern {
-            r"^aux:.+(?![\s\S])" => auxiliary(name),
-            r"^(v:)?(front|plan|side|aux:.+)(?![\s\S])" => {
-                let name = name.strip_prefix("v:").unwrap_or(name);
-                matches!(name, "front" | "plan" | "side") || auxiliary(name)
-            }
-            _ => true,
-        }
-    }
-
     fn visit(root: &Value, s: &Value, v: &Value, path: &str) -> Result<(), String> {
         let bad = || format!("{path}: accepted shape is {s}");
         if let Some(r) = s["$ref"].as_str() {
+            if r == AUXILIARY_REQUEST {
+                let shape = preflight().pointer(&r[1..]).ok_or_else(bad)?;
+                visit(root, shape, v, path)?;
+                let targets = ["square_to", "edge_on"];
+                let valid = targets.iter().filter_map(|key| v.get(*key)).count() == 1
+                    && targets
+                        .iter()
+                        .filter_map(|key| v[*key].as_str())
+                        .any(|anchor| !anchor.is_empty());
+                let parent = v["from"].as_str().is_none_or(|name| {
+                    let name = name.strip_prefix("v:").unwrap_or(name);
+                    matches!(name, "front" | "plan" | "side") || auxiliary_name(name)
+                });
+                return if valid && parent { Ok(()) } else { Err(bad()) };
+            }
             return visit(
                 root,
                 root.pointer(r.trim_start_matches('#')).ok_or_else(bad)?,
@@ -183,20 +197,6 @@ pub fn validate(schema: &Value, value: &Value) -> Result<(), String> {
         }
         if let Some(list) = s["anyOf"].as_array()
             && !list.iter().any(|s| visit(root, s, v, path).is_ok())
-        {
-            return Err(bad());
-        }
-        if let Some(list) = s["oneOf"].as_array()
-            && list
-                .iter()
-                .filter(|s| visit(root, s, v, path).is_ok())
-                .count()
-                != 1
-        {
-            return Err(bad());
-        }
-        if s.get("not")
-            .is_some_and(|s| visit(root, s, v, path).is_ok())
         {
             return Err(bad());
         }
@@ -224,13 +224,9 @@ pub fn validate(schema: &Value, value: &Value) -> Result<(), String> {
         {
             return Err(bad());
         }
-        if let Some(text) = v.as_str()
-            && (s["minLength"]
-                .as_u64()
-                .is_some_and(|n| text.chars().count() < n as usize)
-                || s["pattern"]
-                    .as_str()
-                    .is_some_and(|p| !view_pattern(p, text)))
+        // Only the auxiliary carrier alternative in item_options uses this grammar.
+        if s["pattern"] == r"^aux:.+(?![\s\S])"
+            && v.as_str().is_none_or(|name| !auxiliary_name(name))
         {
             return Err(bad());
         }
@@ -478,12 +474,7 @@ pub fn call(cache: &Cache, tool: &str, args: &Value) -> Result<Value, Error> {
     }
     // Discovery uses a shallow outline; retain main's complete preflight constraints
     // and error messages. Load the private documents once, outside tools/list.
-    static VALIDATION: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
-    let validation = VALIDATION.get_or_init(|| {
-        serde_json::from_str(include_str!("../schemas/mcp-validation.json"))
-            .expect("private input validation schemas")
-    });
-    validate(validation.get(tool).unwrap_or(&input), args).map_err(Error::invalid)?;
+    validate(preflight().get(tool).unwrap_or(&input), args).map_err(Error::invalid)?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dispatch(cache, tool, args)))
         .unwrap_or_else(|_| {
             Err(Error::failed(

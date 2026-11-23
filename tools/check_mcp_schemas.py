@@ -208,6 +208,6 @@ with tempfile.TemporaryDirectory(prefix='s7-schema-') as cache:
                 {'sheet': {'centre_marks': 'false'}}):
         refused = rpc('tools/call', {'name': 'inspect_part', 'arguments': {'part_ref': part, 'spec': bad}})
         assert refused['isError']
-        assert not Draft202012Validator(private['inspect_part']).is_valid({'part_ref': part, 'spec': bad})
+        assert not Draft202012Validator({**private['inspect_part'], '$defs': private['$defs']}).is_valid({'part_ref': part, 'spec': bad})
     print(f'{examples} checked-in Spec examples validated against the on-demand schema')
     print(f'{len(tools)} tool inputs, outputs and refusals validated; {len(validators)} published and served schemas agree')
