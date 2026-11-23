@@ -891,13 +891,13 @@ mod tests {
         };
         let mark = Mark {
             precision: None,
-            units: crate::units::Units::In,
+            units: crate::output::Units::In,
             name: "profile chamfer".into(),
             view: Some("v:plan".into()),
             text: "4× C.830".into(),
             claims: vec![crate::output::Claim {
                 feature: corner.feature.clone(),
-                parameter: crate::dims::PROFILE_ANGLE.into(),
+                parameter: "profile_angle.angle".into(),
             }],
         };
         assert!(chamfer_called(&corner, 21.075, std::slice::from_ref(&mark)));
