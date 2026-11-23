@@ -1013,7 +1013,11 @@ pub fn plan_sheet(
                     None => {
                         title.insert("tolerance".into(), r.value.clone());
                     }
-                    Some(v) if v.trim() == r.value => {
+                    Some(v)
+                        if v.trim() == r.value
+                            || (r.value.contains('\n')
+                                && v.trim().replace(" · ", "\n") == r.value) =>
+                    {
                         planned.basis +=
                             "; the spec states the same tolerance (sheet/title/tolerance)";
                     }
@@ -1058,6 +1062,20 @@ pub fn plan_sheet(
 /// `;`, or its structured tolerance class, which must agree with the prose unless the prose is
 /// only `general tolerances`.
 fn designation(r: &Record) -> Result<String, &'static str> {
+    if let Some((_, crate::pmi::Field::ToleranceCells(cells))) =
+        r.fields.iter().find(|(n, _)| n == "tolerance table")
+    {
+        let note = r.fields.iter().find_map(|(name, field)| match field {
+            crate::pmi::Field::Text(text) if name == "tolerance note" => Some(text.as_str()),
+            _ => None,
+        });
+        let rows = tolerance_rows(cells, note);
+        return if rows.is_empty() {
+            Err("general-tolerance table is empty")
+        } else {
+            Ok(rows.join("\n"))
+        };
+    }
     let prose = r.label.split(';').next().unwrap_or("").trim().to_string();
     let class = r.fields.iter().find(|(n, _)| n == "tolerance class");
     let d = match (r.fields.is_empty(), class) {
@@ -1074,6 +1092,120 @@ fn designation(r: &Record) -> Result<String, &'static str> {
         return Err("general-tolerance designation is empty");
     }
     Ok(d)
+}
+
+/// The table's rows and its companion text, in source order. Units are explicit because the
+/// drawing's dimension units can differ from the tolerances' units.
+pub(crate) fn tolerance_rows(
+    cells: &[haecceity::pmi::ToleranceCell],
+    note: Option<&str>,
+) -> Vec<String> {
+    use haecceity::pmi::{AngleUnit, CellValue, LengthUnit, Quantity, Value};
+
+    let measure = |v: &Value| {
+        let (value, unit) = match &v.quantity {
+            Quantity::Length(l) => {
+                let unit = match &l.unit {
+                    LengthUnit::Millimetre => " mm",
+                    LengthUnit::Micrometre => " µm",
+                    LengthUnit::Centimetre => " cm",
+                    LengthUnit::Metre => " m",
+                    LengthUnit::Inch => " in",
+                    LengthUnit::Foot => " ft",
+                    LengthUnit::Other { name, .. } => return format!("{} {name}", l.value),
+                };
+                (&l.value, unit)
+            }
+            Quantity::Angle(a) => {
+                let unit = match &a.unit {
+                    AngleUnit::Degree => "°",
+                    AngleUnit::Radian => " rad",
+                    AngleUnit::Other { name, .. } => return format!("{} {name}", a.value),
+                };
+                (&a.value, unit)
+            }
+        };
+        let value = value.as_str().trim_end_matches('.');
+        let value = if unit == " in" && value.starts_with("0.") {
+            &value[1..]
+        } else {
+            value
+        };
+        format!("{value}{unit}")
+    };
+    let mut rows = Vec::new();
+    for cell in cells {
+        // Cell elements form a STEP SET, so their serialization order is immaterial.
+        let (descriptions, items): (Vec<_>, Vec<_>) = cell
+            .items
+            .iter()
+            .partition(|(key, _)| key == "cell description");
+        if let [a, b] = items.as_slice() {
+            let (digits, tolerance) = if a.0 == "plus minus tolerance value" {
+                (b, a)
+            } else {
+                (a, b)
+            };
+            if let (CellValue::Count(d), CellValue::Value(v)) = (&digits.1, &tolerance.1)
+                && matches!(
+                    digits.0.as_str(),
+                    "significant number of digits" | "number of decimal places"
+                )
+                && tolerance.0 == "plus minus tolerance value"
+                && (0.0..=32.0).contains(&d.to_f64())
+                && d.to_f64().fract() == 0.0
+            {
+                let n = d.to_f64() as usize;
+                let xs = "X".repeat(n);
+                let pattern = if n == 0 {
+                    "X".into()
+                } else if matches!(&v.quantity, Quantity::Length(l) if l.unit == LengthUnit::Inch) {
+                    format!(".{xs}")
+                } else {
+                    format!("X.{xs}")
+                };
+                let value = measure(v);
+                let row = format!("{pattern} ±{value}");
+                let number = value.split_once(' ').map_or(value.as_str(), |(n, _)| n);
+                let redundant = match descriptions.as_slice() {
+                    [] => true,
+                    [(_, CellValue::Text(d))] => {
+                        d.is_empty() || *d == format!("{pattern} ±{number}") || *d == row
+                    }
+                    _ => false,
+                };
+                if redundant {
+                    rows.push(row);
+                    continue;
+                }
+            }
+        }
+        if !cell.items.is_empty() {
+            rows.push(
+                cell.items
+                    .iter()
+                    .map(|(key, v)| {
+                        let value = match v {
+                            CellValue::Value(v) => measure(v),
+                            CellValue::Count(d) => d.to_string(),
+                            CellValue::Text(text) => text.clone(),
+                        };
+                        format!("{key} {value}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+    }
+    rows.extend(
+        note.into_iter()
+            .flat_map(|text| text.split("; "))
+            .flat_map(str::lines)
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned),
+    );
+    rows
 }
 
 /// The Ra value of a default surface texture stated as draftwright reads one
@@ -1458,7 +1590,7 @@ fn surface_finish(r: &Record, centre: [f64; 3]) -> Result<Lowered, Vec<String>> 
                     });
                 }
             }
-            crate::pmi::Field::Text(_) => {}
+            crate::pmi::Field::Text(_) | crate::pmi::Field::ToleranceCells(_) => {}
         }
     }
     if texture.parameters.is_empty() {

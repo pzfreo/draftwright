@@ -262,12 +262,49 @@ fn specify_root(doc: &Document, r: &Record) -> bool {
         })
 }
 
-/// A structured requirement's field value, as draftwright holds it: text, or a length in mm.
+/// A structured requirement's field value. Table cells retain their stated measures and units.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Field {
     Text(String),
     Length(f64),
+    ToleranceCells(Vec<pmi::ToleranceCell>),
+}
+
+/// Specify writes the table's remaining lines in a semantic text attribute on the same part.
+fn general_tolerance_note(attribute: &pmi::AttributeSet) -> Option<&str> {
+    match attribute.items.as_slice() {
+        [(name, AttributeValue::Text(text))]
+            if attribute.on.is_none()
+                && attribute.name == "semantic text"
+                && name == "general tolerance" =>
+        {
+            Some(text)
+        }
+        _ => None,
+    }
+}
+
+fn set_general_tolerance(record: &mut Record, general: &GeneralTolerance, note: Option<&str>) {
+    record.kind = "general_tolerances".into();
+    match general {
+        GeneralTolerance::Class { text, .. } => {
+            record.label.clone_from(text);
+            record.fields = vec![("tolerance class".into(), Field::Text(text.clone()))];
+        }
+        GeneralTolerance::Table { cells, .. } => {
+            record.label = crate::pmi_lowering::tolerance_rows(cells, note).join(" · ");
+            record.fields = vec![(
+                "tolerance table".into(),
+                Field::ToleranceCells(cells.clone()),
+            )];
+            if let Some(note) = note {
+                record
+                    .fields
+                    .push(("tolerance note".into(), Field::Text(note.into())));
+            }
+        }
+    }
 }
 
 const MISSING_NOMINAL: &str = "the file states no nominal value (haecceity reads it without one)";
@@ -1139,7 +1176,7 @@ fn attach_record_geometry(part: &Part, records: &mut [Record]) {
 /// model bound to this native part's face/edge indices.
 /// No AP242 write/read is involved; this uses the file reader's typed-item conversions
 /// and the same geometry attachment and downstream planning/lowering as imported PMI.
-/// General tolerance tables fail; model notes are not read.
+/// Model notes are not read.
 #[doc(hidden)]
 pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
     model.validate().map_err(|errors| {
@@ -1188,9 +1225,6 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
     records.extend(r.semantic_knurls(&mut used, false));
     records.extend(r.semantic_textures(&mut used));
     for general in &model.general {
-        let GeneralTolerance::Class { text, .. } = general else {
-            return Err("caller general tolerance tables are not yet lowered".into());
-        };
         let mut item = r.record(
             Category::ManufacturingRequirement,
             0,
@@ -1198,9 +1232,7 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
             Support::default(),
             vec![],
         );
-        item.kind = "general_tolerances".into();
-        item.label = text.clone();
-        item.fields = vec![("tolerance class".into(), Field::Text(text.clone()))];
+        set_general_tolerance(&mut item, general, None);
         records.push(item);
     }
     for attribute in &model.attributes {
@@ -3516,37 +3548,68 @@ impl PartReader<'_> {
             r.fields = st.fields.clone();
             out.push(r);
         }
-        for &g in &classes {
-            let GeneralTolerance::Class { text, .. } = &pmi.general[g] else {
-                continue;
-            };
+        let table_count = pmi.general.len() - classes.len();
+        let notes: Vec<_> = pmi
+            .attributes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| Some((i, general_tolerance_note(a)?)))
+            .collect();
+        for (g, general) in pmi.general.iter().enumerate() {
             if used.general[g] {
                 continue;
             }
             used.general[g] = true;
             let ids = self.prov.general.get(g).map_or(&[][..], Vec::as_slice);
-            let Some(pdef) = self.property(ids) else {
+            let root = match general {
+                GeneralTolerance::Class { .. } => self.property(ids),
+                GeneralTolerance::Table { .. } => {
+                    self.subject(ids, &|n| n == "DEFAULT_TOLERANCE_TABLE")
+                }
+            };
+            let Some(root) = root else {
                 sources.push(Source {
                     id: format!("general_tolerance:{}:{g}", self.p),
                     category: Category::ManufacturingRequirement,
                     entity: String::new(),
                     instances: ids.to_vec(),
                     outcome: Outcome::NotExtracted,
-                    reason: "general tolerance has no property definition among its instances"
-                        .into(),
+                    reason: match general {
+                        GeneralTolerance::Class { .. } => {
+                            "general tolerance has no property definition among its instances"
+                        }
+                        GeneralTolerance::Table { .. } => {
+                            "general tolerance has no default tolerance table among its instances"
+                        }
+                    }
+                    .into(),
                 });
                 continue;
             };
+            let mut own = ids.to_vec();
+            let mut blockers = Vec::new();
+            let mut note = None;
+            if matches!(general, GeneralTolerance::Table { .. }) {
+                match notes.as_slice() {
+                    [] => {}
+                    [(i, text)] if table_count == 1 => {
+                        note = Some(*text);
+                        own.extend(attribute_ids(*i).copied());
+                        used.attributes[*i] = true;
+                    }
+                    _ => blockers.push(
+                        "general tolerance notes cannot be paired uniquely with the table".into(),
+                    ),
+                }
+            }
             let mut r = self.record(
                 Category::ManufacturingRequirement,
-                pdef,
-                ids,
+                root,
+                &own,
                 Support::default(),
-                Vec::new(),
+                blockers,
             );
-            r.kind = "general_tolerances".into();
-            r.label = text.clone();
-            r.fields = vec![("tolerance class".into(), Field::Text(text.clone()))];
+            set_general_tolerance(&mut r, general, note);
             out.push(r);
         }
         out

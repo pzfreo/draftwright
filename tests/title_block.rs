@@ -70,6 +70,29 @@ fn overflows(plan: &Plan) -> Vec<&Problem> {
 }
 
 #[test]
+fn an_overlong_tolerance_table_is_reported_without_partial_ink() {
+    let long_row = format!("X.XX ±0.05 mm {}", "LONG ".repeat(50));
+    let value = format!("X.X ±0.1 mm\n{long_row}\nangles ±1°");
+    let (plan, drawing) = sheet("A4", json!({ "tolerance": value }));
+    assert_eq!(
+        cell(&plan, "general_tolerance").value.as_deref(),
+        Some(value.as_str())
+    );
+    let [problem] = overflows(&plan)[..] else {
+        panic!("one overflow expected")
+    };
+    assert_eq!(problem.refs, ["title_block/general_tolerance"]);
+    assert!(
+        !drawing
+            .sheet
+            .fields
+            .iter()
+            .any(|f| f.field == "general_tolerance")
+    );
+    assert!(!drawing.text.iter().any(|r| r.text.contains("±")));
+}
+
+#[test]
 fn projection_symbol_states_third_angle_and_clears_the_reserved_band() {
     use draftwright::output::{Curve, Item};
     for size in ["A4", "A3"] {

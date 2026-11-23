@@ -280,6 +280,99 @@ pub fn value_size(value: &str, cell: [f64; 4]) -> f64 {
     (TEXT * room).clamp(MIN_TEXT, TEXT)
 }
 
+const TOLERANCE_CELL: &str = "title_block/general_tolerance";
+const FIELD_OVERFLOW: &str = "title_field_overflow";
+const TOLERANCE_SEPARATOR: &str = " · ";
+
+pub(crate) struct ValueLine {
+    pub text: String,
+    pub at: [f64; 2],
+    pub size: f64,
+}
+
+impl TitleCell {
+    /// Keep tolerance ink inside the cell and clear of the field label. Separators in an
+    /// authored table mark whole rows that can share a line when the cell is short.
+    pub(crate) fn value_lines(&self) -> Result<Vec<ValueLine>, ()> {
+        let Some(value) = &self.value else {
+            return Ok(Vec::new());
+        };
+        let [x0, y0, x1, y1] = self.cell;
+        let at = [(x0 + x1) / 2.0, (y0 + y1) / 2.0];
+        let normal = || ValueLine {
+            text: value.clone(),
+            at,
+            size: value_size(value, self.cell),
+        };
+        if self.field != "general_tolerance" {
+            return Ok(vec![normal()]);
+        }
+        let label = lay(&self.label, LABEL_TEXT);
+        let label_right = x0 + LABEL_PAD + label.max[0] - label.min[0];
+        let label_top = y0 + LABEL_PAD + label.max[1] - label.min[1];
+        if !value.contains('\n') && !value.contains(TOLERANCE_SEPARATOR) {
+            let normal = normal();
+            let laid = lay(value, normal.size);
+            if at[0] + laid.min[0] >= x0
+                && at[0] + laid.max[0] <= x1
+                && at[1] + laid.min[1] >= y0
+                && at[1] + laid.max[1] <= y1
+                && (at[0] + laid.min[0] >= label_right || at[1] + laid.min[1] >= label_top)
+            {
+                return Ok(vec![normal]);
+            }
+        }
+        let rows: Vec<_> = value
+            .lines()
+            .flat_map(|line| line.split(TOLERANCE_SEPARATOR))
+            .map(str::trim)
+            .filter(|row| !row.is_empty())
+            .collect();
+        let left = label_right + LABEL_PAD;
+        let width = x1 - LABEL_PAD - left;
+        let height = y1 - y0 - 2.0 * LABEL_PAD;
+        let gap = 0.45;
+        for per_line in [1, 2, rows.len()] {
+            let mut lines: Vec<String> = Vec::new();
+            let mut count = 0;
+            for row in &rows {
+                if count < per_line
+                    && let Some(line) = lines.last_mut()
+                {
+                    let joined = format!("{line}{TOLERANCE_SEPARATOR}{row}");
+                    if font().advance(&joined, MIN_TEXT) <= width {
+                        *line = joined;
+                        count += 1;
+                        continue;
+                    }
+                }
+                lines.push((*row).into());
+                count = 1;
+            }
+            let boxes: Vec<_> = lines.iter().map(|line| measure(line)).collect();
+            let widest = boxes.iter().map(|b| b[0]).fold(0.0, f64::max);
+            let ink_height = boxes.iter().map(|b| b[1]).sum::<f64>();
+            let gaps = gap * lines.len().saturating_sub(1) as f64;
+            let scale = (width / widest).min((height - gaps) / ink_height).min(1.0);
+            if TEXT * scale >= MIN_TEXT {
+                let size = TEXT * scale;
+                let mut top = at[1] + (ink_height * scale + gaps) / 2.0;
+                return Ok(lines
+                    .into_iter()
+                    .zip(boxes)
+                    .map(|(text, [_, h])| {
+                        let h = h * scale;
+                        let at = [left + width / 2.0, top - h / 2.0];
+                        top -= h + gap;
+                        ValueLine { text, at, size }
+                    })
+                    .collect());
+            }
+        }
+        Err(())
+    }
+}
+
 /// The cells in *block* (the layout's reservation, `[x0, y0, x1, y1]`), with the values from
 /// *title* (the plan's `sheet.title`, by spec key) and the sheet's *size*. A value that is empty
 /// or only whitespace is no value, and is drawn without its surrounding whitespace.
@@ -510,8 +603,8 @@ fn source(field: &str) -> String {
 /// One `title_field_overflow` warning for each cell whose value's ink is wider or taller than
 /// the cell (draftwright's `_lint_title_fields`, there a lint warning, here a plan problem), and
 /// an `annotation_off_sheet` error for each value whose ink leaves the sheet's drawing area,
-/// each measured at the value's [`value_size`]. Each carries the full value, which is drawn
-/// whole: nothing is shortened.
+/// each measured at the value's [`value_size`]. A tolerance that cannot fit is held off the
+/// drawing. Other fields retain their whole value at the minimum text height.
 pub fn problems(cells: &[TitleCell], page: [f64; 2]) -> Vec<Problem> {
     let mut out = Vec::new();
     for c in cells {
@@ -530,6 +623,22 @@ pub fn problems(cells: &[TitleCell], page: [f64; 2]) -> Vec<Problem> {
             });
         }
         let Some(v) = &c.value else { continue };
+        if c.field == "general_tolerance" {
+            if c.value_lines().is_err() {
+                out.push(Problem {
+                    id: format!("p:{FIELD_OVERFLOW}:{TOLERANCE_CELL}"),
+                    code: FIELD_OVERFLOW.into(),
+                    severity: "warning".into(),
+                    message: format!(
+                        "The general tolerance {v:?} does not fit in GEN. TOL. at the minimum text height of {MIN_TEXT} mm. The cell's value was withheld."
+                    ),
+                    subjects: vec!["sheet".into()],
+                    refs: vec![TOLERANCE_CELL.into()],
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
         let laid = lay(v, value_size(v, c.cell));
         let [w, h] = [laid.max[0] - laid.min[0], laid.max[1] - laid.min[1]];
         let [x0, y0, x1, y1] = c.cell;
@@ -569,6 +678,22 @@ pub fn problems(cells: &[TitleCell], page: [f64; 2]) -> Vec<Problem> {
         }
     }
     out
+}
+
+/// A drawing-wide PMI tolerance remains in the plan when a sheet has no room to draw it.
+pub(crate) fn tolerance_state(
+    requirements: &mut [crate::pmi_lowering::PlannedRequirement],
+    problems: &[Problem],
+) {
+    let fits = !problems
+        .iter()
+        .any(|p| p.code == FIELD_OVERFLOW && p.refs.iter().any(|r| r == TOLERANCE_CELL));
+    for r in requirements
+        .iter_mut()
+        .filter(|r| r.carrier == "title_block")
+    {
+        r.state = crate::items::State::placed_or(fits, FIELD_OVERFLOW);
+    }
 }
 
 /// Resolve ISO 7200 sheet numbers in the Plan, keeping the grid and authored Spec intact.
