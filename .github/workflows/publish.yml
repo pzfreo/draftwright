@@ -64,6 +64,9 @@ on:
         description: Release tag to build (vX.Y.Z or vX.Y.Z-alpha.N)
         type: string
         required: true
+      release_checks_run:
+        description: Shared pre-publication run ID or run ID/attempt for a backfill or retry
+        type: string
 
 permissions:
   contents: read
@@ -235,11 +238,11 @@ jobs:
           sparse-checkout: tools/check_release_ci.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: Require full main CI on the release commit
+      - name: Require full main CI and the shared release checks
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: python3 .release-ci-guard/tools/check_release_ci.py --tag "$TAG"
+        run: python3 .release-ci-guard/tools/check_release_ci.py --tag "$TAG" --require-release-checks
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: release/dist
