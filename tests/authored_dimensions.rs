@@ -1782,6 +1782,16 @@ fn inclined_authored_dimensions_locate_the_piercing_point() {
         }
         let mut partial = s.clone();
         partial.dimensions.remove(id);
+        let automatic = model::plan_recovered(&a, &partial).unwrap();
+        assert!(
+            automatic.views.iter().any(|v| v.id == "v:aux:f:hole:f9"),
+            "an incomplete authored location can use an auxiliary view"
+        );
+        partial
+            .views
+            .entry("aux:f:hole:f9".into())
+            .or_default()
+            .omit = true;
         let partial = model::plan_recovered(&a, &partial).unwrap();
         assert!(
             partial
