@@ -143,7 +143,7 @@ fn share(a: &Analysis, spec: &Spec, request: &mut Request, feature: &Feature) {
     request.meta.members.push(id.into());
 }
 
-fn profile_parent(
+pub(super) fn profile_parent(
     a: &Analysis,
     feature: &Feature,
     direction: Point,
@@ -164,6 +164,72 @@ fn profile_parent(
         })
         .min_by_key(|(_, d)| !seat.is_some_and(|normal| perpendicular(normal, *d)))
         .map(|(name, direction)| (format!("v:{name}"), direction))
+}
+
+fn settle_profiles(a: &Analysis, spec: &Spec, out: &mut Vec<Request>, problems: &mut Vec<Problem>) {
+    out.retain_mut(|profile| {
+        if !profile.automatic || !profile.meta.edge_on || !opposed_profile(a, &profile.meta) {
+            return true;
+        }
+        let members: Vec<_> = std::iter::once(&profile.meta.anchor)
+            .chain(&profile.meta.members)
+            .collect();
+        let proved = |toward| {
+            members
+                .iter()
+                .all(|id| boss_witnesses(a, id, toward).is_some())
+        };
+        let toward = profile.camera.toward;
+        if !proved(toward) {
+            let opposite = toward.map(|v| -v);
+            let candidate = proved(opposite)
+                .then(|| {
+                    request(
+                        a,
+                        spec,
+                        &profile.meta.anchor,
+                        profile.meta.parent.clone(),
+                        opposite,
+                        true,
+                    )
+                    .ok()
+                    .flatten()
+                })
+                .flatten();
+            let Some(mut replacement) = candidate else {
+                problems.extend(members.into_iter().map(|id| {
+                    unproved(
+                        spec,
+                        &profile.id,
+                        id,
+                        "neither side exposes both ends of each boss height",
+                    )
+                }));
+                return false;
+            };
+            for id in &profile.meta.members {
+                if let Some(feature) = a.features.iter().find(|f| f.id == *id) {
+                    share(a, spec, &mut replacement, feature);
+                }
+            }
+            *profile = replacement;
+        }
+        let toward = profile.camera.toward;
+        let limits = std::iter::once(&profile.meta.anchor)
+            .chain(&profile.meta.members)
+            .filter_map(|id| boss_witnesses(a, id, toward))
+            .flatten()
+            .map(|point| profile.camera.map(point))
+            .fold(profile.meta.bounds, |mut bounds, at| {
+                for k in 0..2 {
+                    bounds[k] = bounds[k].min(at[k]);
+                    bounds[k + 2] = bounds[k + 2].max(at[k]);
+                }
+                bounds
+            });
+        include(profile, limits);
+        true
+    });
 }
 
 fn opening_face(a: &Analysis, feature: &Feature, axis: Point) -> Option<usize> {
@@ -435,6 +501,9 @@ pub(super) fn append(
                 Ok(None) => {}
                 Err(_) => problems.push(unplaceable(spec, &format!("v:{name}"), true)),
             }
+        }
+        if edge {
+            settle_profiles(a, spec, out, problems);
         }
     }
     // Leave the first profile and its true-shape projections together. Other

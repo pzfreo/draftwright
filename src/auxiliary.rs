@@ -12,7 +12,7 @@ use crate::model::{Analysis, Invalid, Plan, PlannedView, Problem, Spec, VIEWS};
 
 mod automatic;
 mod visibility;
-pub(crate) use visibility::{BoreEnd, bore_end, bore_evidence};
+pub(crate) use visibility::{BoreEnd, BossProfile, bore_end, boss_witnesses, evidence};
 
 const TOLERANCE: f64 = 1e-6;
 
@@ -259,6 +259,15 @@ fn anchor_direction(a: &Analysis, anchor: &str) -> Option<Point> {
     } else {
         axis
     })
+}
+
+pub(crate) fn opposed_profile(a: &Analysis, aux: &Auxiliary) -> bool {
+    let Some(axis) = anchor_direction(a, &aux.anchor) else {
+        return false;
+    };
+    aux.members
+        .iter()
+        .any(|id| anchor_direction(a, id).is_some_and(|other| dot(axis, other) < -1. + TOLERANCE))
 }
 
 pub(crate) struct Request {

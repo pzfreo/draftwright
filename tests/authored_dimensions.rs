@@ -2115,6 +2115,101 @@ fn cgb217() -> Option<(std::sync::Arc<draftwright::haecceity::Part>, Analysis)> 
 
 const COMPOUND_HOLES: [&str; 3] = ["f:hole:f26", "f:hole:f28", "f:hole:f41"];
 
+fn assert_automatic_auxiliary_witnesses(
+    part: &str,
+    plan: &model::Plan,
+    drawing: &draftwright::output::Drawing,
+) {
+    use draftwright::output::{Curve, Kind};
+
+    let distance = |point: [f64; 2], [from, to]: [[f64; 2]; 2]| {
+        let [x, y] = [to[0] - from[0], to[1] - from[1]];
+        let [u, v] = [point[0] - from[0], point[1] - from[1]];
+        let length_squared = x * x + y * y;
+        let t = if length_squared > 0. {
+            ((u * x + v * y) / length_squared).clamp(0., 1.)
+        } else {
+            0.
+        };
+        (u - t * x).hypot(v - t * y)
+    };
+    for view in plan
+        .views
+        .iter()
+        .filter(|v| v.auxiliary.is_some() && v.basis.starts_with("automatic auxiliary projection"))
+    {
+        let ink = drawing
+            .sheet
+            .views
+            .iter()
+            .find(|v| v.name == view.id)
+            .unwrap();
+        let edges: Vec<_> = ink
+            .edges
+            .iter()
+            .flat_map(|curve| {
+                let n = if matches!(curve, Curve::Line(..)) {
+                    1
+                } else {
+                    128
+                };
+                (0..n).map(move |i| {
+                    [
+                        curve.at(i as f64 / n as f64),
+                        curve.at((i + 1) as f64 / n as f64),
+                    ]
+                })
+            })
+            .collect();
+        let prefix = format!("ink:{}:", view.id);
+        let centrelines = drawing
+            .sheet
+            .items
+            .iter()
+            .filter(|item| item.kind == Kind::Centreline && item.name.starts_with(&prefix))
+            .flat_map(|item| item.lines.iter().copied())
+            .collect::<Vec<_>>();
+        for dimension in plan.dimensions.iter().filter(|d| {
+            d.view == view.id
+                && d.placed.is_some()
+                && matches!(d.kind.as_str(), "linear" | "angular")
+        }) {
+            let drawn = drawing
+                .sheet
+                .items
+                .iter()
+                .find(|item| item.name == dimension.id)
+                .unwrap();
+            let [first, second, ..] = drawn.lines.as_slice() else {
+                panic!("{part}: missing extension lines for {}", dimension.id);
+            };
+            // The extension strokes leave the standard 1 mm gap at their
+            // measured feet. Check the points on the far side of that gap.
+            for &[start, end] in [first, second] {
+                let delta = [end[0] - start[0], end[1] - start[1]];
+                let length = delta[0].hypot(delta[1]);
+                let foot = std::array::from_fn(|k| start[k] - delta[k] / length);
+                // The shared CGB217 profile must show both bosses' ends;
+                // a coaxial hole's centreline alone cannot prove their heights.
+                let centres = if view.id == "v:aux:f:boss:f51/edge" {
+                    &[]
+                } else {
+                    centrelines.as_slice()
+                };
+                assert!(
+                    edges
+                        .iter()
+                        .chain(centres)
+                        .any(|&line| distance(foot, line) <= 0.05),
+                    "{part}, {}: {} witness at {foot:?} has no drawn support",
+                    view.id,
+                    dimension.id
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn inclined_planner_warning_names_each_holes_anchors() {
     use draftwright::haecceity::brep::Arc;
@@ -2198,6 +2293,22 @@ fn inclined_planner_warning_names_each_holes_anchors() {
             drawn || reported,
             "{id}: no auxiliary dimension or unplaceable finding"
         );
+    }
+    assert_automatic_auxiliary_witnesses("cgb217", &p, &drawing);
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    for path in [
+        fixtures.join("parts/corner-cuts.step.gz"),
+        fixtures.join("pmi/step/assembly_plate_pin.step.gz"),
+        fixtures.join("pmi/step/hw_assembly_plate_pin_intent.step.gz"),
+        fixtures.join("steerability/angle-bracket.step.gz"),
+        fixtures.join("pmi/specify-main-angle-bracket.step.gz"),
+        corpus::dir().unwrap().join("mfcadpp/10096.step"),
+    ] {
+        let (part, analysis) = crate::cache::native(&path);
+        let plan = crate::cache::default_plan(&analysis, true);
+        let drawing = model::render(&part, &analysis, &plan, &font).unwrap();
+        assert!(plan.views.iter().any(|v| v.auxiliary.is_some()), "{path:?}");
+        assert_automatic_auxiliary_witnesses(path.to_str().unwrap(), &plan, &drawing);
     }
 
     let mut omitted = Spec::default();

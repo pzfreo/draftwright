@@ -2364,9 +2364,10 @@ pub fn recognise(part: &Part, analysis: &mut Analysis, json: &str) -> Result<(),
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
     dimension_geometry::memberships(analysis);
-    let bore_ends = crate::auxiliary::bore_evidence(part, analysis);
+    let (bore_ends, boss_profiles) = crate::auxiliary::evidence(part, analysis);
     if let Some(ink) = &mut analysis.edge_ink {
         ink.bore_ends = bore_ends;
+        ink.boss_profiles = boss_profiles;
     }
     analysis.unrecognised.clear();
     Ok(())
@@ -2491,9 +2492,10 @@ pub fn recognise_document(
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
     dimension_geometry::memberships(analysis);
-    let bore_ends = crate::auxiliary::bore_evidence(part, analysis);
+    let (bore_ends, boss_profiles) = crate::auxiliary::evidence(part, analysis);
     if let Some(ink) = &mut analysis.edge_ink {
         ink.bore_ends = bore_ends;
+        ink.boss_profiles = boss_profiles;
     }
     analysis.modelled_thread_ink = crate::modelled_threads::evidence(part, analysis);
     // Physical threads use conventional carriers. Their raw helix HLR would be

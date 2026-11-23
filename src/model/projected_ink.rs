@@ -20,6 +20,9 @@ pub struct EdgeInk {
     /// Visibility evidence for inclined bores in their own projection.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub bore_ends: BTreeMap<String, Vec<crate::auxiliary::BoreEnd>>,
+    /// Visible axial witnesses for the boss profiles shared across opposite ends.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub boss_profiles: BTreeMap<String, Vec<crate::auxiliary::BossProfile>>,
     /// Exact recognition-independent dimension references, keyed by versioned fingerprint.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub references: BTreeMap<String, Vec<super::dimension_geometry::Reference>>,
@@ -248,6 +251,7 @@ pub(super) fn evidence(part: &Part) -> EdgeInk {
         }
     }
     EdgeInk {
+        boss_profiles: BTreeMap::new(),
         bore_ends: BTreeMap::new(),
         resolved: Vec::new(),
         references: super::dimension_geometry::evidence(part),

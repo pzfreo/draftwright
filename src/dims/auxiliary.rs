@@ -423,6 +423,19 @@ pub(super) fn apply<'a>(
             })
         });
         if let Some(v) = end_view {
+            let [from, to] = if crate::auxiliary::is_automatic_view(v)
+                && v.auxiliary
+                    .as_ref()
+                    .is_some_and(|aux| crate::auxiliary::opposed_profile(a, aux))
+            {
+                let Some(witnesses) = crate::auxiliary::boss_witnesses(a, &f.id, v.direction)
+                else {
+                    continue;
+                };
+                witnesses
+            } else {
+                [base, at]
+            };
             add_want(
                 &mut routes,
                 wants,
@@ -432,7 +445,7 @@ pub(super) fn apply<'a>(
                     f,
                     "boss_height.length",
                     height,
-                    Shape::Aligned { a: base, b: at },
+                    Shape::Aligned { a: from, b: to },
                     "height along the boss axis, shown true",
                 ),
             );
