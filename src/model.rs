@@ -4320,6 +4320,8 @@ fn recover_candidates(
     let mut readable_incomplete: Option<((usize, usize, usize, usize), Plan)> = None;
     let mut smallest = None;
     let mut smallest_angle_losses = 0;
+    let mut found_all_angles = false;
+    let mut smallest_has_wrapped_callouts = false;
     let angle_losses = |p: &Plan| {
         if crate::nominal::comparison() {
             0
@@ -4360,9 +4362,10 @@ fn recover_candidates(
             for scale in spec.scales().iter().copied().filter(|s| {
                 *s >= min_legible_scale && established_scale.is_none_or(|cap| *s <= cap)
             }) {
-                // On the one larger sheet only an enlargement of the smallest fit is allowed.
+                // Equal and smaller scales on the neighbour can only compete by
+                // stating more angles. Stop probing them once an eligible pair states all.
                 if smallest.is_some_and(|fit| !crate::sheet_fit::allowed(fit, i, scale))
-                    && smallest_angle_losses == 0
+                    && (smallest_angle_losses == 0 || found_all_angles)
                 {
                     continue;
                 }
@@ -4437,10 +4440,6 @@ fn recover_candidates(
                 // A failed seed must not restrict the complete drawing to its first arrangement.
                 // Try the other established arrangement, with no new leader-routing strategy.
                 if !seed_clean
-                    || (angle_losses(&p) > 0
-                        && scale >= 1.0
-                        && findings(&p).clean()
-                        && (smallest.is_none() || smallest_angle_losses > 0))
                     || (established_scale.is_some()
                         && (!findings(&p).clean()
                             || extra_corridors(&p) > 0
@@ -4761,8 +4760,19 @@ fn recover_candidates(
                 if smallest.is_none() {
                     smallest = Some((i, scale));
                     smallest_angle_losses = angular_losses;
+                    smallest_has_wrapped_callouts = angular_losses > 0
+                        && p.dimensions.iter().any(|d| {
+                            d.kind == "callout"
+                                && d.terms.iter().any(|s| crate::callouts::is_break(s))
+                        });
                     smallest_iso = p.views.iter().find(|v| v.id == "v:iso").map(|v| v.scale);
                 }
+                found_all_angles |= angular_losses == 0
+                    && (!seed_kept || crossings + line_crossings == 0)
+                    // A wrapped leader may still veto a later sheet. In that case
+                    // keep probing pairs in case the only complete one is vetoed.
+                    && (!smallest_has_wrapped_callouts
+                        || smallest.is_some_and(|(j, _)| i == j));
                 candidates.push((
                     crate::sheet_fit::Candidate {
                         sheet: i,
