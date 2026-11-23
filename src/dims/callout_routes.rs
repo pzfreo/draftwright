@@ -726,6 +726,38 @@ pub(crate) fn finish_inch_contacts(analysis: &Analysis, plan: &mut Plan) {
 
 pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
     finish_with(analysis, spec, plan, false, None, false);
+    if spec.units.is_mm()
+        && plan.sheet.scale_factor > 1.0
+        && plan.dimensions.iter().any(placed_angle)
+    {
+        let ids = plan
+            .dimensions
+            .iter()
+            .filter(|d| wrapped_recess(d))
+            .map(|d| d.id.clone())
+            .collect::<BTreeSet<_>>();
+        if !ids.is_empty() {
+            let reference = plan.clone();
+            finish_with(analysis, spec, plan, false, Some((&ids, &reference)), false);
+        }
+    }
+}
+
+pub(super) fn placed_angle(d: &PlannedDimension) -> bool {
+    d.placed.is_some()
+        && !d.reference
+        && d.measurements
+            .iter()
+            .any(|m| m.parameter == super::PROFILE_ANGLE)
+}
+
+pub(super) fn wrapped_recess(d: &PlannedDimension) -> bool {
+    d.kind == "callout"
+        && d.placed.is_some()
+        && d.terms.iter().any(|t| crate::callouts::is_break(t))
+        && d.measurements
+            .iter()
+            .any(|m| m.feature.starts_with("f:section_recess:"))
 }
 
 /// Repair independent frames after their neighbours have attached as units.
@@ -853,7 +885,11 @@ fn finish_with(
     preserve_contacts: bool,
 ) {
     let pmi_retry = placement::pmi_witness_retry(analysis);
-    let shorten = new_contacts.is_some()
+    let metric_profile = new_contacts.is_some()
+        && spec.units.is_mm()
+        && plan.sheet.scale_factor > 1.0
+        && plan.dimensions.iter().any(placed_angle);
+    let shorten_inch = new_contacts.is_some()
         && spec.units == crate::units::Units::In
         && !crate::nominal::authored_pmi(analysis);
     let openings = plan.dimensions.iter().any(|d| {
@@ -957,7 +993,14 @@ fn finish_with(
     if crate::nominal::comparison()
         || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
             .unwrap_or(false)
-        || (!shorten
+        || (!shorten_inch
+            && new_contacts.is_none_or(|(ids, _)| {
+                !metric_profile
+                    || !plan
+                        .dimensions
+                        .iter()
+                        .any(|d| ids.contains(&d.id) && wrapped_recess(d))
+            })
             && !plan
                 .problems
                 .iter()
@@ -975,11 +1018,19 @@ fn finish_with(
         .filter(|p| repair_issue(&p.code))
         .flat_map(|p| p.subjects.iter().cloned())
         .collect();
-    if shorten {
+    if shorten_inch {
         affected_ids.extend(
             plan.dimensions
                 .iter()
                 .filter(|d| d.kind == "callout")
+                .map(|d| d.id.clone()),
+        );
+    }
+    if metric_profile && let Some((ids, _)) = new_contacts {
+        affected_ids.extend(
+            plan.dimensions
+                .iter()
+                .filter(|d| ids.contains(&d.id) && wrapped_recess(d))
                 .map(|d| d.id.clone()),
         );
     }
@@ -1120,6 +1171,14 @@ fn finish_with(
                     })
                 };
                 let before_extension = extension_budget(d.placed.as_ref().expect("placed callout"));
+                let wrapped_repair = metric_profile && wrapped_recess(d);
+                let shorten = shorten_inch || wrapped_repair;
+                let elbow_on_outline = wrapped_repair
+                    && leaders::elbow_near_outline(
+                        analysis,
+                        view,
+                        d.placed.as_ref().expect("placed callout"),
+                    );
                 if !shorten
                     && !before.iter().any(|p| repair_issue(&p.code))
                     && before_extension.0 == 0
@@ -1238,7 +1297,9 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
-                if spec.units.is_mm() && across_ids.contains(&id) && new_contacts.is_none() {
+                if wrapped_repair
+                    || (spec.units.is_mm() && across_ids.contains(&id) && new_contacts.is_none())
+                {
                     // Prefer a short exit from the bore. The inventory score puts ink
                     // inside its estimated annotation band first, but the settled
                     // repair below can grow that band into clear paper.
@@ -1262,7 +1323,8 @@ fn finish_with(
                         && before_extension.0 == 0
                         && before_extension.2 == 0
                         && !before.iter().any(|p| repair_issue(&p.code))
-                        && route_length(next) > longest - 2.0 + 1e-6
+                        && route_length(next)
+                            > longest - if elbow_on_outline { 0.0 } else { 2.0 } + 1e-6
                     {
                         return false;
                     }
@@ -1449,12 +1511,15 @@ fn finish_with(
                     let fewer_contacts = next_extension.0 < before_extension.0
                         || next_extension.2 < before_extension.2;
                     let shorter = shorten && route_length(&next) + 1e-6 < longest - 2.0;
+                    let clears_outline =
+                        elbow_on_outline && !leaders::elbow_near_outline(analysis, view, &next);
                     if next_extension.0 <= before_extension.0
                         && next_extension.1 <= before_extension.1
                         && next_extension.2 <= before_extension.2
                         && (improved
-                            || ((fewer_contacts || shorter) && no_regression(&before, &after))
-                            || (shorten
+                            || ((fewer_contacts || shorter || clears_outline)
+                                && no_regression(&before, &after))
+                            || (shorten_inch
                                 && clears_witness_text(
                                     &before,
                                     &after,

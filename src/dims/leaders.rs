@@ -6707,6 +6707,10 @@ fn sweep(job: &Job, tip: P2) -> Vec<(P2, P2, bool)> {
 }
 
 fn sweep_sites(source: &[Site], tip: P2) -> Vec<(P2, P2, bool)> {
+    sweep_sites_at(source, tip, &SWEEP_REACH)
+}
+
+fn sweep_sites_at(source: &[Site], tip: P2, reaches: &[f64]) -> Vec<(P2, P2, bool)> {
     let mut sites: Vec<Site> = source.to_vec();
     let d = |s: &Site| (s.0[0] - tip[0]).hypot(s.0[1] - tip[1]);
     sites.sort_by(|a, b| d(a).total_cmp(&d(b)));
@@ -6717,7 +6721,7 @@ fn sweep_sites(source: &[Site], tip: P2) -> Vec<(P2, P2, bool)> {
             let a = std::f64::consts::TAU * j as f64 / SWEEP_DIRECTIONS as f64;
             let u = [a.cos(), a.sin()];
             let tip = rim_tip(site, [c[0] + (r + 1.0) * u[0], c[1] + (r + 1.0) * u[1]]);
-            for reach in SWEEP_REACH {
+            for &reach in reaches {
                 let elbow = [tip[0] + reach * u[0], tip[1] + reach * u[1]];
                 let dx = elbow[0] - tip[0];
                 if dx >= -1e-9 {
@@ -7607,6 +7611,39 @@ fn radius_route_sites(arcs: &[crate::radius::Projected], anchor: P2) -> Vec<Site
     sites
 }
 
+fn recess_outline(
+    analysis: &crate::model::Analysis,
+    view: &crate::model::PlannedView,
+) -> Option<std::rc::Rc<SegmentIndex>> {
+    let ink = analysis.edge_ink.as_ref()?;
+    let key = serde_json::to_vec(view).expect("planned view serializes");
+    Some(crate::planning::memo(
+        analysis,
+        "recess-route-outline",
+        key,
+        || {
+            std::rc::Rc::new(resolved_route_ink(analysis, ink, view, true).map_or_else(
+                || SegmentIndex::new(view_ink(analysis, ink, view).0),
+                |resolved| resolved.visible,
+            ))
+        },
+    ))
+}
+
+fn elbow_box(elbow: P2) -> [f64; 4] {
+    grow([elbow[0], elbow[1], elbow[0], elbow[1]], 1.0)
+}
+
+pub(super) fn elbow_near_outline(
+    analysis: &crate::model::Analysis,
+    view: &crate::model::PlannedView,
+    placed: &Placed,
+) -> bool {
+    placed.lines.first().is_some_and(|shaft| {
+        recess_outline(analysis, view).is_some_and(|ink| ink.crosses_box(elbow_box(shaft[1])))
+    })
+}
+
 /// Final repair over the clear-route sweep, with no-regression budgets.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn settled_routes(
@@ -7630,6 +7667,11 @@ pub(super) fn settled_routes(
     let Some(shaft) = old.lines.first() else {
         return Vec::new();
     };
+    let wrapped_recess = contact_repair
+        && sheet.units.is_mm()
+        && sheet.scale_factor > 1.0
+        && super::callout_routes::wrapped_recess(d)
+        && peers.iter().any(super::callout_routes::placed_angle);
     let source_frame = contact_repair && want.is_none() && crate::nominal::authored_pmi(analysis);
     let frame = Frame::new(analysis, v);
     let radius = radius_route_evidence(analysis, d, v);
@@ -7778,7 +7820,16 @@ pub(super) fn settled_routes(
         } else {
             &[SHOULDER]
         };
-        let mut candidates: Vec<_> = sweep(&exterior, shaft[0])
+        let rays = if wrapped_recess {
+            sweep_sites_at(
+                &exterior.sites,
+                shaft[0],
+                &[6., 8., 9., 10., 11., 12., 13., 14., 15., 20., 24., 27., 36.],
+            )
+        } else {
+            sweep(&exterior, shaft[0])
+        };
+        let mut candidates: Vec<_> = rays
             .into_iter()
             .flat_map(|(tip, elbow, right)| {
                 std::iter::once((tip, elbow, right))
@@ -7988,6 +8039,9 @@ pub(super) fn settled_routes(
                     .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
         });
     let mut near = Vec::new();
+    let recess_outline = wrapped_recess
+        .then(|| recess_outline(analysis, v))
+        .flatten();
     let admissible = |c: &Candidate| {
         let extensions = fixed.extension_index.contacts(&c.segments(), c.label_box);
         c.hard == 0
@@ -8004,6 +8058,10 @@ pub(super) fn settled_routes(
             && c.furniture == 0
             && c.beside == 0
             && c.grazing == 0
+            && recess_outline.as_ref().is_none_or(|outline| {
+                !outline.crosses_box(elbow_box(c.elbow))
+                    && !outline.crosses_box(grow(c.label_box, 1.0))
+            })
             && page_visible.as_ref().is_none_or(|page| {
                 page.iter().all(|(ink, uncertain)| {
                     let chord = views
