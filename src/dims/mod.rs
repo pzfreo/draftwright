@@ -4145,13 +4145,10 @@ fn plan_inventory_ordered(
     let mut late_profile_callouts = Vec::new();
     for (i, w) in all.iter().enumerate() {
         if !profile_first
-            && matches!(w.shape, Shape::Callout { .. })
-            && w.measurements
-                .iter()
-                .any(|m| m.parameter == profile_angles::PARAMETER)
-            && callout_views[i].is_some()
+            && profile_angles::is_tangent_callout(w)
+            && let Some(view) = callout_views[i].take()
         {
-            late_profile_callouts.push((i, callout_views[i].take()));
+            late_profile_callouts.push((i, view));
         }
         if owner[i].is_some()
             && !drawn[i]
@@ -4514,7 +4511,7 @@ fn plan_inventory_ordered(
             }
         }
         for (i, view) in late_profile_callouts {
-            late_views[i] = view;
+            late_views[i] = Some(view);
         }
         leader_problems.extend(leaders::place_with_obstacles(
             analysis,
@@ -4696,9 +4693,7 @@ fn plan_inventory_ordered(
         let view = chosen.unwrap_or(w.views[0]);
         let dropped_angle = placed.is_none()
             && chosen.is_some()
-            && w.measurements
-                .iter()
-                .any(|m| m.parameter == profile_angles::PARAMETER);
+            && (profile_angles::is_profile_angle(&w) || profile_angles::is_tangent_callout(&w));
         if dropped_angle {
             problems.push(Problem {
                 id: format!("p:angular_dimension_dropped:{}", w.id),

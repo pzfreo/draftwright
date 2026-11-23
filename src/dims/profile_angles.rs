@@ -839,3 +839,8 @@ pub(super) fn is_profile_angle(w: &Want) -> bool {
     matches!(w.shape, Shape::Angular { .. })
         && w.measurements.iter().any(|m| m.parameter == PARAMETER)
 }
+
+/// An angle stated at its blend, distinct from a chamfer size certifying an angle.
+pub(super) fn is_tangent_callout(w: &Want) -> bool {
+    matches!(w.shape, Shape::Callout { .. }) && w.id.starts_with("d:envelope/profile_angle.angle.")
+}
