@@ -187,7 +187,9 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                         &mut rounded,
                         drawing.sheet.units,
                     ));
-                } else if let Some(span) = aligned_span(&d.lines) {
+                } else if (d.lines.len() == 3 || !angular_label(text))
+                    && let Some(span) = aligned_span(&d.lines)
+                {
                     let unfolded = frame.broken.is_some();
                     let span = if unfolded {
                         unfolded_span(
@@ -871,7 +873,9 @@ fn half_span(lines: &[[P; 2]], (k, at): (usize, f64)) -> Option<f64> {
 
 /// Recognise perpendicular extension lines and a parallel dimension line at any rotation.
 fn aligned_span(lines: &[[P; 2]]) -> Option<f64> {
-    let [a, b, d] = lines else { return None };
+    let [a, b, d, continuations @ ..] = lines else {
+        return None;
+    };
     let delta = [d[1][0] - d[0][0], d[1][1] - d[0][1]];
     let length = delta[0].hypot(delta[1]);
     if length < 1e-9 {
@@ -885,7 +889,17 @@ fn aligned_span(lines: &[[P; 2]]) -> Option<f64> {
     {
         return None;
     }
-    let span = (project(b[0]) - project(a[0])).abs();
+    // A label that crosses a witness splits it into two strokes. Every
+    // continuation must still lie on one of the two witness carriers.
+    let stations = [project(a[0]), project(b[0])];
+    if continuations.iter().any(|e| {
+        !stations
+            .iter()
+            .any(|s| e.iter().all(|&p| (project(p) - s).abs() <= 1e-6))
+    }) {
+        return None;
+    }
+    let span = (stations[1] - stations[0]).abs();
     (span > 1e-9).then_some(span)
 }
 
