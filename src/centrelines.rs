@@ -311,6 +311,8 @@ fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
             {
                 continue;
             }
+            let points: Vec<_> = members.iter().map(|h| page(a, v, h.at)).collect();
+            let (t0, t1) = pitch_span(c, r, &points);
             for h in members {
                 let q = page(a, v, h.at);
                 radial.insert(
@@ -326,8 +328,8 @@ fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
                     radii: [r, r],
                     x_axis: [1., 0.],
                     y_axis: [0., 1.],
-                    t0: 0.,
-                    t1: std::f64::consts::TAU,
+                    t0,
+                    t1,
                 }],
                 centre: None,
                 radial: false,
@@ -354,6 +356,7 @@ fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
             }
             let points: Vec<_> = members.iter().map(|h| page(a, v, h.at)).collect();
             if let Some((c, r)) = fitted_circle(&points, v.scale) {
+                let (t0, t1) = pitch_span(c, r, &points);
                 for (h, q) in members.iter().zip(&points) {
                     radial.insert(
                         h.feature.id.as_str(),
@@ -368,8 +371,8 @@ fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
                         radii: [r, r],
                         x_axis: [1., 0.],
                         y_axis: [0., 1.],
-                        t0: 0.,
-                        t1: std::f64::consts::TAU,
+                        t0,
+                        t1,
                     }],
                     centre: None,
                     radial: false,
@@ -697,6 +700,34 @@ fn plan_unpinned(a: &Analysis, views: &mut [PlannedView]) {
             });
         }
     }
+}
+
+/// The span of a pitch circle to draw. Holes all round their centre get the whole circle;
+/// holes on part of a large arc (whose centre may lie far outside the part) get only the arc
+/// through them, overrunning the end holes slightly, as drawing practice shows a partial
+/// bolt circle. A gap of more than a quarter turn between neighbours counts as "part".
+fn pitch_span(c: [f64; 2], r: f64, points: &[[f64; 2]]) -> (f64, f64) {
+    use std::f64::consts::{FRAC_PI_2, TAU};
+    let mut angles: Vec<f64> = points
+        .iter()
+        .map(|q| (q[1] - c[1]).atan2(q[0] - c[0]).rem_euclid(TAU))
+        .collect();
+    if angles.len() < 2 || r <= 0.0 {
+        return (0.0, TAU);
+    }
+    angles.sort_by(f64::total_cmp);
+    let (mut gap, mut after) = (angles[0] + TAU - angles[angles.len() - 1], angles[0]);
+    for w in angles.windows(2) {
+        if w[1] - w[0] > gap {
+            (gap, after) = (w[1] - w[0], w[1]);
+        }
+    }
+    if gap <= FRAC_PI_2 {
+        return (0.0, TAU);
+    }
+    // Overrun each end hole by 3 mm of paper.
+    let overrun = (3.0 / r).min((gap - FRAC_PI_2) / 2.0);
+    (after - overrun, after + (TAU - gap) + overrun)
 }
 
 fn fitted_circle(points: &[P], scale: f64) -> Option<(P, f64)> {
@@ -1225,6 +1256,22 @@ pub(crate) fn leader_conflict(line: [P; 2], fixed: [P; 2], global: bool, shaft: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_partial_bolt_circle_is_drawn_as_its_arc_and_a_full_one_whole() {
+        use std::f64::consts::TAU;
+        let at = |deg: f64, r: f64| [r * deg.to_radians().cos(), r * deg.to_radians().sin()];
+        // Six holes all round: the whole circle.
+        let ring: Vec<_> = (0..6).map(|k| at(60.0 * k as f64, 20.0)).collect();
+        assert_eq!(pitch_span([0.0, 0.0], 20.0, &ring), (0.0, TAU));
+        // Four holes on 60 degrees of a large arc: only that arc, overrunning 3 mm each end.
+        let r = 90.0;
+        let arc: Vec<_> = [240.0, 260.0, 280.0, 300.0].map(|d| at(d, r)).to_vec();
+        let (t0, t1) = pitch_span([0.0, 0.0], r, &arc);
+        let overrun = 3.0 / r;
+        assert!((t0 - (240f64.to_radians() - overrun)).abs() < 1e-9, "{t0}");
+        assert!((t1 - (300f64.to_radians() + overrun)).abs() < 1e-9, "{t1}");
+    }
 
     #[test]
     fn detail_page_mapping_centres_the_crop() {
