@@ -13416,18 +13416,21 @@ fn render_annotations_with_cuts(
                 for (c, (cell, at)) in row.iter().zip(at).enumerate() {
                     let Some(at) = at else { continue };
                     let run = (cell.trim(), crate::dims::FONT, crate::tables::TEXT);
-                    let laid = if t.view.is_some() && r >= headers && c == 1 {
+                    let size_cell = t.view.is_some() && r >= headers && c == 1;
+                    let mut ink = if size_cell {
                         // Reuse the established callout symbols in scheduled size cells;
                         // a font's missing-glyph box must not stand for recess or depth.
-                        let ink = crate::hole_table::size_ink(cell, font);
-                        crate::output::centred_label_ink(ink, *at, dims)
+                        crate::hole_table::size_ink(cell, font)
                     } else {
-                        crate::output::centred_label_ink(
-                            crate::tables::text_ink(cell, font),
-                            *at,
-                            dims,
-                        )
+                        crate::tables::text_ink(cell, font)
                     };
+                    if r >= headers
+                        && (size_cell || (t.view.is_none() && c == 2))
+                        && cell.contains(crate::wording::DEPTH_UNDEFINED)
+                    {
+                        ink.fit_width(p.columns[c + 1] - p.columns[c] - 2. * crate::tables::PAD);
+                    }
+                    let laid = crate::output::centred_label_ink(ink, *at, dims);
                     let index = label(laid, *at, dims, Some(run));
                     if r >= headers
                         && c > 0

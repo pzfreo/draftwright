@@ -107,7 +107,7 @@ impl Hole<'_> {
             .collect()
     }
 
-    /// The terms after the count: `⌀d`, `THRU` or `↧ depth`, the recesses, the countersink.
+    /// The terms after the count: bore diameter and termination, the recesses, the countersink.
     ///
     /// A hole with more than one counterbore or spotface step reads one step per line: the bore
     /// on the first, each `⌴`/[`SPOTFACE`] step opening a line of its own, innermost first
@@ -118,7 +118,8 @@ impl Hole<'_> {
         let mut t = vec![format!("⌀{}", fmt(self.diameter))];
         match self.depth_from_mouth() {
             Some(depth) => t.extend(["↧".into(), fmt(depth)]),
-            _ => t.push("THRU".into()),
+            None if self.through => t.push("THRU".into()),
+            None => t.push(crate::wording::DEPTH_UNDEFINED.into()),
         }
         let recesses = self.recesses();
         let stacked = recesses.len() > 1;
@@ -347,7 +348,9 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             Ok(mut h) => {
                 h.both = both_mouths(analysis, &h);
                 let bottom = h.bottom;
-                if !matches!(bottom, Some("through" | "flat" | "drill_point")) {
+                if !matches!(bottom, Some("through" | "flat" | "drill_point"))
+                    && let Some(depth) = h.depth.filter(|&d| d != 0.0)
+                {
                     // Called out blind to its recognised depth, as draftwright does, but the
                     // recogniser did not establish that it stops there.
                     problems.push(Problem {
@@ -357,8 +360,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                         message: format!(
                             "{} is called out blind to its recognised depth ({}), but recognition did not establish its bottom ({}); check whether it is through.",
                             crate::wording::capital(&crate::wording::feature(f)),
-                            // Invariant: The hole reader refuses blind records without a finite positive depth.
-                            fmt(h.depth.expect("a blind hole has its depth")),
+                            fmt(depth),
                             bottom.unwrap_or("none given")
                         ),
                         subjects: vec![f.id.clone()],

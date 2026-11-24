@@ -811,10 +811,9 @@ fn rows(
         let diameter = at.map_or(String::new(), |k| {
             let mut s = format!("ø{}", &d.terms[k]['⌀'.len_utf8()..]);
             if tolerance
-                && let Some(t) = d
-                    .terms
-                    .get(k + 1)
-                    .filter(|t| !matches!(t.as_str(), "THRU" | "↧"))
+                && let Some(t) = d.terms.get(k + 1).filter(|t| {
+                    !matches!(t.as_str(), "THRU" | "↧" | crate::wording::DEPTH_UNDEFINED)
+                })
             {
                 s += &format!(" {t}");
             }
@@ -822,6 +821,8 @@ fn rows(
         });
         let depth = if d.terms.iter().any(|t| t == "THRU") {
             "THRU".to_string()
+        } else if d.terms.iter().any(|t| t == crate::wording::DEPTH_UNDEFINED) {
+            crate::wording::DEPTH_UNDEFINED.into()
         } else {
             d.terms
                 .iter()
@@ -1148,7 +1149,7 @@ pub(crate) fn split_sizes(t: &HoleTable, spec: &crate::model::Spec) -> Vec<[f64;
     };
     if t.view.is_some() {
         let cells = schedule_cells(t, spec.units);
-        let widths = schedule_widths(&cells);
+        let widths = schedule_widths(&cells, spec.units);
         counts
             .map(|n| split_size(&widths, 2 + (cells.len() - 2).div_ceil(n), n))
             .collect()
@@ -1157,7 +1158,10 @@ pub(crate) fn split_sizes(t: &HoleTable, spec: &crate::model::Spec) -> Vec<[f64;
         counts
             .map(|n| {
                 let blocks = split(&header, &body, n);
-                let w = blocks.iter().flat_map(|b| tables::widths(b)).sum::<f64>()
+                let w = blocks
+                    .iter()
+                    .flat_map(|b| rescue_widths(b, spec.units))
+                    .sum::<f64>()
                     + BLOCK_GAP * (n - 1) as f64;
                 [w, ROW * blocks[0].len() as f64]
             })
@@ -1182,7 +1186,10 @@ fn place_rows(
     let (header, body) = rescue_cells(rows);
     for ncols in fixed.map_or(1..=MAX_COLUMNS, |n| n..=n) {
         let blocks = split(&header, &body, ncols);
-        let widths: Vec<Vec<f64>> = blocks.iter().map(|b| tables::widths(b)).collect();
+        let widths: Vec<Vec<f64>> = blocks
+            .iter()
+            .map(|b| rescue_widths(b, sheet.units))
+            .collect();
         let w = widths.iter().flatten().sum::<f64>() + BLOCK_GAP * (ncols - 1) as f64;
         let h = ROW * blocks[0].len() as f64;
         let Some([x0, y0]) = tables::place([w, h], sheet, obstacles, Corner::TopRight) else {
@@ -2450,7 +2457,11 @@ impl Selection {
                 let body = cells.len() - 2;
                 let n = *counts(self.columns(spec, &t.id), 2, body, page).start();
                 (
-                    split_size(&schedule_widths(&cells), 2 + body.div_ceil(n), n),
+                    split_size(
+                        &schedule_widths(&cells, spec.units),
+                        2 + body.div_ceil(n),
+                        n,
+                    ),
                     Corner::TopRight,
                 )
             })
@@ -2607,12 +2618,41 @@ pub(crate) fn size_ink(cell: &str, font: &crate::text::Font) -> crate::dims::Lab
     crate::dims::label_ink(&terms, font)
 }
 
-fn schedule_widths(cells: &[Vec<String>]) -> Vec<f64> {
+fn rescue_widths(rows: &[Vec<String>], units: crate::units::Units) -> Vec<f64> {
+    if rows
+        .iter()
+        .any(|row| row[2] == crate::wording::DEPTH_UNDEFINED)
+    {
+        let mut measured = rows.to_vec();
+        for row in &mut measured {
+            if row[2] == crate::wording::DEPTH_UNDEFINED {
+                row[2] = schedule_number(0., units);
+            }
+        }
+        tables::widths(&measured)
+    } else {
+        tables::widths(rows)
+    }
+}
+
+fn schedule_widths(cells: &[Vec<String>], units: crate::units::Units) -> Vec<f64> {
     let mut widths = tables::widths(cells);
     // Measure size cells with their actual symbols and stacks, not a flat font string.
     widths[1] = tables::widths(&cells[..cells.len().min(2)])[1];
     for row in cells.iter().skip(2) {
-        let ink = size_ink(&row[1], crate::dims::font());
+        // Keep the column grid and neighbouring cells where the bore was previously laid out.
+        // Only the affected run is fitted to the reserved cell when painted.
+        let cell = &row[1];
+        let measured = if cell.contains(crate::wording::DEPTH_UNDEFINED) {
+            std::borrow::Cow::Owned(cell.replacen(
+                crate::wording::DEPTH_UNDEFINED,
+                &format!("↧ {}", schedule_number(0., units)),
+                1,
+            ))
+        } else {
+            std::borrow::Cow::Borrowed(cell.as_str())
+        };
+        let ink = size_ink(&measured, crate::dims::font());
         widths[1] = widths[1].max(ink.max[0] - ink.min[0] + 2.0 * tables::PAD);
     }
     widths
@@ -2971,6 +3011,8 @@ fn select_with(
                         drill += " THRU";
                     } else if let Some(depth) = h.depth_from_mouth() {
                         drill += &format!(" ↧ {}", schedule_number(depth, plan.sheet.units));
+                    } else if h.depth == Some(0.0) {
+                        drill += &format!(" {}", crate::wording::DEPTH_UNDEFINED);
                     }
                     size = format!("{drill} {size}");
                 }
@@ -3616,7 +3658,7 @@ pub(crate) fn reflow_blocks(
         return place_rows(&t.rows, sheet, obstacles, fixed);
     }
     let cells = schedule_cells(t, sheet.units);
-    let widths = schedule_widths(&cells);
+    let widths = schedule_widths(&cells, sheet.units);
     let (headers, body) = cells.split_at(2);
     let pins = crate::engine_pins::block_offsets(&t.id).filter(|p| !p.is_empty());
     let (n, rows, [x0, y0]) = if let Some(pins) = &pins {

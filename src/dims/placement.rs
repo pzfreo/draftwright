@@ -120,6 +120,25 @@ pub struct LabelInk {
     pub max: P2,
 }
 
+impl LabelInk {
+    pub(crate) fn fit_width(&mut self, width: f64) {
+        let span = self.max[0] - self.min[0];
+        if span <= width || width <= 0.0 {
+            return;
+        }
+        let scale = width / span;
+        let fit = |p: P2| [p[0] * scale, p[1]];
+        for segment in self.glyphs.iter_mut().flatten().flatten() {
+            *segment = moved(segment, &fit);
+        }
+        for point in self.strokes.iter_mut().flatten() {
+            *point = fit(*point);
+        }
+        self.min = fit(self.min);
+        self.max = fit(self.max);
+    }
+}
+
 /// Lays out *terms* as draftwright's callout recipe does: each term's leading symbol in a cell of
 /// one text height (`⌀` as the font's `ø`, the others drawn), each token a gap apart. The
 /// spotface symbol (the term [`SPOTFACE`], ASME Y14.5-2018's counterbore symbol with SF inside)

@@ -340,7 +340,9 @@ impl<'a> Hole<'a> {
     /// its own opening (quiddity-rust#244), so `⌀4.2 ↧ 9.2` under a 0.8 chamfer is `↧ 10`.
     /// A through hole states none.
     pub fn depth_from_mouth(&self) -> Option<f64> {
-        self.depth.filter(|_| !self.through).map(|d| d + self.entry)
+        self.depth
+            .filter(|&d| !self.through && d != 0.0)
+            .map(|d| d + self.entry)
     }
 
     /// What makes two holes one machining requirement (quiddity's `HoleSpec`, compared at
