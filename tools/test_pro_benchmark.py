@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
 
 import pro_benchmark as bench
@@ -56,13 +57,37 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(bench.display("hole_table", bench.metric(0, 1)), "0/1 (0.0%)")
         self.assertEqual(bench.aggregate([], "hole_table")["denominator"], None)
 
-    def test_requirement_coverage_tracks_drawn_listed_and_unaccounted(self):
-        review = {"coverage": {"pmi": {"requirements": ["d1", "d2", "d3"],
-                                      "drawn_sources": ["d1", "d2", "another"]}}}
+    def test_requirement_coverage_distinguishes_fidelity_and_reported_absence(self):
+        review = {"coverage": {"pmi": {"requirements": ["d1", "d2", "d3", "d4", "d5"],
+                                      "drawn_sources": ["d1", "d2", "d5", "another"],
+                                      "drawn_items": {"frame": "d5"}}}}
         analysis = {"pmi": {"read": {"records": [{"source_id": "d1"}, {"source_id": "d2"}]}}}
-        result = bench.pmi_metric(review, analysis, {"d2"})
-        self.assertEqual(result, bench.metric(1, 3, read=2, read_not_drawn=1, read_without_ink=0,
-                                             listed_not_shown=1, unaccounted=1))
+        findings = [{"code": "pmi_value_mismatch", "sources": ["d2", "d4"]},
+                    {"code": "pmi_not_rendered", "sources": ["d3"]},
+                    {"code": "frame_datum_not_drawn", "subjects": ["frame"]}]
+        result = bench.pmi_metric(review, analysis, findings)
+        self.assertEqual(result, bench.metric(1, 5, read=2, read_without_ink=0,
+                                             drawn_fidelity_failed=2, not_drawn=2,
+                                             reported_not_drawn=1))
+        text = bench.display("pmi", result)
+        self.assertIn("2 drawn with fidelity failures", text)
+        self.assertIn("2 not drawn (1 reported as not drawn)", text)
+        self.assertNotIn("unaccounted", text)
+
+    def test_complete_counts_undrafted_features_and_requires_positive_claims_for_them(self):
+        review = {"coverage": {
+            "recognized_features": ["normal", "missing", "incomplete", "sized", "exempt-complete",
+                                    "inclined"],
+            "undrafted_features": ["missing", "sized", "exempt-complete"],
+            "undrafted_measurements": {"sized": ["bore.diameter"],
+                                       "exempt-complete": ["depth.length", "location.length.x"]},
+            "inclined_location_gaps": ["inclined"],
+        }}
+        findings = [{"code": "feature_not_located", "subjects": ["incomplete"]}]
+        true, complete = bench.feature_metrics({"dimensions": []}, review, findings)
+        self.assertEqual(true, bench.metric(1, 6))
+        self.assertEqual(complete, bench.metric(2, 6, undrafted=3))
+        self.assertIn("3 exempt from drafting by design", bench.display("complete", complete))
 
     def test_general_tolerance_presentation_note(self):
         payload = (b"#4=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','APPLIES TO ALL');\n"
@@ -248,6 +273,14 @@ class DimensionMatcherTest(unittest.TestCase):
         self.assertEqual(self.score([self.wanted(), self.wanted("radius")], [claimed],
                                     analysis=analysis), (1, 0))
 
+    def test_linear_and_thickness_match_in_both_directions(self):
+        for role, kind in (("thickness.length", "linear"), ("height.length", "thickness")):
+            with self.subTest(role=role, kind=kind):
+                dim = dict(self.callout(("hole-1", role, 10)), kind="linear")
+                self.assertEqual(self.score([self.wanted(kind)], [dim]), (1, 0))
+                self.assertEqual(self.score([self.wanted("diameter"), self.wanted("radius")],
+                                            [dim]), (0, 0))
+
     def test_automatic_location_uses_its_drawn_datum(self):
         location = dict(self.callout(("hole-1", "location.length.x", 10)),
                         kind="linear", basis="a location; measured from datum A (datum:#1)")
@@ -292,16 +325,60 @@ class DimensionMatcherTest(unittest.TestCase):
 
     def test_gdt_requires_a_drawn_frame_with_magnitude_and_ordered_datums(self):
         item = "pmi:geometric_tolerance.position:f1"
-        frame = {"id": item, "source": "spec:control", "state": {"kind": "shown"},
+        frame = {"id": item, "source": "geometric_tolerance:#1", "state": {"kind": "shown"},
                  "placed": {"tip": [1, 2]}, "kind": "control_frame", "faces": [1],
                  "cells": ["⌖", "⌀0.2", "A", "B"]}
-        review = {"coverage": {"pmi": {"drawn_items": {item: "spec:control"}}}}
+        review = {"coverage": {"pmi": {"drawn_items": {item: frame["source"]}}}}
         good = dict(self.wanted("gdt.position", nominal=0.2, datums=["A", "B"]), tolerance=None)
         refs = [good, dict(good, kind="gdt.flatness"), dict(good, datums=["B", "A"]),
                 dict(good, nominal=0.3), self.wanted("gdt.position", "hole-2", 0.2, ["A", "B"])]
         self.assertEqual(self.score(refs, [], gdt=[frame], review=review), (1, 1))
+        self.assertEqual(self.score([good], [], gdt=[frame]), (0, 0))
         self.assertEqual(self.score([good], [], gdt=[dict(frame, state={"kind": "not_drawable"})],
                                     review=review), (0, 0))
+        authored = dict(frame, source="spec:features/hole-1/controls/0")
+        self.assertEqual(self.score([good], [], gdt=[authored]), (1, 1))
+        self.assertEqual(self.score([good], [], gdt=[dict(authored, placed=None)]), (0, 0))
+        self.assertEqual(self.score([dict(good, feature={"id": "hole-2", "kind": "hole"})],
+                                    [], gdt=[dict(authored, faces=[1, 2])]), (0, 0))
+
+    def test_malformed_frame_or_schedule_cells_are_redacted(self):
+        plan = {"sheet": {}, "spec": {"sheet": {"title": {"tolerance": "ISO 2768-m"}}},
+                "dimensions": []}
+        review = {"coverage": {"pmi": None, "recognized_features": [], "undrafted_features": [],
+                               "undrafted_measurements": {}, "inclined_location_gaps": [],
+                               "tolerance_box_filled": True},
+                  "problems": [], "lint": [], "structural": []}
+        frame = {"id": "pmi:geometric_tolerance.position:f1", "source": "spec:control",
+                 "state": {"kind": "shown"}, "placed": {"tip": [1, 2]},
+                 "kind": "control_frame", "cells": []}
+        table = {"state": {"kind": "shown"}, "rows": [
+            {"feature": "hole-1", "cells": ["marker"], "measurements": []}]}
+        ref = {"views": None, "dimensions": [self.wanted()], "hole_table": None,
+               "general_tolerance": None}
+        case = bench.Case("P01", Path("synthetic.step"))
+        for truncated in (dict(plan, gdt=[frame]), dict(plan, hole_tables=[table])):
+            with patch.object(bench, "private_reference", return_value=ref), patch.object(
+                    bench, "run_cli", side_effect=[self.features, truncated, review]):
+                row = bench.measure(case, True, None, None, False)
+            self.assertEqual(row["error"], "Drawing command or coverage evidence unavailable.")
+            self.assertIsNone(row["metrics"]["dimensions"]["numerator"])
+            self.assertNotIn("marker", json.dumps(row))
+
+    def test_hidden_hole_table_does_not_qualify(self):
+        plan = {"sheet": {}, "spec": {"sheet": {"title": {"tolerance": "ISO 2768-m"}}},
+                "dimensions": [], "hole_tables": [
+                    {"state": {"kind": "not_drawable"}, "rows": [1], "blocks": [1]}]}
+        review = {"coverage": {"pmi": None, "recognized_features": [], "undrafted_features": [],
+                               "undrafted_measurements": {}, "inclined_location_gaps": [],
+                               "tolerance_box_filled": True},
+                  "problems": [], "lint": [], "structural": []}
+        ref = {"views": None, "dimensions": None, "hole_table": True, "general_tolerance": None}
+        case = bench.Case("P01", Path("synthetic.step"))
+        with patch.object(bench, "private_reference", return_value=ref), patch.object(
+                bench, "run_cli", side_effect=[self.features, plan, review]):
+            row = bench.measure(case, True, None, None, False)
+        self.assertEqual(row["metrics"]["hole_table"], bench.metric(0, 1))
 
 
 @unittest.skipUnless(BINARY.is_file() and CORPUS and (CORPUS / "nist").is_dir(),
@@ -335,8 +412,15 @@ class SyntheticManifestTest(unittest.TestCase):
             self.assertIn("instructions_retired", report)
             rows = {r["id"]: r for r in report["sets"]["Private"]["parts"]}
             self.assertEqual(set(rows), {"P01", "P02"})
-            self.assertEqual(rows["P01"]["metrics"]["dimensions"], bench.metric(1, 2))
-            self.assertEqual(rows["P01"]["metrics"]["dimension_tolerance"], bench.metric(1, 2))
+            breakdown = {"datum_referenced": bench.metric(0, 1),
+                         "toleranced_only": bench.metric(1, 1)}
+            self.assertEqual(rows["P01"]["metrics"]["dimensions"],
+                             bench.metric(1, 2, by_reference=breakdown))
+            self.assertEqual(rows["P01"]["metrics"]["dimension_tolerance"],
+                             bench.metric(1, 2, by_reference=breakdown))
+            aggregate = report["sets"]["Private"]["metrics"]["dimensions"]
+            self.assertEqual(aggregate["by_reference"], breakdown)
+            self.assertIn("datum-referenced 0/1, toleranced-only 1/1", run.stdout)
             self.assertEqual(rows["P01"]["metrics"]["tolerance"], bench.metric(1, 1))
             self.assertEqual(rows["P02"]["metrics"]["hole_table"], bench.metric(1, 1))
             self.assertEqual(rows["P02"]["metrics"]["views"]["numerator"], 0)
@@ -356,8 +440,31 @@ class SyntheticManifestTest(unittest.TestCase):
             automatic = self.run_benchmark(manifest, output, "P01")
             self.assertEqual(automatic.returncode, 0, automatic.stdout + automatic.stderr)
             measures = bench.read_json(output)["sets"]["Private"]["parts"][0]["metrics"]
-            self.assertEqual(measures["dimensions"], bench.metric(1, 2))
-            self.assertEqual(measures["dimension_tolerance"], bench.metric(0, 2))
+            self.assertEqual(measures["dimensions"], bench.metric(1, 2, by_reference=breakdown))
+            self.assertEqual(measures["dimension_tolerance"], bench.metric(
+                0, 2, by_reference={**breakdown, "toleranced_only": bench.metric(0, 1)}))
+
+    def test_synthetic_spec_authors_a_matched_control_frame(self):
+        step = CORPUS / "nist" / "nist_ctc_01_asme1_rd.stp"
+        run = subprocess.run([BINARY, "analyse", step], capture_output=True, check=True, timeout=120)
+        hole = next(f["id"] for f in json.loads(run.stdout)["features"] if f["kind"] == "hole")
+        reference = {"views": None, "general_tolerance": None, "hole_table": None,
+                     "dimensions": [{"feature": {"kind": "hole", "id": hole}, "kind": "gdt.circularity",
+                                     "nominal": .2, "unit": "mm", "tolerance": None, "datums": []}]}
+        spec = {"features": {hole: {"controls": [{"characteristic": "circularity", "tolerance": .2}]}}}
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            for name, data in (("reference", reference), ("spec", spec)):
+                (directory / f"{name}.json").write_text(json.dumps(data))
+            manifest = directory / "manifest.json"
+            manifest.write_text(json.dumps([{"id": "P01", "step": str(step.resolve()),
+                                             "spec": "spec.json", "reference": "reference.json"}]))
+            output = directory / "result.json"
+            run = self.run_benchmark(manifest, output, "P01")
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            rows = bench.read_json(output)["sets"]["Private"]["parts"]
+            self.assertEqual(rows[0]["metrics"]["dimensions"]["numerator"], 1)
+            self.assertEqual(rows[0]["metrics"]["dimension_tolerance"]["numerator"], 1)
 
     def test_invalid_private_reference_is_redacted(self):
         marker = "synthetic-error-marker"

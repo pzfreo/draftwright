@@ -49,6 +49,10 @@ Each reference is an object with these fields (null means unavailable):
   are matched by multiplicity. One drawn statement can satisfy at most one entry.
   Presence matches kind, feature, nominal and ordered datums. The second score
   uses the same denominator and also requires any stated tolerance band or fit.
+  Linear and thickness dimensions share a kind for matching. Datum references
+  need STEP PMI or an authored Spec datum used by the drawing. Geometry-only
+  inputs with no Spec can score toleranced-only reference dimensions, but
+  cannot satisfy an engineer's datum-referenced dimension.
   Mark an unresolved dimension or view with "uncertain": true. Remaining fields
   on that entry are optional. The benchmark reports these entries separately
   and excludes them from the matching denominator.
@@ -81,12 +85,12 @@ from zipfile import BadZipFile, ZipFile
 
 TOOLS = Path(__file__).resolve().parent
 METRICS = {
-    "pmi": ("Requirements in the file drawn (NIST)", "All drawn or listed as not shown; 95% drawn"),
-    "true": ("Features not shown true (both sets)", "0"),
+    "pmi": ("STEP PMI requirements drawn and verified (NIST)", "95% verified; review reports every absence"),
+    "true": ("Inclined holes/bosses with no true view", "0"),
     "views": ("Engineer's views matched (sections, aux, detail)", "90%"),
-    "complete": ("Features complete (sized and located)", "95%"),
+    "complete": ("Recognized features complete by draftwright's own findings", "95% sized and located"),
     "dimensions": ("Engineer's toleranced / datum dimensions present, with the same references", "85%"),
-    "dimension_tolerance": ("Present with the engineer's tolerance or fit", "Reported alongside presence"),
+    "dimension_tolerance": ("Present and agree with any specified tolerance or fit", "Reported alongside presence"),
     "redundancy": ("Redundancy", "No worse than today"),
     "tolerance": ("Tolerance box filled when the file or settings give one", "100%"),
     "hole_table": ("Hole table where the engineer used one", "All"),
@@ -108,14 +112,20 @@ FEATURE_GAPS = {
     "profile_corner_unlocated", "profiled_bore_not_dimensioned",
     "section_recess_recognition_refused", "step_level_support_missing",
 }
-PMI_GAPS = {
+PMI_ABSENCE = {
     "pmi_not_drawn", "pmi_not_extracted", "pmi_not_lowered", "pmi_not_rendered",
-    "pmi_datum_suppressed", "pmi_note_unattached",
+    "pmi_datum_suppressed", "pmi_dimensions_not_ported", "pmi_graphical_not_drawn",
+    "pmi_ignored", "pmi_not_read", "step_general_tolerance_disagreement",
+    "step_material_disagreement", "step_material_ambiguous", "step_material_unavailable",
+}
+PMI_FIDELITY = {
+    "pmi_not_extracted", "pmi_note_unattached", "frame_datum_not_drawn",
     "pmi_value_mismatch", "pmi_source_text_mismatch", "pmi_source_site_mismatch",
     "manufacturing_reference_unresolved", "step_general_tolerance_disagreement",
     "step_general_tolerance_mismatch", "step_material_disagreement", "step_material_mismatch",
-    "step_material_ambiguous", "step_material_unavailable",
 }
+DIMENSION_REFERENCE_KINDS = {"datum_referenced": "Datum-referenced",
+                             "toleranced_only": "Toleranced-only"}
 XML = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 
@@ -280,7 +290,7 @@ def private_reference(path):
     return ref
 
 
-def match_count(wanted, actual, matches):
+def matched_references(wanted, actual, matches):
     """Maximum one-to-one match; a broad reference may yield to a more specific one."""
     candidates = [[i for i, got in enumerate(actual) if matches(want, got)] for want in wanted]
     used = {}
@@ -295,7 +305,13 @@ def match_count(wanted, actual, matches):
                 return True
         return False
 
-    return sum(place(i, set()) for i in range(len(wanted)))
+    for i in range(len(wanted)):
+        place(i, set())
+    return set(used.values())
+
+
+def match_count(wanted, actual, matches):
+    return len(matched_references(wanted, actual, matches))
 
 
 def same_direction(a, b):
@@ -372,12 +388,18 @@ def drawing_findings(review):
     return [item for key in ("problems", "lint", "structural") for item in review[key]]
 
 
-def failed_pmi(findings):
-    return {source for item in findings if item["code"] in PMI_GAPS
-            for key in ("sources", "refs") for source in item.get(key, ())}
+def pmi_finding_sources(findings, codes, drawn_items):
+    sources = set()
+    for finding in findings:
+        if finding["code"] in codes:
+            sources.update(finding.get("sources", ()))
+            sources.update(finding.get("refs", ()))
+            sources.update(drawn_items[item] for item in finding.get("subjects", ())
+                           if item in drawn_items)
+    return sources
 
 
-def pmi_metric(review, analysis, bad):
+def pmi_metric(review, analysis, findings):
     evidence = review["coverage"]["pmi"]
     if not evidence or not evidence["requirements"]:
         if analysis.get("pmi", {}).get("refused"):
@@ -385,14 +407,17 @@ def pmi_metric(review, analysis, bad):
         return na("Submitted STEP has no inventoried semantic PMI requirements.")
     required = set(evidence["requirements"])
     carried = set(evidence["drawn_sources"]) & required
-    drawn = carried - bad
-    listed = (required - drawn) & bad
+    drawn_items = evidence.get("drawn_items", {})
+    wrong = carried & pmi_finding_sources(findings, PMI_FIDELITY, drawn_items)
+    verified = carried - wrong
+    absent = required - carried
+    reported = absent & pmi_finding_sources(findings, PMI_ABSENCE, drawn_items)
+    assert len(verified) + len(wrong) + len(absent) == len(required)
     records = analysis.get("pmi", {}).get("read", {}).get("records", ())
     read = required & {r["source_id"] for r in records}
-    return metric(len(drawn), len(required), read=len(read),
-                  read_without_ink=len(read - carried),
-                  read_not_drawn=len(read - drawn), listed_not_shown=len(listed),
-                  unaccounted=len(required - drawn - listed))
+    return metric(len(verified), len(required), read=len(read),
+                  read_without_ink=len(read & absent), drawn_fidelity_failed=len(wrong),
+                  not_drawn=len(absent), reported_not_drawn=len(reported))
 
 
 def is_feature_gap(code):
@@ -402,10 +427,24 @@ def is_feature_gap(code):
     )
 
 
+def has_size_and_location(roles):
+    def is_location(role):
+        return role.startswith(("location", "seat_location.", "profile_location_",
+                                "step_position.length", "step_height.length."))
+
+    size_kinds = {"length", "width", "height", "depth", "diameter", "radius", "size", "thickness"}
+    return any(is_location(role) for role in roles) and any(
+        not is_location(role) and (set(role.split(".")) & size_kinds) for role in roles)
+
+
 def feature_metrics(plan, review, findings):
-    inventory = set(review["coverage"]["dimensionable_features"])
-    aliases = review["coverage"]["inclined_location_gaps"]
-    missing = set(aliases)
+    coverage = review["coverage"]
+    inventory = set(coverage["recognized_features"])
+    undrafted = set(coverage["undrafted_features"])
+    no_true_view = set(coverage["inclined_location_gaps"])
+    evidence = coverage["undrafted_measurements"]
+    missing = no_true_view | {feature for feature in undrafted
+                              if not has_size_and_location(evidence.get(feature, ()))}
     dimensions = {item["id"]: {m["feature"] for m in item["measurements"]}
                   for item in plan["dimensions"]}
     for item in findings:
@@ -415,10 +454,10 @@ def feature_metrics(plan, review, findings):
             for item_id in [*item["subjects"], item.get("annotation")]:
                 missing.update(dimensions.get(item_id, ()))
     if not inventory:
-        reason = "No recognized dimension-bearing features."
+        reason = "No recognized features."
         return na(reason), na(reason)
-    return metric(len(set(aliases) & inventory), len(inventory)), metric(
-        len(inventory - missing), len(inventory)
+    return metric(len(no_true_view & inventory), len(inventory)), metric(
+        len(inventory - missing), len(inventory), undrafted=len(undrafted)
     )
 
 
@@ -494,6 +533,10 @@ def measurement_kind(parameter):
     if kind in {"diameter", "radius"}:
         return kind
     return "thickness" if role == "thickness" else "linear"
+
+
+def same_dimension_kind(a, b):
+    return a == b or {a, b} == {"linear", "thickness"}
 
 
 def owning_features(features, faces):
@@ -575,7 +618,7 @@ def scheduled_dimensions(plan, scale, drawn_items, records):
             for (kind, nominal, role), owners in measurement_groups(measurements, "callout").items():
                 options = [DrawnDimension(kind, nominal, owners, datum_letters(record),
                                           numeric_band(record, nominal), record.get("fit"))
-                           for m, record in pmi if record["kind"] == kind
+                           for m, record in pmi if same_dimension_kind(record["kind"], kind)
                            and math.isclose(m["value"], nominal, rel_tol=0, abs_tol=1e-6)]
                 if role == "bore.diameter" and not options:
                     for dim in size_edits.get(row["feature"], ()):
@@ -615,7 +658,7 @@ def drawn_dimensions(analysis, plan, review, bad, features):
         for m, record in pmi_claims(measurements, drawn_items, records):
             kind, nominal = record["kind"], m["value"]
             owners = owning_features(features, record["faces"])
-            matching = [key for key in groups if key[0] == kind
+            matching = [key for key in groups if same_dimension_kind(key[0], kind)
                         and math.isclose(key[1], nominal, rel_tol=0, abs_tol=1e-6)]
             if len(matching) > 1:
                 matching = [key for key in matching if groups[key] & owners]
@@ -643,15 +686,22 @@ def drawn_dimensions(analysis, plan, review, bad, features):
             )]
 
     for frame in frames:
-        if (not shown(frame) or not frame.get("placed") or frame["kind"] != "control_frame"
-                or drawn_items.get(frame["id"]) != frame["source"]):
+        if not shown(frame) or not frame.get("placed") or frame["kind"] != "control_frame":
+            continue
+        source = frame["source"]
+        # A placed Spec control is drawing evidence even without a file PMI source.
+        if source in bad or (not source.startswith("spec:") and
+                             drawn_items.get(frame["id"]) != source):
             continue
         characteristic = frame["id"].split(":")[1].removeprefix("geometric_tolerance.")
         magnitude = re.search(NUMBER, frame["cells"][1])
         if magnitude:
+            feature_source = source.removeprefix("spec:features/") if source.startswith("spec:features/") else ""
+            feature_id = feature_source.rpartition("/controls/")[0]
+            owners = {feature_id} if feature_id in features else owning_features(features, frame["faces"])
             yield [DrawnDimension(
                 "gdt." + characteristic, float(magnitude[0]) * scale,
-                owning_features(features, frame["faces"]),
+                owners,
                 tuple(cell.strip().rstrip("ⓂⓁⓈ").rstrip() for cell in frame["cells"][2:]),
             )]
 
@@ -673,7 +723,8 @@ def dimension_counts(reference, analysis, plan, review, bad):
 
     def matches(want, got, check_tolerance):
         target = want["feature"]
-        if (want["kind"] != got.kind or (want["unit"] == "deg") != (got.kind == "angular")
+        if (not same_dimension_kind(want["kind"], got.kind)
+                or (want["unit"] == "deg") != (got.kind == "angular")
                 or tuple(want["datums"]) != got.datums):
             return False
         if not any(target["kind"] == feature_kind(features, fid) and (
@@ -692,10 +743,17 @@ def dimension_counts(reference, analysis, plan, review, bad):
             return False
         return "fit" not in want or want["fit"] == got.fit
 
+    datum_refs = {i for i, dim in enumerate(certain) if dim["datums"]}
+    by_reference = {"datum_referenced": datum_refs,
+                    "toleranced_only": set(range(len(certain))) - datum_refs}
+
     def score(check_tolerance):
-        n = match_count(certain, actual, lambda want, options: any(
+        matched = matched_references(certain, actual, lambda want, options: any(
             matches(want, got, check_tolerance) for got in options))
-        return metric(n, len(certain), **({"uncertain": uncertain} if uncertain else {}))
+        breakdown = {kind: metric(len(matched & refs), len(refs))
+                     for kind, refs in by_reference.items()}
+        return metric(len(matched), len(certain), by_reference=breakdown,
+                      **({"uncertain": uncertain} if uncertain else {}))
 
     return score(False), score(True)
 
@@ -755,17 +813,18 @@ def measure(case, private, binary, cache, count_instructions):
     if private:
         try:
             reference = private_reference(case.reference)
-        except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, OverflowError):
             error = "Reference unavailable or invalid."
     try:
         analysis = run_cli(binary, "analyse", case, cache, counter)
         plan = run_cli(binary, "plan", case, cache, counter)
         review = run_cli(binary, "review", case, cache, counter)
         findings = drawing_findings(review)
-        bad = failed_pmi(findings)
+        pmi = review["coverage"]["pmi"]
+        bad = pmi_finding_sources(findings, PMI_FIDELITY, (pmi or {}).get("drawn_items", {}))
         shown_true, complete = feature_metrics(plan, review, findings)
         checks = {
-            "pmi": na("NIST-only metric.") if private else pmi_metric(review, analysis, bad),
+            "pmi": na("NIST-only metric.") if private else pmi_metric(review, analysis, findings),
             "true": shown_true,
             "complete": complete,
             "redundancy": metric(sum(item["code"] in REDUNDANCY for item in findings), 1),
@@ -787,10 +846,10 @@ def measure(case, private, binary, cache, count_instructions):
                     reference["dimensions"], analysis, plan, review, bad)
             if reference["hole_table"] is not None:
                 tables = plan.get("hole_tables") or [plan.get("hole_table")]
-                has_table = any(t and t["rows"] and t["blocks"] for t in tables)
+                has_table = any(t and shown(t) and t["rows"] and t["blocks"] for t in tables)
                 checks["hole_table"] = metric(int(has_table), 1) if reference["hole_table"] else na(
                     "Engineer did not use a hole table.")
-    except (subprocess.SubprocessError, OSError, ValueError, TypeError, KeyError, AttributeError,
+    except (subprocess.SubprocessError, OSError, ValueError, TypeError, KeyError, IndexError, AttributeError,
             OverflowError):
         error = "Drawing command or coverage evidence unavailable."
         checks = {key: na(error) for key in METRICS}
@@ -887,9 +946,17 @@ def aggregate(rows, key, skipped=None):
         reason = "; ".join(sorted({cell["reason"] for cell in cells}))
         return metric(reason=skipped or reason or "No selected cases.", **extra)
     if key == "pmi":
-        extra = {count: sum(cell[count] for cell in known)
-                 for count in ("read", "read_without_ink", "read_not_drawn",
-                               "listed_not_shown", "unaccounted")}
+        extra.update({count: sum(cell[count] for cell in known)
+                      for count in ("read", "read_without_ink", "drawn_fidelity_failed",
+                                    "not_drawn", "reported_not_drawn")})
+    if key == "complete":
+        extra["undrafted"] = sum(cell["undrafted"] for cell in known)
+    if key in {"dimensions", "dimension_tolerance"}:
+        extra["by_reference"] = {
+            kind: metric(sum(c["by_reference"][kind]["numerator"] for c in known),
+                         sum(c["by_reference"][kind]["denominator"] for c in known))
+            for kind in DIMENSION_REFERENCE_KINDS
+        }
     if key == "views":
         extra["by_kind"] = {
             kind: metric(sum(c["by_kind"][kind]["numerator"] for c in cells if "by_kind" in c),
@@ -911,13 +978,26 @@ def display(key, cell, compact=False):
     if key in {"pmi", "views", "complete", "dimensions", "dimension_tolerance", "tolerance", "hole_table"}:
         counts += f" ({100*n/d:.1f}%)"
     if key == "pmi":
-        counts += (f"; {cell['read']} read; {cell['listed_not_shown']} listed as not shown; "
-                   f"{cell['unaccounted']} unaccounted")
+        counts += (f", {cell['drawn_fidelity_failed']} drawn with fidelity failures, "
+                   f"{cell['not_drawn']} not drawn ({cell['reported_not_drawn']} reported as not drawn)")
+    if key == "complete":
+        counts += f", {cell['undrafted']} exempt from drafting by design"
+    if key in {"dimensions", "dimension_tolerance"}:
+        counts += f" ({dimension_breakdown(cell)})"
     if key in {"true", "redundancy"}:
-        counts += " findings/parts" if key == "redundancy" else " affected/features"
+        counts += " findings/parts" if key == "redundancy" else " affected/all recognized features"
     if cell.get("unavailable_parts") and key in {"pmi", "true", "complete", "redundancy"}:
         counts += f"; {cell['unavailable_parts']} cases unavailable"
     return counts + uncertainty
+
+
+def dimension_breakdown(cell):
+    counts = []
+    for kind, label in DIMENSION_REFERENCE_KINDS.items():
+        part = cell["by_reference"][kind]
+        count = f"{part['numerator']}/{part['denominator']}" if part["denominator"] else "n/a"
+        counts.append(f"{label.lower()} {count}")
+    return ", ".join(counts)
 
 
 def show_cost(count):
@@ -952,9 +1032,11 @@ def print_report(report):
             pmi = row["metrics"]["pmi"]
             if pmi["denominator"] is not None:
                 print(f"  {row['id']} PMI: {pmi['read']} read, {pmi['read_without_ink']} without ink, "
-                      f"{pmi['read_not_drawn']} without verified coverage, "
-                      f"{pmi['listed_not_shown']} listed as not shown, "
-                      f"{pmi['unaccounted']} unaccounted")
+                      f"{pmi['drawn_fidelity_failed']} drawn with fidelity failures, "
+                      f"{pmi['not_drawn']} not drawn ({pmi['reported_not_drawn']} reported as not drawn)")
+            complete = row["metrics"]["complete"]
+            if complete["denominator"] is not None:
+                print(f"  {row['id']} exempt from drafting by design: {complete['undrafted']}")
             if row.get("reference"):
                 print(f"  {row['id']} public reference counts: " + ", ".join(
                     f"{key}={value}" for key, value in row["reference"].items()))
@@ -966,6 +1048,11 @@ def print_report(report):
             uncertain = row["metrics"]["dimensions"].get("uncertain")
             if uncertain:
                 print(f"  {row['id']} dimensions uncertain: {uncertain}")
+            for key, label in (("dimensions", "Dimensions present"),
+                               ("dimension_tolerance", "Dimensions with specified tolerance or fit")):
+                cell = row["metrics"][key]
+                if "by_reference" in cell:
+                    print(f"  {row['id']} {label}: {dimension_breakdown(cell)}")
             if row.get("engineer_general_tolerance"):
                 cell = row["engineer_general_tolerance"]
                 print(f"  {row['id']} general tolerance in reference: {cell['numerator']}/{cell['denominator']}")
