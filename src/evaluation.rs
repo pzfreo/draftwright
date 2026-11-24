@@ -1,7 +1,7 @@
 //! Observed drawing-consumer coverage (Python #1202): size evidence comes from the actual
 //! rendered sheets. Recognition supplies the denominator; an unsuccessful build is unknown,
 //! never supported by a capability declaration or treated as a successful empty drawing.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -30,6 +30,8 @@ struct PmiCoverage {
     requirements: BTreeSet<String>,
     /// Source identities carried by rendered marks. Review lint judges their fidelity.
     drawn_sources: BTreeSet<String>,
+    /// Rendered semantic item IDs (as used by measurement claims) and their source IDs.
+    drawn_items: BTreeMap<String, String>,
 }
 
 pub(crate) fn review_coverage(
@@ -95,13 +97,20 @@ pub(crate) fn review_coverage(
                 .collect();
             let marks: Vec<_> = drawings.iter().flat_map(lint::marks).collect();
             let identities = report.identities();
-            let drawn_sources = lint::pmi_coverage::drawn(&marks, &identities)
+            let drawn_sources: BTreeSet<_> = lint::pmi_coverage::drawn(&marks, &identities)
                 .into_iter()
                 .map(str::to_owned)
+                .collect();
+            let drawn_items = identities
+                .ids
+                .into_iter()
+                .filter(|(source, _)| drawn_sources.contains(source))
+                .map(|(source, item)| (item, source))
                 .collect();
             Some(PmiCoverage {
                 requirements,
                 drawn_sources,
+                drawn_items,
             })
         }
         _ => None,
