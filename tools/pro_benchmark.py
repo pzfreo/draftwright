@@ -532,6 +532,46 @@ def measurement_groups(measurements, carrier_kind, references=None, features=Non
     return groups
 
 
+def pmi_claims(measurements, drawn_items, records):
+    for m in measurements:
+        record = records.get(drawn_items.get(m["feature"]))
+        if record is not None and record["category"] == "dimension":
+            yield m, record
+
+
+def scheduled_dimensions(plan, scale, drawn_items, records):
+    tables = plan.get("hole_tables") or [plan.get("hole_table")]
+    if not any(table and shown(table) for table in tables):
+        return
+    size_edits = {}
+    for dim in plan["dimensions"]:
+        if not set(dim.get("from_spec", ())) & {"fit", "tolerance"}:
+            continue
+        for m in dim["measurements"]:
+            if m["parameter"] == "bore.diameter" and m["value"] == dim["value"]:
+                size_edits.setdefault(m["feature"], []).append(dim)
+    for table in tables:
+        if not table or not shown(table):
+            continue
+        for row in table["rows"]:
+            measurements = row["measurements"]
+            pmi = list(pmi_claims(measurements, drawn_items, records))
+            size = row["cells"][1]
+            for (kind, nominal, role), owners in measurement_groups(measurements, "callout").items():
+                options = [DrawnDimension(kind, nominal, owners, datum_letters(record),
+                                          numeric_band(record, nominal), record.get("fit"))
+                           for m, record in pmi if record["kind"] == kind
+                           and math.isclose(m["value"], nominal, rel_tol=0, abs_tol=1e-6)]
+                if role == "bore.diameter" and not options:
+                    for dim in size_edits.get(row["feature"], ()):
+                        terms = [term for term in dim["terms"]
+                                 if re.search(rf"(?<!\S){re.escape(term)}(?!\S)", size)]
+                        band, fit = printed_spec_tolerance({**dim, "terms": terms}, scale)
+                        if band is not None or fit is not None:
+                            options.append(DrawnDimension(kind, nominal, owners, band=band, fit=fit))
+                yield options or [DrawnDimension(kind, nominal, owners)]
+
+
 def drawn_dimensions(analysis, plan, review, bad, features):
     """Yield statements with alternatives for their recognised and source-authored identities."""
     pmi = review["coverage"]["pmi"] or {}
@@ -557,10 +597,7 @@ def drawn_dimensions(analysis, plan, review, bad, features):
         origin = re.search(r"; measured from datum ([A-Z]+[0-9]*) \(([^)]+)\)", dim.get("basis", ""))
         origin_datums = (origin[1],) if origin and drawn_datums.get(origin[2]) == origin[1] else ()
 
-        for m in measurements:
-            record = records.get(drawn_items.get(m["feature"]))
-            if record is None or record["category"] != "dimension":
-                continue
+        for m, record in pmi_claims(measurements, drawn_items, records):
             kind, nominal = record["kind"], m["value"]
             owners = owning_features(features, record["faces"])
             matching = [key for key in groups if key[0] == kind
@@ -603,11 +640,7 @@ def drawn_dimensions(analysis, plan, review, bad, features):
                 tuple(cell.strip().rstrip("ⓂⓁⓈ").rstrip() for cell in frame["cells"][2:]),
             )]
 
-    for table in plan.get("hole_tables") or [plan.get("hole_table")]:
-        if table and shown(table):
-            for row in table["rows"]:
-                for (kind, nominal, _), owners in measurement_groups(row["measurements"], "callout").items():
-                    yield [DrawnDimension(kind, nominal, owners)]
+    yield from scheduled_dimensions(plan, scale, drawn_items, records)
     if table := plan.get("radius_table"):
         for row in table["rows"]:
             yield [DrawnDimension("radius", row["radius"], {row["feature"]})]

@@ -174,8 +174,8 @@ class DimensionMatcherTest(unittest.TestCase):
                     {"feature": feature, "parameter": role, "value": value}
                     for feature, role, value in measurements]}
 
-    def score(self, wanted, dimensions, *, gdt=(), analysis=None, review=None):
-        plan = {"sheet": {}, "dimensions": dimensions, "gdt": gdt}
+    def score(self, wanted, dimensions, *, gdt=(), hole_tables=(), analysis=None, review=None):
+        plan = {"sheet": {}, "dimensions": dimensions, "gdt": gdt, "hole_tables": hole_tables}
         present, toleranced = bench.dimension_counts(
             wanted, analysis or self.features, plan, review or self.review, set())
         return present["numerator"], toleranced["numerator"]
@@ -215,6 +215,17 @@ class DimensionMatcherTest(unittest.TestCase):
         wanted = dict(self.wanted(), tolerance=None, fit="H7")
         self.assertEqual(self.score([wanted], [fit]), (1, 1))
         self.assertEqual(self.score([dict(wanted, fit="h7")], [fit]), (1, 0))
+
+    def test_hole_schedule_carries_a_band_only_when_its_cell_prints_it(self):
+        covered = self.callout(("hole-1", "bore.diameter", 10), state="covered",
+                               terms=["⌀10", "±0.1"], from_spec=["tolerance"])
+        row = {"feature": "hole-1", "cells": ["A", "ø10 ±0.1"],
+               "measurements": covered["measurements"]}
+        table = {"state": {"kind": "shown"}, "rows": [row]}
+        self.assertEqual(self.score([self.wanted(), self.wanted()], [covered],
+                                    hole_tables=[table]), (1, 1))
+        row["cells"][1] = "ø10"
+        self.assertEqual(self.score([self.wanted()], [covered], hole_tables=[table]), (1, 0))
 
     def test_pmi_claim_adds_attributes_to_the_same_printed_statement(self):
         d = self.callout(("hole-1", "bore.diameter", 10), ("pmi:key", "diameter", 10))
