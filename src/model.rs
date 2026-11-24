@@ -13282,7 +13282,7 @@ fn render_annotations_with_cuts(
         let mut manufacturing_header = Vec::new();
         let mut data_runs = Vec::new();
         let mut tag = None;
-        for (draw_row, (r, row, positions)) in
+        for (draw_row, (block, r, row, positions)) in
             crate::tables::cell_rows(table).into_iter().enumerate()
         {
             if table.id == crate::pmi_lowering::SCHEDULE_ID && r > 0 && !row[0].is_empty() {
@@ -13300,7 +13300,7 @@ fn render_annotations_with_cuts(
                     laid,
                     *at,
                     dims,
-                    Some((run, TextSource::cell(&table.id, r, column))),
+                    Some((run, TextSource::cell(&table.id, block, r, column))),
                 );
                 if table.id.starts_with("gear_data_") || table.id.starts_with("spring_data_") {
                     data_runs.extend(index);
@@ -13391,7 +13391,7 @@ fn render_annotations_with_cuts(
         for [a, b] in crate::tables::rules(p) {
             dims.push(Item::Edge(Curve::Line(a, b)));
         }
-        for (i, row, at) in crate::tables::cell_rows(&t.table) {
+        for (block, i, row, at) in crate::tables::cell_rows(&t.table) {
             let mut runs = Vec::new();
             for (column, (cell, at)) in row.iter().zip(at).enumerate() {
                 let Some(at) = at else { continue };
@@ -13406,7 +13406,7 @@ fn render_annotations_with_cuts(
                     dims,
                     Some((
                         (cell, crate::dims::FONT, crate::tables::TEXT),
-                        TextSource::cell(&t.table.id, i, column),
+                        TextSource::cell(&t.table.id, block, i, column),
                     )),
                 ));
             }
@@ -13476,23 +13476,16 @@ fn render_annotations_with_cuts(
                 for (c, (cell, at)) in row.iter().zip(at).enumerate() {
                     let Some(at) = at else { continue };
                     let run = (cell.trim(), crate::dims::FONT, crate::tables::TEXT);
-                    let size_cell = t.view.is_some() && r >= headers && c == 1;
-                    let mut ink = if size_cell {
+                    let ink = if t.view.is_some() && r >= headers && c == 1 {
                         // Reuse the established callout symbols in scheduled size cells;
                         // a font's missing-glyph box must not stand for recess or depth.
                         crate::hole_table::size_ink(cell, font)
                     } else {
                         crate::tables::text_ink(cell, font)
                     };
-                    if r >= headers
-                        && (size_cell || (t.view.is_none() && c == 2))
-                        && cell.contains(crate::wording::DEPTH_UNDEFINED)
-                    {
-                        ink.fit_width(p.columns[c + 1] - p.columns[c] - 2. * crate::tables::PAD);
-                    }
                     let laid = crate::output::centred_label_ink(ink, *at, dims);
                     let row = if r < headers { r } else { k * per + r };
-                    let source = TextSource::cell(&t.id, row, c).in_view(t.view.as_deref());
+                    let source = TextSource::cell(&t.id, k, row, c).in_view(t.view.as_deref());
                     let index = label(laid, *at, dims, Some((run, source)));
                     if r >= headers
                         && c > 0

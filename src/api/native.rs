@@ -350,7 +350,10 @@ fn encode_drawings(drawings: &[Drawing], formats: &[&str], dpi: f64) -> Result<F
                 }),
             ));
         } else if format == "text-json" {
-            files.push(("text.json".into(), crate::text_output::encode(drawings)));
+            files.push((
+                "text.json".into(),
+                crate::text_output::encode(drawings).map_err(Error::failed)?,
+            ));
         } else {
             for (i, drawing) in drawings.iter().enumerate() {
                 let suffix = if i == 0 {

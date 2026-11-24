@@ -37,6 +37,7 @@ pub(crate) enum Kind {
     Balloon,
     TableCell {
         table_id: String,
+        block: usize,
         row: usize,
         column: usize,
     },
@@ -76,11 +77,12 @@ impl Source {
         .in_view(Some(&d.view))
     }
 
-    pub(crate) fn cell(id: &str, row: usize, column: usize) -> Self {
+    pub(crate) fn cell(id: &str, block: usize, row: usize, column: usize) -> Self {
         Self::new(
             id,
             Kind::TableCell {
                 table_id: id.into(),
+                block,
                 row,
                 column,
             },
@@ -143,7 +145,24 @@ fn outline_bounds(curve: &Curve, mut include: impl FnMut(Bounds)) {
     }
 }
 
-fn entries(drawing: &Drawing) -> impl Iterator<Item = Entry<'_>> {
+fn entries(drawing: &Drawing) -> Result<impl Iterator<Item = Entry<'_>>, String> {
+    let index = &drawing.sheet.text_index;
+    let sheet = drawing.sheet.dxf.sheet_number;
+    for (kind, runs, sources) in [
+        ("searchable", drawing.text.len(), index.runs.len()),
+        (
+            "outline-only",
+            drawing.sheet.dxf.labels.len(),
+            index.outline_labels.len(),
+        ),
+    ] {
+        if runs != sources {
+            return Err(format!(
+                "Cannot export text from sheet {sheet}. It has {runs} {kind} runs and {sources} sources."
+            ));
+        }
+    }
+
     let mut bounds = vec![None::<Bounds>; drawing.text.len()];
     for layer in &drawing.layers {
         for item in &layer.items {
@@ -178,9 +197,6 @@ fn entries(drawing: &Drawing) -> impl Iterator<Item = Entry<'_>> {
             }
         }
     }
-    let index = &drawing.sheet.text_index;
-    debug_assert_eq!(index.runs.len(), drawing.text.len());
-    debug_assert_eq!(index.outline_labels.len(), drawing.sheet.dxf.labels.len());
     let searchable = drawing
         .text
         .iter()
@@ -195,7 +211,7 @@ fn entries(drawing: &Drawing) -> impl Iterator<Item = Entry<'_>> {
         .iter()
         .zip(&index.outline_labels)
         .map(|(run, (source, bounds))| (run, source, Some(*bounds), None));
-    searchable
+    Ok(searchable
         .chain(outlined)
         .map(move |(run, source, bounds, svg_text_index)| {
             let [x0, y0, x1, y1] = bounds.unwrap_or([run.at[0], run.at[1], run.at[0], run.at[1]]);
@@ -211,16 +227,20 @@ fn entries(drawing: &Drawing) -> impl Iterator<Item = Entry<'_>> {
             Entry {
                 source,
                 text: &run.text,
-                sheet: drawing.sheet.dxf.sheet_number,
+                sheet,
                 bbox_mm,
                 bbox_pt: bbox_mm.map(|mm| mm * 72. / 25.4),
                 rotation: -run.rotation,
                 svg_text_index,
             }
-        })
+        }))
 }
 
-pub(crate) fn encode(drawings: &[Drawing]) -> Vec<u8> {
+pub(crate) fn encode(drawings: &[Drawing]) -> Result<Vec<u8>, String> {
+    let mut text = Vec::new();
+    for drawing in drawings {
+        text.extend(entries(drawing)?);
+    }
     let document = Document {
         schema: "draftwright.text/1",
         origin: "top-left",
@@ -232,7 +252,70 @@ pub(crate) fn encode(drawings: &[Drawing]) -> Vec<u8> {
                 size_mm: d.page,
             })
             .collect(),
-        entries: drawings.iter().flat_map(entries).collect(),
+        entries: text,
     };
-    serde_json::to_vec(&document).expect("rendered text serializes to JSON")
+    serde_json::to_vec(&document).map_err(|err| format!("Cannot encode rendered text. {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::{HAlign, TextRun, VAlign};
+
+    #[test]
+    fn text_export_refuses_mismatched_runs_and_sources() {
+        let run = TextRun {
+            text: "SCALE 1:1".into(),
+            at: [20., 20.],
+            size: 3.,
+            rotation: 0.,
+            font: crate::dims::FONT.into(),
+            h_align: HAlign::Center,
+            v_align: VAlign::Middle,
+        };
+        let mut drawing = Drawing {
+            page: [297., 210.],
+            layers: Vec::new(),
+            link: None,
+            text: vec![run.clone()],
+            annotations: Vec::new(),
+            sheet: Default::default(),
+            problems: Vec::new(),
+            spec: None,
+        };
+        drawing.sheet.dxf.sheet_number = 2;
+        let export = |d: &Drawing| encode(std::slice::from_ref(d));
+        assert!(
+            export(&drawing)
+                .unwrap_err()
+                .contains("sheet 2. It has 1 searchable runs and 0 sources")
+        );
+
+        drawing
+            .sheet
+            .text_index
+            .runs
+            .push(Source::new("scale_note", Kind::Scale));
+        drawing.sheet.dxf.labels.push(run);
+        assert!(
+            export(&drawing)
+                .unwrap_err()
+                .contains("sheet 2. It has 1 outline-only runs and 0 sources")
+        );
+
+        drawing
+            .sheet
+            .text_index
+            .outline_labels
+            .push((Source::title("title", true), [18., 19., 22., 21.]));
+        let data: serde_json::Value = serde_json::from_slice(&export(&drawing).unwrap()).unwrap();
+        assert_eq!(data["entries"].as_array().unwrap().len(), 2);
+
+        drawing.text.clear();
+        assert!(
+            export(&drawing)
+                .unwrap_err()
+                .contains("sheet 2. It has 0 searchable runs and 1 sources")
+        );
+    }
 }

@@ -110,6 +110,55 @@ fn text_json_covers_svg_text_and_ink_on_each_sheet() {
     }
 }
 
+#[test]
+fn split_tables_keep_distinct_text_addresses_for_repeated_headers() {
+    let step =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/scattered_holes.step");
+    let spec: Spec = serde_json::from_value(json!({
+        "hole_table": "always",
+        "sheet": {"table_columns": {"hole_schedule_plan": 2, "t:1": 2}},
+        "tables": [{"id": "t:1", "rows": [["HEADING"], ["FIRST"], ["SECOND"]]}]
+    }))
+    .unwrap();
+    let (_, files) = draftwright::api::render_from(
+        &step,
+        draftwright::api::Features::Native,
+        &spec,
+        &["text-json"],
+        150.,
+    )
+    .unwrap();
+    let data: Value = serde_json::from_slice(&files[0].1).unwrap();
+    let entries = data["entries"].as_array().unwrap();
+    let mut keys = BTreeSet::new();
+    for e in entries.iter().filter(|e| e["type"] == "table_cell") {
+        let key = (
+            e["sheet"].as_u64().unwrap(),
+            e["table_id"].as_str().unwrap(),
+            e["block"].as_u64().unwrap(),
+            e["row"].as_u64().unwrap(),
+            e["column"].as_u64().unwrap(),
+        );
+        assert!(keys.insert(key), "duplicate cell {e}");
+    }
+    for (table, header) in [("hole_schedule_plan", "PLAN HOLES"), ("t:1", "HEADING")] {
+        let blocks = entries
+            .iter()
+            .filter(|e| e["table_id"] == table && e["text"] == header)
+            .map(|e| {
+                assert_eq!(e["row"], 0);
+                assert_eq!(e["column"], 0);
+                e["block"].as_u64().unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(blocks, [0, 1], "{table}");
+    }
+    assert!(entries.iter().any(|e| e["table_id"] == "t:1"
+        && e["text"] == "SECOND"
+        && e["row"] == 2
+        && e["block"] == 1));
+}
+
 fn inspect_text_sheet<'a>(
     plan: &model::Plan,
     drawing: &Drawing,
@@ -149,7 +198,7 @@ fn inspect_text_sheet<'a>(
     }
     let text = svg_text(svg);
     assert_eq!(by_index.len(), text.len());
-    let mut marks = BTreeSet::new();
+    let mut extents = BTreeMap::new();
     for (i, (tag, text)) in svg.split("<text").skip(1).zip(text).enumerate() {
         let tag = &tag[..tag.find('>').unwrap()];
         let run = &drawing.text[i];
@@ -190,8 +239,13 @@ fn inspect_text_sheet<'a>(
         let (entry, [x0, y0, x1, y1]) = if run == usize::MAX {
             outlines.next().unwrap()
         } else {
-            marks.insert(run);
             by_index[&run]
+        };
+        let mut outline_extent = empty_extent();
+        let extent = if run == usize::MAX {
+            &mut outline_extent
+        } else {
+            extents.entry(run).or_insert_with(empty_extent)
         };
         let ink = common::read_svg(&format!("<g id=\"ink\">{shape}</g>"));
         assert!(!ink["ink"].lines.is_empty());
@@ -204,14 +258,45 @@ fn inspect_text_sheet<'a>(
                         && y + radius <= y1 + 1e-6,
                     "{entry}: SVG ink at {x}, {y} (pen radius {radius})"
                 );
+                extent[0] = extent[0].min(x - radius);
+                extent[1] = extent[1].min(y - radius);
+                extent[2] = extent[2].max(x + radius);
+                extent[3] = extent[3].max(y + radius);
             }
+        }
+        if run == usize::MAX {
+            assert_tight_bounds(entry, [x0, y0, x1, y1], outline_extent);
         }
     }
     assert!(outlines.next().is_none());
     for (&i, (entry, bounds)) in &by_index {
-        if !marks.contains(&i) {
-            assert_eq!([bounds[0], bounds[1]], [bounds[2], bounds[3]], "{entry}");
+        if let Some(&extent) = extents.get(&i) {
+            assert_tight_bounds(entry, *bounds, extent);
+        } else {
+            let [x, y] = drawing.text[i].at;
+            let y = drawing.page[1] - y;
+            assert_eq!(*bounds, [x, y, x, y], "{entry}");
         }
+    }
+}
+
+fn empty_extent() -> [f64; 4] {
+    [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ]
+}
+
+fn assert_tight_bounds(entry: &Value, bounds: [f64; 4], extent: [f64; 4]) {
+    // The SVG parser samples curves, so its extrema can fall slightly inside the real ink.
+    const SAMPLING_MARGIN_MM: f64 = 0.005;
+    for (edge, (exported, sampled)) in bounds.into_iter().zip(extent).enumerate() {
+        assert!(
+            (exported - sampled).abs() <= SAMPLING_MARGIN_MM,
+            "{entry}: box edge {edge} is {exported}, SVG ink reaches {sampled}"
+        );
     }
 }
 

@@ -49,6 +49,7 @@
         "features": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "model_value": {"type": "number", "description": "The leading model measurement in millimetres or degrees."},
         "table_id": {"type": "string"},
+        "block": {"$ref": "#/$defs/index", "description": "The table's zero-based block on this sheet. Unsplit tables use block 0."},
         "row": {"$ref": "#/$defs/index"},
         "column": {"$ref": "#/$defs/index"},
         "field": {"type": "string"},
@@ -56,7 +57,7 @@
       },
       "allOf": [
         {"if": {"properties": {"type": {"const": "dimension"}}}, "then": {"required": ["view", "features", "model_value"]}},
-        {"if": {"properties": {"type": {"const": "table_cell"}}}, "then": {"required": ["table_id", "row", "column"]}},
+        {"if": {"properties": {"type": {"const": "table_cell"}}}, "then": {"required": ["table_id", "block", "row", "column"]}},
         {"if": {"properties": {"type": {"const": "title_block"}}}, "then": {"required": ["field", "is_label"]}}
       ]
     }

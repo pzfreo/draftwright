@@ -87,8 +87,10 @@ degrees, and ink bounds in sheet millimetres and PDF points. Both boxes use
 The bounds follow the visible glyphs and symbol strokes.
 
 Dimensions include their view ID, owning feature IDs and leading model value
-in millimetres or degrees. Table cells include the table ID and zero-based row
-and column, counting headings. Multiple runs from one item can share an ID.
+in millimetres or degrees. A printed table cell is uniquely identified by
+`(sheet, table_id, block, row, column)`. Block, source row and column are zero-based.
+Headings count as rows and keep their source row numbers when repeated in later
+blocks. An unsplit table uses block 0. Multiple runs from one item can share an ID.
 For searchable runs, `svg_text_index` is the zero-based index of the corresponding
 SVG text element on that sheet. Outline-only title labels also have entries.
 See the [text inventory schema](../schemas/text.json).

@@ -602,7 +602,8 @@ impl Cache {
             .into_iter()
             .map(|n| session.drawing_on_sheet(n))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok((crate::text_output::encode(&drawings), version))
+        let bytes = crate::text_output::encode(&drawings).map_err(Error::failed)?;
+        Ok((bytes, version))
     }
 
     pub fn artifact(&self, bytes: &[u8], extension: &str) -> Result<String, Error> {
