@@ -94,10 +94,11 @@ FEATURE_GAPS = {
     "section_recess_recognition_refused", "step_level_support_missing",
 }
 PMI_GAPS = {
-    "pmi_not_extracted", "pmi_not_lowered", "pmi_not_rendered", "pmi_datum_suppressed",
+    "pmi_not_drawn", "pmi_not_extracted", "pmi_not_lowered", "pmi_not_rendered",
+    "pmi_datum_suppressed", "pmi_note_unattached",
     "pmi_value_mismatch", "pmi_source_text_mismatch", "pmi_source_site_mismatch",
-    "pmi_datum_reference_unavailable", "manufacturing_reference_unresolved",
-    "step_general_tolerance_disagreement", "step_material_disagreement",
+    "manufacturing_reference_unresolved", "step_general_tolerance_disagreement",
+    "step_general_tolerance_mismatch", "step_material_disagreement", "step_material_mismatch",
     "step_material_ambiguous", "step_material_unavailable",
 }
 XML = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -519,8 +520,7 @@ def measure(case, private, binary, cache):
             "pmi": na("NIST-only metric.") if private else pmi_metric(review, analysis, bad),
             "true": shown_true,
             "complete": complete,
-            "redundancy": metric(len({item["id"] for item in findings
-                                      if item["code"] in REDUNDANCY}), 1),
+            "redundancy": metric(sum(item["code"] in REDUNDANCY for item in findings), 1),
             "tolerance": filled_tolerance(plan, analysis, review),
             "quality": na("Measured across the separate quality corpus."),
         }
