@@ -7577,6 +7577,21 @@ fn radius_route_evidence(
     )
 }
 
+pub(crate) fn nonradial_radius_leaders<'a>(
+    analysis: &crate::model::Analysis,
+    plan: &'a crate::model::Plan,
+) -> std::collections::BTreeSet<&'a str> {
+    plan.dimensions
+        .iter()
+        .filter_map(|d| {
+            let shaft = *d.placed.as_ref()?.lines.first()?;
+            let view = plan.views.iter().find(|v| v.id == d.view)?;
+            let arcs = radius_route_evidence(analysis, d, view)?;
+            (!arcs.is_empty() && !arcs.iter().any(|a| a.accepts(shaft))).then_some(d.id.as_str())
+        })
+        .collect()
+}
+
 /// Use the authoritative radius producer's proven points, not the older callout
 /// site's truncated inventory (which may contain only oblique group members).
 /// Admit each arc's middle station before adding its two middle-half endpoints.
