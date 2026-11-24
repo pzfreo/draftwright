@@ -61,8 +61,16 @@ class MetricsTest(unittest.TestCase):
                                       "drawn_sources": ["d1", "d2", "another"]}}}
         analysis = {"pmi": {"read": {"records": [{"source_id": "d1"}, {"source_id": "d2"}]}}}
         result = bench.pmi_metric(review, analysis, {"d2"})
-        self.assertEqual(result, bench.metric(1, 3, read=2, read_not_drawn=1,
+        self.assertEqual(result, bench.metric(1, 3, read=2, read_not_drawn=1, read_without_ink=0,
                                              listed_not_shown=1, unaccounted=1))
+
+    def test_general_tolerance_presentation_note(self):
+        payload = (b"#4=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','APPLIES TO ALL');\n"
+                   b"#5=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','UNTOLERANCED SURFACES.');")
+        self.assertTrue(bench.has_general_tolerance_note(payload))
+        self.assertFalse(bench.has_general_tolerance_note(b"ISO 2768-m"))
+        self.assertFalse(bench.has_general_tolerance_note(
+            b"#6=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','UNLESS OTHERWISE SPECIFIED');"))
 
     def test_retired_instructions_reads_only_the_counter(self):
         self.assertEqual(bench.retired_instructions(b"  0.03 real\n  1234 instructions retired\n"), 1234)

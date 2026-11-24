@@ -353,6 +353,7 @@ def pmi_metric(review, analysis, bad):
     records = analysis.get("pmi", {}).get("read", {}).get("records", ())
     read = required & {r["source_id"] for r in records}
     return metric(len(drawn), len(required), read=len(read),
+                  read_without_ink=len(read - carried),
                   read_not_drawn=len(read - drawn), listed_not_shown=len(listed),
                   unaccounted=len(required - drawn - listed))
 
@@ -384,11 +385,30 @@ def feature_metrics(plan, review, findings):
     )
 
 
-def filled_tolerance(plan, analysis, review):
+STEP_DESCRIPTIVE_TEXT = re.compile(
+    rb"DESCRIPTIVE_REPRESENTATION_ITEM\s*\(\s*'(?:[^']|'')*'\s*,\s*'((?:[^']|'')*)'",
+    re.IGNORECASE,
+)
+GLOBAL_TOLERANCE_NOTE = re.compile(
+    rb"\b(?:APPL(?:IES|Y)\s+TO\s+ALL\s+UNTOLERANCED\s+(?:SURFACES|FEATURES)|"
+    rb"GENERAL\s+TOLERANCES?\s*(?:[:=]|(?:ACCORDING\s+TO|PER)\s+)|"
+    rb"ISO\s*2768\s*[- ]\s*[FMCHKV]\b)",
+    re.IGNORECASE,
+)
+
+
+def has_general_tolerance_note(step):
+    # AP242 presentation notes may split a global-profile clause over consecutive text items.
+    text = b" ".join(STEP_DESCRIPTIVE_TEXT.findall(step))
+    text = re.sub(rb"\\X\\0[AD]|\\{1,2}n", b" ", text, flags=re.IGNORECASE)
+    return GLOBAL_TOLERANCE_NOTE.search(text) is not None
+
+
+def filled_tolerance(plan, analysis, review, step):
     records = analysis.get("pmi", {}).get("read", {}).get("records", ())
     given = plan["spec"]["sheet"].get("title", {}).get("tolerance", "").strip()
     has_pmi = any(r["kind"] == "general_tolerances" for r in records)
-    if not given and not has_pmi:
+    if not (given or has_pmi or has_general_tolerance_note(step.read_bytes())):
         if analysis.get("pmi", {}).get("refused"):
             return na("STEP PMI inventory could not be read.")
         return na("No general tolerance in the STEP file or settings.")
@@ -580,7 +600,7 @@ def measure(case, private, binary, cache, count_instructions):
             "true": shown_true,
             "complete": complete,
             "redundancy": metric(sum(item["code"] in REDUNDANCY for item in findings), 1),
-            "tolerance": filled_tolerance(plan, analysis, review),
+            "tolerance": filled_tolerance(plan, analysis, review, case.step),
             "quality": na("Measured across the separate quality corpus."),
         }
         for key in ("views", "dimensions", "hole_table"):
@@ -696,7 +716,8 @@ def aggregate(rows, key, skipped=None):
         return metric(reason=skipped or reason or "No selected cases.", **extra)
     if key == "pmi":
         extra = {count: sum(cell[count] for cell in known)
-                 for count in ("read", "read_not_drawn", "listed_not_shown", "unaccounted")}
+                 for count in ("read", "read_without_ink", "read_not_drawn",
+                               "listed_not_shown", "unaccounted")}
     if key == "views":
         extra["by_kind"] = {
             kind: metric(sum(c["by_kind"][kind]["numerator"] for c in cells if "by_kind" in c),
@@ -758,7 +779,8 @@ def print_report(report):
                 print(f"  {row['id']} {row['error']}")
             pmi = row["metrics"]["pmi"]
             if pmi["denominator"] is not None:
-                print(f"  {row['id']} PMI: {pmi['read']} read, {pmi['read_not_drawn']} read but not drawn, "
+                print(f"  {row['id']} PMI: {pmi['read']} read, {pmi['read_without_ink']} without ink, "
+                      f"{pmi['read_not_drawn']} without verified coverage, "
                       f"{pmi['listed_not_shown']} listed as not shown, "
                       f"{pmi['unaccounted']} unaccounted")
             if row.get("reference"):
