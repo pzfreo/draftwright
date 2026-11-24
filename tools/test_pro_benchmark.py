@@ -113,23 +113,74 @@ sys 0.00
             self.assertIsNone(result["denominator"])
             self.assertEqual(result["uncertain"], 1)
 
+    def test_reference_accepts_ordered_one_sided_tolerance_bands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.json"
+            dim = {"feature": {"kind": "envelope"}, "kind": "linear", "nominal": 70,
+                   "unit": "mm", "datums": []}
+            ref = {"views": None, "dimensions": [dim], "hole_table": None,
+                   "general_tolerance": None}
+            for lower, upper in ((0.050, 0.089), (-0.027, 0), (-0.2, 0),
+                                 (-0.2, -0.1), (0, 0)):
+                with self.subTest(lower=lower, upper=upper):
+                    dim["tolerance"] = {"lower": lower, "upper": upper}
+                    path.write_text(json.dumps(ref))
+                    self.assertEqual(bench.private_reference(path)["dimensions"], [dim])
+            dim["tolerance"] = {"lower": 0.089, "upper": 0.050}
+            path.write_text(json.dumps(ref))
+            with self.assertRaisesRegex(ValueError, "lower tolerance deviation exceeds upper"):
+                bench.private_reference(path)
+
     def test_section_match_checks_plane_and_direction(self):
         wanted = {"direction": [1, 0, 0], "origin": [4, 0, 0]}
         view = {"direction": [0, 1, 0], "cut": {"normal": [1, 0, 0], "origin": [4, 100, 3]}}
-        self.assertTrue(bench.view_match("section", wanted, view))
-        self.assertTrue(bench.view_match("section", {**wanted, "origin": [4.5, 0, 0]}, view))
-        self.assertFalse(bench.view_match("section", {**wanted, "origin": [4.51, 0, 0]}, view))
-        self.assertTrue(bench.view_match("section", {**wanted, "direction": [-1, 0, 0]}, view))
-        self.assertFalse(bench.view_match("section", {**wanted, "direction": [0, 1, 0]}, view))
+        small = [[-5, 0, 0], [5, 15, 10]]
+        self.assertTrue(bench.view_match("section", wanted, view, small))
+        self.assertTrue(bench.view_match("section", {**wanted, "origin": [6, 0, 0]}, view, small))
+        self.assertFalse(bench.view_match("section", {**wanted, "origin": [6.01, 0, 0]}, view, small))
+        self.assertTrue(bench.view_match("section", {**wanted, "direction": [-1, 0, 0]}, view, small))
+        self.assertFalse(bench.view_match("section", {**wanted, "direction": [0, 1, 0]}, view, small))
+        large = [[-10, 0, 0], [30, 200, 20]]
+        self.assertTrue(bench.view_match("section", {**wanted, "origin": [8, 0, 0]}, view, large))
+        self.assertFalse(bench.view_match("section", {**wanted, "origin": [8.01, 0, 0]}, view, large))
 
-    def test_views_use_unsigned_axes_and_detail_bounds(self):
+    def test_section_tolerance_projects_envelope_onto_oblique_normal(self):
+        envelope = [[-10, 0, 0], [30, 20, 10]]
+        view = {"cut": {"normal": [3, 4, 0], "origin": [0, 0, 0]}}
+        wanted = {"direction": [-3, -4, 0], "origin": [0, 5, 0]}
+        self.assertTrue(bench.view_match("section", wanted, view, envelope))
+        wanted["origin"][1] = 5.01
+        self.assertFalse(bench.view_match("section", wanted, view, envelope))
+
+    def test_principal_and_auxiliary_views_use_unsigned_axes(self):
+        envelope = [[0, 0, 0], [20, 20, 20]]
+        for kind in ("principal", "auxiliary"):
+            self.assertTrue(bench.view_match(kind, {"direction": [0, 0, 1]},
+                                             {"direction": [0, 0, -1]}, envelope))
+            self.assertFalse(bench.view_match(kind, {"direction": [0, 0, 1]},
+                                              {"direction": [0, 1, 0]}, envelope))
+
+    def test_details_require_centres_within_tolerance_and_overlapping_bounds(self):
+        small = [[0, 0, 0], [20, 20, 20]]
         wanted = {"direction": [0, 0, 1], "bounds": [[0, 0, 0], [5, 5, 5]]}
         actual = {"direction": [0, 0, -1],
-                  "detail": {"marked_bounds": [[2, 0, 0], [5, 5, 5]]}}
-        for kind in ("principal", "auxiliary", "detail"):
-            self.assertTrue(bench.view_match(kind, wanted, actual))
-        actual["detail"]["marked_bounds"][0][0] = 2.01
-        self.assertFalse(bench.view_match("detail", wanted, actual))
+                  "detail": {"marked_bounds": [[4, 0, 0], [11, 5, 5]]}}
+        self.assertTrue(bench.view_match("detail", wanted, actual, small))
+        actual["detail"]["marked_bounds"][1][0] = 11.02
+        self.assertFalse(bench.view_match("detail", wanted, actual, small))
+        actual["detail"]["marked_bounds"] = [[5.01, 0, 0], [7, 5, 5]]
+        self.assertFalse(bench.view_match("detail", wanted, actual, small))
+        actual["detail"]["marked_bounds"][0][0] = 5
+        self.assertFalse(bench.view_match("detail", wanted, actual, small))
+
+    def test_detail_tolerance_uses_largest_envelope_extent_and_allows_planar_bounds(self):
+        envelope = [[0, 0, 0], [50, 200, 0]]
+        wanted = {"direction": [0, 0, 1], "bounds": [[0, 0, 0], [20, 10, 0]]}
+        actual = {"direction": [0, 0, -1],
+                  "detail": {"marked_bounds": [[10, 0, 0], [50, 10, 0]]}}
+        self.assertTrue(bench.view_match("detail", wanted, actual, envelope))
+        actual["detail"]["marked_bounds"][0][0] = 10.01
+        self.assertFalse(bench.view_match("detail", wanted, actual, envelope))
 
     def test_unknown_axes_match_by_kind_and_count(self):
         unknown = {"direction": None, "axis_unknown": True}
@@ -145,7 +196,8 @@ sys 0.00
             path = Path(temp) / "synthetic.json"
             path.write_text(json.dumps({"views": ref, "dimensions": None,
                                         "hole_table": None, "general_tolerance": None}))
-            actual = bench.view_counts(bench.private_reference(path)["views"], plan)
+            actual = bench.view_counts(bench.private_reference(path)["views"], plan,
+                                       [[0, 0, 0], [10, 10, 10]])
         self.assertEqual(actual["by_kind"]["principal"], bench.metric(1, 1, uncertain=0))
         self.assertEqual(actual["by_kind"]["section"], bench.metric(1, 2, uncertain=0))
         self.assertEqual(actual["by_kind"]["auxiliary"], bench.metric(2, 2, uncertain=0))

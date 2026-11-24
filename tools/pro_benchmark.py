@@ -23,10 +23,12 @@ Each reference is an object with these fields (null means unavailable):
   detail. Each view has "direction" (part-frame vector, either sign). For a
   section this is the cut-plane normal. A section also has "origin" (a point
   on the cut plane in part-frame mm) and may have "half": true with "keep"
-  (direction toward the cut half). Section offsets allow 0.5 mm to account for
+  (direction toward the cut half). Section offsets allow the greater of 2 mm
+  and 10% of the part envelope's extent along the normal, to account for
   estimating the cut position from the drawing. A detail also has
   "bounds": [[xmin,ymin,zmin],[xmax,ymax,zmax]] in part-frame mm for its intended
-  crop, with a 2 mm tolerance for each bounds point to account for estimation.
+  crop. Details match by overlapping bounds, with centres separated by at most
+  the greater of 5 mm and 10% of the envelope's largest extent.
   Use "direction": null with "axis_unknown": true to match one remaining view
   of the same kind by count. No origin or bounds are needed for that entry.
   Empty arrays mean the drawing uses none of that kind. The scored row covers
@@ -39,8 +41,9 @@ Each reference is an object with these fields (null means unavailable):
   radius, angular, thickness) or "gdt.<kind>" for a geometric control,
   with its stated magnitude as nominal. Units are mm, in or deg. "resolution"
   optionally states the nominal's display increment (defaults .01 mm, .001 in,
-  .01 deg). "tolerance" may be null or contain signed deviations as above, and
-  "fit" optionally gives the case-sensitive ISO fit class. "datums" lists the
+  .01 deg). "tolerance" may be null or contain signed deviations as above.
+  Lower must be at most upper. Either may be zero and both may have the same
+  sign. "fit" optionally gives the case-sensitive ISO fit class. "datums" lists the
   referenced letters in order. Omit neither the tolerance field nor the datum
   array. Without an occurrence ID, equal dimensions on the same feature kind
   are matched by multiplicity. One drawn statement can satisfy at most one entry.
@@ -258,8 +261,8 @@ def private_reference(path):
                     not re.fullmatch(r"[A-Z]+[0-9]*", datum) for datum in dim["datums"]):
                 raise ValueError("invalid datum letters")
             if dim["tolerance"] is not None:
-                if finite(dim["tolerance"]["lower"]) > 0 or finite(dim["tolerance"]["upper"]) < 0:
-                    raise ValueError("expected signed deviations")
+                if finite(dim["tolerance"]["lower"]) > finite(dim["tolerance"]["upper"]):
+                    raise ValueError("lower tolerance deviation exceeds upper")
             if "fit" in dim and not re.fullmatch(r"[A-Za-z]{1,2}[0-9]+", dim["fit"]):
                 raise ValueError("invalid fit")
             if (dim["tolerance"] is None and not dim["datums"] and "fit" not in dim
@@ -304,7 +307,20 @@ def same_axis(a, b):
     return min(math.dist(a, b), math.dist(a, [-v for v in b])) <= 1e-3
 
 
-def view_match(kind, wanted, actual):
+def detail_match(wanted_bounds, drawn_bounds, envelope):
+    axes = tuple(zip(*wanted_bounds, *drawn_bounds))
+    for w_lo, w_hi, d_lo, d_hi in axes:
+        low, high = max(w_lo, d_lo), min(w_hi, d_hi)
+        # Allow planar bounds. Two intervals with width must share more than an edge.
+        if low > high or (low == high and w_lo < w_hi and d_lo < d_hi):
+            return False
+    centre_distance = math.hypot(*((w_lo + w_hi - d_lo - d_hi) / 2
+                                  for w_lo, w_hi, d_lo, d_hi in axes))
+    largest_extent = max(hi - lo for lo, hi in zip(*envelope))
+    return centre_distance <= max(5, .1 * largest_extent)
+
+
+def view_match(kind, wanted, actual, envelope):
     if wanted.get("axis_unknown") is True:
         return True
     if kind == "section":
@@ -317,18 +333,17 @@ def view_match(kind, wanted, actual):
             return False
         if half and not same_direction(wanted["keep"], half["keep"]):
             return False
-        normal = direction(wanted["direction"])
-        return abs(sum((a - b) * n for a, b, n in
-                       zip(wanted["origin"], cut["origin"], normal))) <= .5
-    if not same_axis(wanted["direction"], actual["direction"]):
-        return False
+        normal = direction(actual_normal)
+        extent = sum((hi - lo) * abs(n) for lo, hi, n in zip(*envelope, normal))
+        offset = abs(sum((a - b) * n for a, b, n in
+                         zip(wanted["origin"], cut["origin"], normal)))
+        return offset <= max(2, .1 * extent)
     if kind == "detail":
-        return all(math.dist(a, b) <= 2
-                   for a, b in zip(wanted["bounds"], actual["detail"]["marked_bounds"]))
-    return True
+        return detail_match(wanted["bounds"], actual["detail"]["marked_bounds"], envelope)
+    return same_axis(wanted["direction"], actual["direction"])
 
 
-def view_counts(reference, plan):
+def view_counts(reference, plan, envelope):
     kinds = {key: [] for key in VIEW_KINDS}
     for view in plan["views"]:
         if view.get("detail"):
@@ -342,7 +357,7 @@ def view_counts(reference, plan):
     certain = {kind: [view for view in reference[kind] if view.get("uncertain") is not True]
                for kind in VIEW_KINDS}
     counts = {kind: (match_count(certain[kind], kinds[kind],
-                                 lambda a, b: view_match(kind, a, b)), len(certain[kind]))
+                                 lambda a, b: view_match(kind, a, b, envelope)), len(certain[kind]))
               for kind in VIEW_KINDS}
     uncertainty = {kind: len(reference[kind]) - len(certain[kind]) for kind in VIEW_KINDS}
     n, d = (sum(counts[kind][i] for kind in VIEW_KINDS[1:]) for i in (0, 1))
@@ -766,7 +781,7 @@ def measure(case, private, binary, cache, count_instructions):
             checks["dimension_tolerance"] = checks["dimensions"]
         if reference is not None:
             if reference["views"] is not None:
-                checks["views"] = view_counts(reference["views"], plan)
+                checks["views"] = view_counts(reference["views"], plan, analysis["envelope"])
             if reference["dimensions"] is not None:
                 checks["dimensions"], checks["dimension_tolerance"] = dimension_counts(
                     reference["dimensions"], analysis, plan, review, bad)
