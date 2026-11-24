@@ -2247,6 +2247,7 @@ fn select_auxiliary_paper(analysis: &Analysis, spec: &Spec, seed: &Plan) -> Resu
             .filter(|s| *s + 1e-9 >= floor && *s < scale - 1e-9),
     );
     let mut candidates = Vec::new();
+    let mut search_trace = Vec::new();
     for factor in scales {
         let start = if factor == scale { initial_page } else { 0 };
         for &(size, ..) in &pages[start..] {
@@ -2259,15 +2260,24 @@ fn select_auxiliary_paper(analysis: &Analysis, spec: &Spec, seed: &Plan) -> Resu
                 forced.sheets.get_or_insert_with(Default::default).max = Some(max);
                 let mut result =
                     try_auxiliary_pair(analysis, fit, &forced, &ordinary, &requested, seed);
+                let mut trace = |spacing: model::DimensionSpacing,
+                                 result: &Result<Plan, String>| {
+                    let outcome = result
+                        .as_ref()
+                        .map_or_else(|reason| reason.as_str(), |_| "usable");
+                    search_trace.push(format!("{size} at {scale_name} ({spacing:?}): {outcome}"));
+                };
+                trace(forced.sheet.dimension_spacing.unwrap_or_default(), &result);
                 if let Err(normal) = &result
                     && spec.sheet.dimension_spacing.is_none()
                 {
                     forced.sheet.dimension_spacing = Some(model::DimensionSpacing::Compact);
-                    result =
-                        try_auxiliary_pair(analysis, fit, &forced, &ordinary, &requested, seed)
-                            .map_err(|compact| {
-                                format!("normal spacing: {normal}; compact spacing: {compact}")
-                            });
+                    let compact =
+                        try_auxiliary_pair(analysis, fit, &forced, &ordinary, &requested, seed);
+                    trace(model::DimensionSpacing::Compact, &compact);
+                    result = compact.map_err(|compact| {
+                        format!("normal spacing: {normal}; compact spacing: {compact}")
+                    });
                 }
                 let outcome = match &result {
                     Ok(plan) => format!(
@@ -2294,9 +2304,26 @@ fn select_auxiliary_paper(analysis: &Analysis, spec: &Spec, seed: &Plan) -> Resu
                         "automatic auxiliary views fit at {}; ordinary drawing was {} at {}",
                         plan.sheet.scale, ordinary.sheet.size, ordinary.sheet.scale
                     );
-                    plan.sheet.basis += &format!("; {reason}");
+                    // The ordinary search already judged the smaller papers.
+                    // Keep those decisions ahead of the auxiliary trials.
+                    let mut ordinary_trials = ordinary.sheet_candidates;
+                    ordinary_trials.retain(|trial| {
+                        pages[..initial_page]
+                            .iter()
+                            .any(|page| page.0 == trial.size)
+                    });
+                    for trial in &mut ordinary_trials {
+                        trial.outcome =
+                            format!("without automatic auxiliary views: {}", trial.outcome);
+                    }
+                    ordinary_trials.append(&mut candidates);
+                    plan.sheet.basis += &format!(
+                        "; {reason}: {}; automatic auxiliary scale trials: {}",
+                        ordinary.sheet.basis,
+                        search_trace.join("; ")
+                    );
                     selected_trial_basis(&mut plan);
-                    return Ok(finish_choice(plan, intent, candidates, &reason));
+                    return Ok(finish_choice(plan, intent, ordinary_trials, &reason));
                 }
             }
         }
@@ -2327,7 +2354,13 @@ fn select_auxiliary_paper(analysis: &Analysis, spec: &Spec, seed: &Plan) -> Resu
         ordinary.problems.push(problem);
     }
     let reason = "supported paper and readable scales exhausted for automatic auxiliary views";
-    Ok(finish_choice(ordinary, intent, candidates, reason))
+    ordinary.sheet.basis += &format!(
+        "; automatic auxiliary scale trials: {}",
+        search_trace.join("; ")
+    );
+    let mut ordinary_trials = std::mem::take(&mut ordinary.sheet_candidates);
+    ordinary_trials.append(&mut candidates);
+    Ok(finish_choice(ordinary, intent, ordinary_trials, reason))
 }
 
 fn try_auxiliary_pair(
