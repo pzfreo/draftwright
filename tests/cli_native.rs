@@ -978,16 +978,23 @@ fn pictorial_plan_from_analysis_accepts_flags_without_a_step_argument() {
 fn no_pictorial_flags_keep_cli_output_equal_to_the_default_library_spec() {
     let step = fixture("parts/plate.step");
     let prefix = scratch("pictorial-default");
+    let output = prefix.with_extension("text.json");
     let (code, result) = run(&[
         "render",
         step.to_str().unwrap(),
         "--no-features",
         "-o",
-        prefix.to_str().unwrap(),
+        output.to_str().unwrap(),
         "--formats",
-        "svg,pdf,png,dxf",
+        "svg,pdf,png,dxf,text-json",
     ]);
     assert_eq!(code, Some(0), "{result}");
+    assert!(
+        result["written"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(output))
+    );
     let (_, files) = api::render(&step, None, &model::Spec::default(), &api::FORMATS).unwrap();
     for (format, bytes) in files {
         assert_eq!(

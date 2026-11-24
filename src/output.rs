@@ -586,6 +586,8 @@ pub struct Sheet {
     pub characteristics: Vec<crate::characteristics::Characteristic>,
     /// Export-only provenance; never participates in the painted formats.
     pub dxf: crate::dxf_output::Structure,
+    #[doc(hidden)]
+    pub text_index: crate::text_output::TextIndex,
     pub inspection_enabled: bool,
     /// Compiled wording wrappers; lint reads the live measured body, never authored numbers.
     pub label_text: BTreeMap<String, LabelWording>,

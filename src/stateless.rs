@@ -580,6 +580,31 @@ impl Cache {
         }?;
         Ok((bytes, version))
     }
+
+    pub(crate) fn render_text(
+        &self,
+        part_ref: &str,
+        spec: &Spec,
+        sheet: Option<u32>,
+    ) -> Result<(Vec<u8>, String), Error> {
+        let session = self.session(part_ref, spec)?;
+        let version = spec_hash(session.spec());
+        let sheets = sheet.map_or_else(
+            || {
+                std::iter::once(&session.plan().sheet)
+                    .chain(&session.plan().sheets)
+                    .map(|s| s.number)
+                    .collect()
+            },
+            |n| vec![n],
+        );
+        let drawings = sheets
+            .into_iter()
+            .map(|n| session.drawing_on_sheet(n))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((crate::text_output::encode(&drawings), version))
+    }
+
     pub fn artifact(&self, bytes: &[u8], extension: &str) -> Result<String, Error> {
         let key = format!("{}.{}", hash(bytes), extension);
         let dir = self.root.join("artifacts");
@@ -595,7 +620,7 @@ impl Cache {
         };
         if hash.len() != 64
             || !hash.bytes().all(|b| b.is_ascii_hexdigit())
-            || !["json", "png", "pdf", "csv"].contains(&ext)
+            || !["json", "png", "pdf", "csv", "text.json"].contains(&ext)
         {
             return Err(Error::invalid("use an artifact_ref returned by a tool"));
         }

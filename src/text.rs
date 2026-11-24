@@ -34,7 +34,7 @@ impl Segment {
 
     /// The segment's box: its ends', widened to any extreme between them (where a coordinate's
     /// derivative vanishes).
-    fn bounds(&self) -> [P; 2] {
+    pub(crate) fn bounds(&self) -> [P; 2] {
         let mut b = [[f64::INFINITY; 2], [f64::NEG_INFINITY; 2]];
         let mut add = |p: P| {
             for k in 0..2 {

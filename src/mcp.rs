@@ -94,7 +94,7 @@ fn description(tool: &str) -> &'static str {
             "One-shot recognition of a local STEP path, optionally using validated recognition JSON in features. Returns the full Analysis document including features and semantic PMI. Prefer inspect_part when editing: it registers the reusable content/cache handle."
         }
         "render" => {
-            "One-shot PNG or PDF render from a local STEP path (optional features) or registered part_ref, with optional spec/spec_version. format is png or pdf; sheet selects one page (default 1). PNG accepts region, overlay_ids (boolean or ID list) and dpi. Returns artifact metadata; read it via resources/read or use view_sheet for MCP image content."
+            "One-shot render from a local STEP path or registered part_ref with optional spec/spec_version. format is png, pdf or text-json. sheet selects a page (default 1 for PNG/PDF, all sheets for text-json). PNG accepts region, overlay_ids and dpi. Read the returned artifact via resources/read."
         }
         "parts" => {
             "List the distinct parts of a local STEP path: each one's index (part), name, product_id, face count and number of placements (instances). Pass an index as part to inspect_part, analyse or render to draw that part of an assembly alone; without it an assembly is drawn whole, with an assembly_drawn_whole warning (unless its bodies all coincide, coincident_bodies, or lie within the largest one's box, assembly_principal_drawn: that part is drawn alone)."
@@ -802,6 +802,22 @@ fn dispatch(cache: &Cache, tool: &str, args: &Value) -> Result<Value, Error> {
             } else {
                 args["format"].as_str().unwrap_or("png")
             };
+            let sheet = args["sheet"].as_u64().map(|n| n as u32);
+            if format == "text-json" {
+                if ["region", "overlay_ids", "dpi"]
+                    .iter()
+                    .any(|k| args.get(k).is_some())
+                {
+                    return Err(Error::invalid("region, overlay_ids and dpi require PNG"));
+                }
+                let (bytes, version) = cache.render_text(part_ref, &given, sheet)?;
+                return Ok(json!({
+                    "artifact_ref": cache.artifact(&bytes, "text.json")?,
+                    "mime_type": "application/json",
+                    "bytes": bytes.len(),
+                    "spec_version": version
+                }));
+            }
             let region = args
                 .get("region")
                 .map(|r| serde_json::from_value(r.clone()))
@@ -823,7 +839,7 @@ fn dispatch(cache: &Cache, tool: &str, args: &Value) -> Result<Value, Error> {
                 format,
                 args["overlay_ids"] == true,
                 args["dpi"].as_f64().unwrap_or(crate::png::DPI),
-                args["sheet"].as_u64().unwrap_or(1) as u32,
+                sheet.unwrap_or(1),
                 ids.as_deref(),
             )?;
             Ok(

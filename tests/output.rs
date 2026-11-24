@@ -21,6 +21,201 @@ use pdf::{pdf_objects, pdf_text, reference, svg_text, to_unicode};
 use serde_json::{Value, json};
 
 #[test]
+fn text_json_covers_svg_text_and_ink_on_each_sheet() {
+    let Some(corpus) = corpus::dir() else { return };
+    let font =
+        draftwright::text::Font::new(common::fonts(draftwright::dims::FONT).unwrap()).unwrap();
+    let symbols = "DRILL ⌀2 ↧ 3 ⌴ ⌀4 ⌵ ⌀5";
+    let spec_with_text: Spec = serde_json::from_value(json!({
+        "sheet": {"zones": true, "title": {"number": "INSPECTION 1"}},
+        "notes": [{"id":"n:1", "text":"REMOVE BURRS"}],
+        "tables": [{"id":"t:1", "rows":[["TOOL"],[symbols]]}]
+    }))
+    .unwrap();
+    for (file, spec) in [
+        ("nist/nist_ctc_05_asme1_rd.stp", Spec::default()),
+        ("mfcadpp/1000.step", spec_with_text),
+    ] {
+        let step = corpus.join(file);
+        let (plan, files) = draftwright::api::render_from(
+            &step,
+            draftwright::api::Features::Native,
+            &spec,
+            &["svg", "text-json"],
+            150.,
+        )
+        .unwrap();
+        let (part, analysis) = model::analyse_native(&step).unwrap();
+        let drawings = model::render_sheets(&part, &analysis, &plan, &font).unwrap();
+        let (suffix, bytes) = files.last().unwrap();
+        assert_eq!(suffix, "text.json");
+        let inventory: Value = serde_json::from_slice(bytes).unwrap();
+        assert_eq!(inventory["schema"], "draftwright.text/1");
+        assert_eq!(inventory["origin"], "top-left");
+        assert_eq!(inventory["y_axis"], "down");
+        assert_eq!(
+            inventory["sheets"].as_array().unwrap().len(),
+            drawings.len()
+        );
+        assert_eq!(files.len(), drawings.len() + 1);
+        let entries = inventory["entries"].as_array().unwrap();
+        assert!(
+            entries
+                .iter()
+                .all(|e| (1..=drawings.len()).contains(&(e["sheet"].as_u64().unwrap() as usize)))
+        );
+        if file.starts_with("nist/") {
+            assert!(
+                drawings.len() > 1,
+                "the fixture exercises multi-sheet output"
+            );
+            assert!(entries.iter().any(|e| {
+                e["type"] == "table_cell"
+                    && e["table_id"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("hole_schedule_")
+                    && e["text"].as_str().unwrap().contains("⌴")
+                    && e["row"].as_u64().unwrap() >= 2
+                    && e["column"] == 1
+            }));
+            assert!(entries.iter().any(|e| e["type"] == "hole_tag"));
+        } else {
+            assert!(
+                entries
+                    .iter()
+                    .any(|e| e["type"] == "dimension" && e["rotation"] != 0.)
+            );
+            assert!(entries.iter().any(|e| e["type"] == "table_cell"
+                && e["table_id"] == "t:1"
+                && e["text"] == symbols
+                && e["row"] == 1
+                && e["column"] == 0));
+            assert!(
+                entries
+                    .iter()
+                    .any(|e| e["type"] == "note" && e["id"] == "n:1")
+            );
+            assert!(entries.iter().any(|e| e["type"] == "zone"));
+            assert!(
+                entries
+                    .iter()
+                    .any(|e| e["type"] == "title_block" && e["text"] == "INSPECTION 1")
+            );
+        }
+        for (i, (drawing, (_, svg))) in drawings.iter().zip(&files).enumerate() {
+            let entries = entries.iter().filter(|e| e["sheet"] == i + 1);
+            inspect_text_sheet(&plan, drawing, std::str::from_utf8(svg).unwrap(), entries);
+        }
+    }
+}
+
+fn inspect_text_sheet<'a>(
+    plan: &model::Plan,
+    drawing: &Drawing,
+    svg: &str,
+    entries: impl Iterator<Item = &'a Value>,
+) {
+    use draftwright::output::{Item, TEXT_PEN};
+
+    let (mut by_index, mut outlined) = (BTreeMap::new(), Vec::new());
+    for entry in entries {
+        let mm: [f64; 4] = serde_json::from_value(entry["bbox_mm"].clone()).unwrap();
+        let pt: [f64; 4] = serde_json::from_value(entry["bbox_pt"].clone()).unwrap();
+        for (m, p) in mm.into_iter().zip(pt) {
+            assert!((m * 72. / 25.4 - p).abs() < 1e-9);
+        }
+        if entry["type"] == "dimension" {
+            let d = plan
+                .dimensions
+                .iter()
+                .find(|d| entry["id"] == d.id)
+                .unwrap();
+            let features: BTreeSet<_> = d.measurements.iter().map(|m| m.feature.as_str()).collect();
+            assert_eq!(entry["features"], json!(features));
+            assert_eq!(entry["view"], d.view);
+            assert_eq!(entry["model_value"], d.value);
+        }
+        if let Some(i) = entry["svg_text_index"].as_u64() {
+            assert!(
+                by_index.insert(i as usize, (entry, mm)).is_none(),
+                "{entry}"
+            );
+        } else {
+            assert_eq!(entry["type"], "title_block");
+            assert_eq!(entry["is_label"], true);
+            outlined.push((entry, mm));
+        }
+    }
+    let text = svg_text(svg);
+    assert_eq!(by_index.len(), text.len());
+    let mut marks = BTreeSet::new();
+    for (i, (tag, text)) in svg.split("<text").skip(1).zip(text).enumerate() {
+        let tag = &tag[..tag.find('>').unwrap()];
+        let run = &drawing.text[i];
+        let (entry, _) = by_index[&i];
+        let pos = |key| common::attr(tag, key).unwrap().parse::<f64>().unwrap();
+        let angle = common::attr(tag, "transform").map_or(0., |s| {
+            s.strip_prefix("rotate(")
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        });
+        assert_eq!(entry["text"], text);
+        assert!((pos("x") - run.at[0]).abs() <= 1e-6 && (pos("y") + run.at[1]).abs() <= 1e-6);
+        assert!((angle - entry["rotation"].as_f64().unwrap()).abs() <= 1e-6);
+    }
+    // Use the run ownership to match each painted path to the SVG text it depicts,
+    // then sample the SVG's actual Béziers and strokes in sheet coordinates.
+    let layer = drawing.layers.iter().find(|l| l.name == "dims").unwrap();
+    let (_, dims) = svg.split_once(" id=\"dims\">").unwrap();
+    let (dims, _) = dims.split_once("</g>").unwrap();
+    let shapes: Vec<_> = dims
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(shapes.len(), layer.items.len());
+    let mut outlines = outlined.into_iter();
+    for (item, shape) in layer.items.iter().zip(shapes) {
+        let (run, radius) = match item {
+            Item::Glyph(_, run) => (*run, 0.),
+            Item::TextStroke(_, run) => (*run, layer.style.width / 2.),
+            Item::FrameText(_, run) => (*run, TEXT_PEN / 2.),
+            _ => continue,
+        };
+        let (entry, [x0, y0, x1, y1]) = if run == usize::MAX {
+            outlines.next().unwrap()
+        } else {
+            marks.insert(run);
+            by_index[&run]
+        };
+        let ink = common::read_svg(&format!("<g id=\"ink\">{shape}</g>"));
+        assert!(!ink["ink"].lines.is_empty());
+        for &(a, b) in &ink["ink"].lines {
+            for [x, y] in [a, b].map(|[x, y]| [x, drawing.page[1] - y]) {
+                assert!(
+                    x - radius >= x0 - 1e-6
+                        && x + radius <= x1 + 1e-6
+                        && y - radius >= y0 - 1e-6
+                        && y + radius <= y1 + 1e-6,
+                    "{entry}: SVG ink at {x}, {y} (pen radius {radius})"
+                );
+            }
+        }
+    }
+    assert!(outlines.next().is_none());
+    for (&i, (entry, bounds)) in &by_index {
+        if !marks.contains(&i) {
+            assert_eq!([bounds[0], bounds[1]], [bounds[2], bounds[3]], "{entry}");
+        }
+    }
+}
+
+#[test]
 fn svg_matches_draftwright() {
     let mut problems = Vec::new();
     for name in ["m10127", "string_post", "ctc01"] {

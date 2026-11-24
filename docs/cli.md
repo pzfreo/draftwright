@@ -31,9 +31,9 @@ Options belong to particular commands; check that command's `--help`.
 - **Output:** render takes `-o STEM` / `--out STEM` or `--out-dir DIR`, using the
   input filename as the stem in that directory. Bare render uses `--out STEM` or
   `--out-dir DIR`; pack and diff require `-o DIR`. Render and bare render strip
-  an SVG/PDF/PNG/DXF extension from their output stem when using `--out-dir` or
-  the bare form. `-o` and `--out-dir` cannot be combined on render.
-- **Formats:** render takes `--formats svg,pdf,png,dxf` (default `svg,pdf`);
+  an SVG/PDF/PNG/DXF or `.text.json` extension from their output stem.
+  `-o` and `--out-dir` cannot be combined on render.
+- **Formats:** render takes `--formats svg,pdf,png,dxf,text-json` (default `svg,pdf`);
   pack takes `--formats pdf,csv,json` (all three by default). Bare render writes
   SVG/PDF. `--dpi 150` selects PNG resolution on render and diff (default 150).
 - **Paper and scale:** render, review, plan and bare render take `--size NAME`
@@ -76,6 +76,22 @@ draftwright render part.step -o part --formats svg,pdf,png --dpi 150
 draftwright render part.step -o part --shaded --below --colour b8c4cc
 draftwright part.step --spec drawing.json --shaded --below --out part
 ```
+
+## Text inventory
+
+`draftwright render part.step -o part --formats svg,text-json` writes
+`part.text.json` with one entry per printed text run across all sheets.
+Each entry has its text, type, item ID, sheet number, rotation in clockwise
+degrees, and ink bounds in sheet millimetres and PDF points. Both boxes use
+`[left, top, right, bottom]` from the top-left of the sheet with y increasing down.
+The bounds follow the visible glyphs and symbol strokes.
+
+Dimensions include their view ID, owning feature IDs and leading model value
+in millimetres or degrees. Table cells include the table ID and zero-based row
+and column, counting headings. Multiple runs from one item can share an ID.
+For searchable runs, `svg_text_index` is the zero-based index of the corresponding
+SVG text element on that sheet. Outline-only title labels also have entries.
+See the [text inventory schema](../schemas/text.json).
 
 ## `--set PATH=VALUE`
 
