@@ -19,6 +19,8 @@ pub struct ReviewCoverage {
     dimensionable_features: Vec<String>,
     /// Features with the planner's inclined-axis location gap and no square rendered view.
     inclined_location_gaps: BTreeSet<String>,
+    /// A general-tolerance value produced ink in a title-block cell.
+    tolerance_box_filled: bool,
     /// Semantic source inventory. Absent when the file has no reading or the reader refused it.
     pmi: Option<PmiCoverage>,
 }
@@ -107,6 +109,12 @@ pub(crate) fn review_coverage(
     ReviewCoverage {
         dimensionable_features,
         inclined_location_gaps,
+        tolerance_box_filled: drawings.iter().any(|d| {
+            d.sheet
+                .fields
+                .iter()
+                .any(|f| f.field == "general_tolerance")
+        }),
         pmi,
     }
 }
