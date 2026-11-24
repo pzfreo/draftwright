@@ -76,7 +76,7 @@ Use different drawing references for independent branches/tasks.
 | `get_spec` | Optional version/Spec, or drawing head | Spec and its immutable version hash |
 | `spec_schema` | None (`{}`), no part needed | Full draft-2020-12 Spec schema and fragment naming the `get_spec` read shape |
 | `analyse` | `step`, optional `features` | One-shot full Analysis document |
-| `render` | `step`/`part_ref`, optional `features`, `format` (`png`/`pdf`/`text-json`), `sheet`, PNG region/overlay/dpi | One-shot render artifact metadata |
+| `render` | `step`/`part_ref`, optional `features`, `format` (`png`/`pdf`), `sheet`, PNG region/overlay/dpi | One-shot render artifact metadata |
 | `parts` | `step` | The file's distinct parts: `{parts: [{part, name, product_id, faces, instances}]}` |
 
 **Assemblies.** `inspect_part`, `analyse` and `render` take an optional `part` with `step`: the
@@ -452,15 +452,11 @@ keyed by derived `sheet:n` IDs. Geometry is still keyed by view ID. Rendered ses
 annotations gain optional `provenance` containing their owning items on multi-sheet
 documents; it travels in `State.annotations` and `Delta.annotations`.
 
-`view_sheet`, `render` and `render_pdf` accept `sheet`. PNG and PDF return one
-selected page (default 1) and embed the complete Spec. ID overlays are local:
+`view_sheet`, `render` and `render_pdf` accept `sheet` (default 1). Each returns
+one selected page, retaining the complete embedded Spec. ID overlays are local:
 `overlay_ids: true` labels every bounded item on that sheet; an array labels only
 the supplied bare or qualified addresses and refuses items on another sheet.
 The existing boolean form remains supported.
-
-`render` with `format: "text-json"` returns the [text inventory](cli.md#text-inventory)
-for all sheets by default. Pass `sheet` to select one sheet. Read the JSON text
-using `resources/read` with `uri: "draftwright:<artifact_ref>"`.
 
 The Rust methods `State::render` and `Session::svg_fragments` retain their sheet-1
 signatures. Select another sheet with `State::render_sheet`,

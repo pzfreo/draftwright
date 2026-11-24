@@ -110,7 +110,6 @@ fn sheet(views: &[(&str, [f64; 4])], items: Vec<Drawn>) -> Drawing {
         annotations: Vec::new(),
         sheet: Sheet {
             dxf: Default::default(),
-            text_index: Default::default(),
             units: Default::default(),
             characteristics: Vec::new(),
             inspection_enabled: false,
@@ -1086,7 +1085,6 @@ fn structural_checks_on_pythons_sheets_agree_with_pythons_lint() {
             annotations: Vec::new(),
             sheet: Sheet {
                 dxf: Default::default(),
-                text_index: Default::default(),
                 units: Default::default(),
                 characteristics: Vec::new(),
                 inspection_enabled: false,
@@ -1443,7 +1441,6 @@ fn captured_drawing(name: &str, c: &Captured) -> Drawing {
         annotations,
         sheet: Sheet {
             dxf: Default::default(),
-            text_index: Default::default(),
             units: Default::default(),
             characteristics: Vec::new(),
             inspection_enabled: false,

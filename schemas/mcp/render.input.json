@@ -82,8 +82,7 @@
     "format": {
       "enum": [
         "png",
-        "pdf",
-        "text-json"
+        "pdf"
       ]
     },
     "region": {

@@ -311,10 +311,7 @@ pub fn render_model(
     dpi: f64,
 ) -> Result<(Plan, Files), Error> {
     if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
-        return Err(Error::invalid(format!(
-            "choose formats from {}",
-            FORMATS.join(", ")
-        )));
+        return Err(Error::invalid("choose formats from svg, pdf, png, dxf"));
     }
     if formats.contains(&"png") && !(dpi > 0. && dpi.is_finite()) {
         return Err(Error::invalid("PNG dpi must be positive and finite"));
@@ -349,11 +346,6 @@ fn encode_drawings(drawings: &[Drawing], formats: &[&str], dpi: f64) -> Result<F
                     _ => None,
                 }),
             ));
-        } else if format == "text-json" {
-            files.push((
-                "text.json".into(),
-                crate::text_output::encode(drawings).map_err(Error::failed)?,
-            ));
         } else {
             for (i, drawing) in drawings.iter().enumerate() {
                 let suffix = if i == 0 {
@@ -384,16 +376,9 @@ fn encode_drawings(drawings: &[Drawing], formats: &[&str], dpi: f64) -> Result<F
 /// A multi-format export is not transactional: formats may come from different writers, and a
 /// later failure leaves already published formats in place.
 pub fn write(out: &Path, files: &[(String, Vec<u8>)]) -> Result<Vec<String>, Error> {
-    let stem = match out
-        .file_name()
-        .and_then(|n| n.to_str())
-        .and_then(|n| n.strip_suffix(".text.json"))
-    {
-        Some(stem) if !stem.is_empty() => out.with_file_name(stem),
-        _ => match out.extension().and_then(|e| e.to_str()) {
-            Some(e) if EXTENSIONS.contains(&e) => out.with_extension(""),
-            _ => out.to_path_buf(),
-        },
+    let stem = match out.extension().and_then(|e| e.to_str()) {
+        Some(e) if EXTENSIONS.contains(&e) => out.with_extension(""),
+        _ => out.to_path_buf(),
     };
     let named = |suffix: &str| {
         let mut name = stem.clone().into_os_string();

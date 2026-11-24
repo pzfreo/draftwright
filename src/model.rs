@@ -12190,7 +12190,6 @@ fn render_annotations_with_cuts(
     items: &BTreeMap<String, RenderedItem>,
     remote_views: &[&PlannedView],
 ) -> Result<Drawing, Unresolved> {
-    use crate::text_output::{Kind as TextKind, Source as TextSource};
     projections.bind(analysis, &plan.spec);
     // A tangent/gap plane has retained geometry, but no new cut face. Refuse
     // that section's ink and report it, rather than captioning the retained half
@@ -12749,7 +12748,6 @@ fn render_annotations_with_cuts(
             .filter(|e| !on_frame(e)),
     );
     let mut text = Vec::new();
-    let mut text_index = crate::text_output::TextIndex::default();
     // The dimensions and callouts, drawn from the plan alone, one at a time so each one's ink
     // is measured.
     let mut annotations = Vec::new();
@@ -12767,9 +12765,6 @@ fn render_annotations_with_cuts(
                 &mut annotations,
                 &mut sheet,
             );
-        text_index
-            .runs
-            .resize_with(text.len(), || TextSource::dimension(d));
     }
     // The feature control frames and datum feature symbols, likewise.
     for g in &plan.gdt {
@@ -12783,16 +12778,13 @@ fn render_annotations_with_cuts(
                 &mut annotations,
                 &mut sheet,
             );
-        text_index.runs.resize_with(text.len(), || {
-            TextSource::new(&g.id, TextKind::Annotation).in_view(Some(&g.view))
-        });
     }
     // Glyphs *laid* out drawn moved to *at*, and the *run* (text, font file, size), if any, as
     // invisible text centred there; the run's index in the drawing's text.
     let mut label = |laid: Laid,
                      at: [f64; 2],
                      layer: &mut Vec<Item>,
-                     run: Option<((&str, &str, f64), TextSource)>|
+                     run: Option<(&str, &str, f64)>|
      -> Option<usize> {
         for item in layer.iter_mut().rev() {
             if let Item::TextStroke(_, index) = item
@@ -12837,8 +12829,7 @@ fn render_annotations_with_cuts(
                 },
             ));
         }
-        let ((s, font, size), source) = run?;
-        text_index.runs.push(source);
+        let (s, font, size) = run?;
         text.push(TextRun {
             text: s.into(),
             at,
@@ -12878,29 +12869,7 @@ fn render_annotations_with_cuts(
         let size = crate::section::FONT_SIZE;
         let run = (s.as_str(), "IBMPlexMono-Regular.ttf", size);
         let from = dims.len();
-        let key = if name == "section_caption" {
-            section_caption_owners
-                .get(&at.map(f64::to_bits))
-                .map_or_else(|| name.clone(), |owner| format!("{name}/{owner}"))
-        } else {
-            name.clone()
-        };
-        if let Some(owner) = section_caption_owners.get(&at.map(f64::to_bits)) {
-            sheet.dxf.furniture_views.insert(key.clone(), owner.clone());
-        }
-        let kind = if name.ends_with("/scale_note") {
-            TextKind::Scale
-        } else if name == "section_caption"
-            || name.starts_with("detail_caption_")
-            || name.ends_with("/caption")
-        {
-            TextKind::Caption
-        } else {
-            TextKind::ViewLabel
-        };
-        let source = TextSource::new(&key, kind)
-            .in_view(sheet.dxf.furniture_views.get(&key).map(String::as_str));
-        if let Some(run) = label(font.text(s, size), *at, dims, Some((run, source)))
+        if let Some(run) = label(font.text(s, size), *at, dims, Some(run))
             && let Some((_, name, prefix, target, r)) =
                 references.iter().find(|(i, ..)| *i == index)
         {
@@ -12913,6 +12882,16 @@ fn render_annotations_with_cuts(
                 run,
             });
         }
+        let key = if name == "section_caption" {
+            section_caption_owners
+                .get(&at.map(f64::to_bits))
+                .map_or_else(|| name.clone(), |owner| format!("{name}/{owner}"))
+        } else {
+            name.clone()
+        };
+        if let Some(owner) = section_caption_owners.get(&at.map(f64::to_bits)) {
+            sheet.dxf.furniture_views.insert(key.clone(), owner.clone());
+        }
         sheet.dxf.furniture.insert(key, from..dims.len());
         sheet
             .items
@@ -12923,15 +12902,12 @@ fn render_annotations_with_cuts(
         for n in 0..grid.columns {
             let x = (f64::from(n) + 0.5) * w / f64::from(grid.columns);
             let value = (n + 1).to_string();
-            for (side, y) in [("bottom", FRAME / 2.), ("top", h - FRAME / 2.)] {
+            for y in [FRAME / 2., h - FRAME / 2.] {
                 label(
                     font.text(&value, 3.),
                     [x, y],
                     dims,
-                    Some((
-                        (&value, "IBMPlexMono-Regular.ttf", 3.),
-                        TextSource::new(&format!("zone:{side}:{value}"), TextKind::Zone),
-                    )),
+                    Some((&value, "IBMPlexMono-Regular.ttf", 3.)),
                 );
             }
             if n > 0 {
@@ -12944,15 +12920,12 @@ fn render_annotations_with_cuts(
         for n in 0..grid.rows {
             let y = h - (f64::from(n) + 0.5) * h / f64::from(grid.rows);
             let value = (b"ABCDEFGHJKLMNPQRSTUVWXYZ"[n as usize] as char).to_string();
-            for (side, x) in [("left", FRAME / 2.), ("right", w - FRAME / 2.)] {
+            for x in [FRAME / 2., w - FRAME / 2.] {
                 label(
                     font.text(&value, 3.),
                     [x, y],
                     dims,
-                    Some((
-                        (&value, "IBMPlexMono-Regular.ttf", 3.),
-                        TextSource::new(&format!("zone:{side}:{value}"), TextKind::Zone),
-                    )),
+                    Some((&value, "IBMPlexMono-Regular.ttf", 3.)),
                 );
             }
             if n > 0 {
@@ -13020,15 +12993,6 @@ fn render_annotations_with_cuts(
             title_block::LABEL_TEXT,
         ));
         if run.is_none() {
-            text_index.outline_labels.push((
-                TextSource::title(&c.field, true),
-                [
-                    at[0] + laid.min[0],
-                    at[1] + laid.min[1],
-                    at[0] + laid.max[0],
-                    at[1] + laid.max[1],
-                ],
-            ));
             sheet.dxf.labels.push(crate::output::TextRun {
                 text: c.label.clone(),
                 at,
@@ -13039,12 +13003,7 @@ fn render_annotations_with_cuts(
                 v_align: VAlign::Middle,
             });
         }
-        label(
-            laid,
-            at,
-            dims,
-            run.map(|run| (run, TextSource::title(&c.field, true))),
-        );
+        label(laid, at, dims, run);
         let from = dims.len();
         for line in lines.iter().filter(|line| !line.text.is_empty()) {
             let run = (line.text.as_str(), title_block::FONT, line.size);
@@ -13052,7 +13011,7 @@ fn render_annotations_with_cuts(
                 title_block::lay(&line.text, line.size),
                 line.at,
                 dims,
-                Some((run, TextSource::title(&c.field, false))),
+                Some(run),
             );
             for r in &plan.requirements {
                 if r.carrier == "title_block" && c.field == "general_tolerance" {
@@ -13119,11 +13078,6 @@ fn render_annotations_with_cuts(
             continue;
         }
         let notes_from = dims.len();
-        let block_id = if i == 0 {
-            "general_notes"
-        } else {
-            "blend_radius_notes"
-        };
         if let Some(block) = block {
             for [a, b] in crate::notes::rules(block) {
                 dims.push(Item::Edge(Curve::Line(a, b)));
@@ -13138,10 +13092,7 @@ fn render_annotations_with_cuts(
                 laid,
                 block.title_at,
                 dims,
-                Some((
-                    (row, crate::dims::FONT, crate::notes::TEXT),
-                    TextSource::new(block_id, TextKind::Note),
-                )),
+                Some((row, crate::dims::FONT, crate::notes::TEXT)),
             );
         }
         for n in plan.notes.iter().filter(|n| {
@@ -13163,10 +13114,7 @@ fn render_annotations_with_cuts(
                         laid,
                         *at,
                         dims,
-                        Some((
-                            (row.trim_start(), crate::dims::FONT, crate::notes::TEXT),
-                            TextSource::new(&n.id, TextKind::Note),
-                        )),
+                        Some((row.trim_start(), crate::dims::FONT, crate::notes::TEXT)),
                     )
                 })
                 .collect();
@@ -13253,7 +13201,7 @@ fn render_annotations_with_cuts(
             title_block::lay(&r.text, title_block::TEXT),
             p.text_at,
             dims,
-            Some((run, TextSource::new(&r.id, TextKind::Annotation))),
+            Some(run),
         );
         stated.entry(r.id.clone()).or_default().extend(at);
         sheet.dxf.furniture.insert(r.id.clone(), from..dims.len());
@@ -13282,13 +13230,13 @@ fn render_annotations_with_cuts(
         let mut manufacturing_header = Vec::new();
         let mut data_runs = Vec::new();
         let mut tag = None;
-        for (draw_row, (block, r, row, positions)) in
+        for (draw_row, (r, row, positions)) in
             crate::tables::cell_rows(table).into_iter().enumerate()
         {
             if table.id == crate::pmi_lowering::SCHEDULE_ID && r > 0 && !row[0].is_empty() {
                 tag = Some(row[0].clone());
             }
-            for (column, (cell, at)) in row.iter().zip(positions).enumerate() {
+            for (cell, at) in row.iter().zip(positions) {
                 let Some(at) = at else { continue };
                 let run = (cell.trim(), crate::dims::FONT, crate::tables::TEXT);
                 let laid = crate::output::centred_label_ink(
@@ -13296,12 +13244,7 @@ fn render_annotations_with_cuts(
                     *at,
                     dims,
                 );
-                let index = label(
-                    laid,
-                    *at,
-                    dims,
-                    Some((run, TextSource::cell(&table.id, block, r, column))),
-                );
+                let index = label(laid, *at, dims, Some(run));
                 if table.id.starts_with("gear_data_") || table.id.starts_with("spring_data_") {
                     data_runs.extend(index);
                 }
@@ -13391,9 +13334,9 @@ fn render_annotations_with_cuts(
         for [a, b] in crate::tables::rules(p) {
             dims.push(Item::Edge(Curve::Line(a, b)));
         }
-        for (block, i, row, at) in crate::tables::cell_rows(&t.table) {
+        for (i, row, at) in crate::tables::cell_rows(&t.table) {
             let mut runs = Vec::new();
-            for (column, (cell, at)) in row.iter().zip(at).enumerate() {
+            for (cell, at) in row.iter().zip(at) {
                 let Some(at) = at else { continue };
                 let laid = crate::output::centred_label_ink(
                     crate::tables::text_ink(cell, font),
@@ -13404,10 +13347,7 @@ fn render_annotations_with_cuts(
                     laid,
                     *at,
                     dims,
-                    Some((
-                        (cell, crate::dims::FONT, crate::tables::TEXT),
-                        TextSource::cell(&t.table.id, block, i, column),
-                    )),
+                    Some((cell, crate::dims::FONT, crate::tables::TEXT)),
                 ));
             }
             if i > 0
@@ -13476,17 +13416,19 @@ fn render_annotations_with_cuts(
                 for (c, (cell, at)) in row.iter().zip(at).enumerate() {
                     let Some(at) = at else { continue };
                     let run = (cell.trim(), crate::dims::FONT, crate::tables::TEXT);
-                    let ink = if t.view.is_some() && r >= headers && c == 1 {
+                    let laid = if t.view.is_some() && r >= headers && c == 1 {
                         // Reuse the established callout symbols in scheduled size cells;
                         // a font's missing-glyph box must not stand for recess or depth.
-                        crate::hole_table::size_ink(cell, font)
+                        let ink = crate::hole_table::size_ink(cell, font);
+                        crate::output::centred_label_ink(ink, *at, dims)
                     } else {
-                        crate::tables::text_ink(cell, font)
+                        crate::output::centred_label_ink(
+                            crate::tables::text_ink(cell, font),
+                            *at,
+                            dims,
+                        )
                     };
-                    let laid = crate::output::centred_label_ink(ink, *at, dims);
-                    let row = if r < headers { r } else { k * per + r };
-                    let source = TextSource::cell(&t.id, k, row, c).in_view(t.view.as_deref());
-                    let index = label(laid, *at, dims, Some((run, source)));
+                    let index = label(laid, *at, dims, Some(run));
                     if r >= headers
                         && c > 0
                         && let Some(runs) = row_runs.get_mut(k * per + r - headers)
@@ -13626,10 +13568,7 @@ fn render_annotations_with_cuts(
             font.text(&b.number, crate::dims::TEXT),
             b.at,
             dims,
-            Some((
-                run,
-                TextSource::new(&b.id, TextKind::Balloon).in_view(b.view.as_deref()),
-            )),
+            Some(run),
         );
         let leader_from = dims.len() - from;
         for [a, z] in &b.lines {
@@ -13681,17 +13620,7 @@ fn render_annotations_with_cuts(
             ]));
         }
         let run = (b.tag.as_str(), crate::dims::FONT, crate::dims::TEXT);
-        let kind = if b.id.starts_with("ga_item_") {
-            TextKind::Balloon
-        } else {
-            TextKind::HoleTag
-        };
-        label(
-            font.text(&b.tag, crate::dims::TEXT),
-            b.at,
-            dims,
-            Some((run, TextSource::new(&b.id, kind).in_view(Some(&b.view)))),
-        );
+        label(font.text(&b.tag, crate::dims::TEXT), b.at, dims, Some(run));
         let r = b.radius;
         let mut lines = vec![
             [[cx - r, cy - r], [cx + r, cy - r]],
@@ -13794,7 +13723,7 @@ fn render_annotations_with_cuts(
         title_block::lay(&scale, title_block::TEXT),
         at,
         dims,
-        Some((run, TextSource::new("scale_note", TextKind::Scale))),
+        Some(run),
     );
     sheet
         .items
@@ -13810,10 +13739,7 @@ fn render_annotations_with_cuts(
             font.text(&caption.text, caption.height),
             caption.at,
             dims,
-            Some((
-                run,
-                TextSource::new(&caption.id, TextKind::Caption).in_view(Some(&caption.view)),
-            )),
+            Some(run),
         );
         sheet
             .dxf
@@ -14129,7 +14055,6 @@ fn render_annotations_with_cuts(
             }],
         );
     }
-    sheet.text_index = text_index;
     let mut missing_glyphs = crate::output::missing_glyphs(&text);
     missing_glyphs.extend(crate::output::missing_frame_glyphs(&plan.gdt));
     Ok(Drawing {

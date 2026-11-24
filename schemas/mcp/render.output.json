@@ -9,8 +9,7 @@
         "mime_type": {
           "enum": [
             "image/png",
-            "application/pdf",
-            "application/json"
+            "application/pdf"
           ]
         },
         "bytes": {

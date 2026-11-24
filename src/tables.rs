@@ -554,32 +554,25 @@ pub(crate) fn rules(p: &PlacedTable) -> Vec<[[f64; 2]; 2]> {
     }
 }
 
-type CellRow<'a> = (usize, usize, &'a [String], &'a [Option<[f64; 2]>]);
+type CellRow<'a> = (usize, &'a [String], &'a [Option<[f64; 2]>]);
 
-/// Text rows with their block and source row indices, including repeated headers.
+/// Text rows with their original source index, including repeated headers.
 pub(crate) fn cell_rows(table: &PlannedTable) -> Vec<CellRow<'_>> {
     let Some(p) = &table.placed else {
         return Vec::new();
     };
-    let per = table
-        .rows
-        .len()
-        .saturating_sub(1)
-        .div_ceil(p.blocks.len().max(1))
-        .max(1);
     let mut rows: Vec<_> = table
         .rows
         .iter()
         .zip(&p.cells_at)
         .enumerate()
-        .map(|(i, (row, at))| (i.saturating_sub(1) / per, i, row.as_slice(), at.as_slice()))
+        .map(|(i, (row, at))| (i, row.as_slice(), at.as_slice()))
         .collect();
     rows.extend(
         p.blocks
             .iter()
-            .enumerate()
             .skip(1)
-            .map(|(i, b)| (i, 0, table.rows[0].as_slice(), b.cells_at[0].as_slice())),
+            .map(|b| (0, table.rows[0].as_slice(), b.cells_at[0].as_slice())),
     );
     rows
 }
@@ -701,7 +694,7 @@ pub(crate) fn lay(rows: &[Vec<String>], widths: &[f64], at: [f64; 2]) -> PlacedT
 pub fn texts(table: &PlannedTable) -> Vec<(&str, [f64; 2])> {
     cell_rows(table)
         .into_iter()
-        .flat_map(|(_, _, row, at)| row.iter().zip(at))
+        .flat_map(|(_, row, at)| row.iter().zip(at))
         .filter_map(|(cell, at)| at.map(|at| (cell.as_str(), at)))
         .collect()
 }

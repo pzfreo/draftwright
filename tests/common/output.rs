@@ -234,7 +234,7 @@ fn svg_arc(
     );
 }
 
-pub fn attr(tag: &str, name: &str) -> Option<String> {
+fn attr(tag: &str, name: &str) -> Option<String> {
     let key = format!(" {name}=\"");
     let i = tag.find(&key)? + key.len();
     Some(tag[i..i + tag[i..].find('"')?].to_string())

@@ -158,11 +158,10 @@ yet been tried in a real client.
   silently. Checked record by record against Python draftwright's drawings of 22 AP242 files
   (NIST CTC/FTC/STC models and files written by specify-core and by haecceity's PMI writer):
   every difference has a verdict, and none is rust-wrong.
-- **Output:** SVG, PDF, PNG and editable DXF embed the Spec for `draftwright spec`.
-  The PDF embeds subset fonts and carries searchable labels with callout symbols.
-  The SVG also carries searchable text. The optional text JSON export records
-  printed text, item IDs and glyph bounds on every sheet. See the
-  [text inventory reference](cli.md#text-inventory).
+- **Output:** SVG, PDF, PNG and editable DXF (`src/output.rs`, `src/png.rs`,
+  `src/dxf_output.rs`). The PDF embeds subset
+  fonts and carries every label as searchable text, callout symbols included; the SVG carries
+  the text too. Every format embeds the Spec, which `draftwright spec` reads back.
 - **Deterministic:** the same input gives the same bytes, run to run and in every time zone
   (`tests/timezone.rs`, `tests/png.rs`).
 

@@ -253,45 +253,6 @@ fn r5_summary_and_render_select_sheet() {
             .max,
         Some(2)
     );
-    for (sheet, numbers) in [(None, vec![1, 2]), (Some(2), vec![2])] {
-        let mut args = json!({"part_ref":key,"spec":spec(),"format":"text-json"});
-        if let Some(sheet) = sheet {
-            args["sheet"] = json!(sheet);
-        }
-        let artifact = checked(&cache, "render", args);
-        assert_eq!(artifact["mime_type"], "application/json");
-        let uri = format!("draftwright:{}", artifact["artifact_ref"].as_str().unwrap());
-        let reply = mcp::reply(
-            &cache,
-            &json!({"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":uri}}),
-        )
-        .unwrap();
-        let content = &reply["result"]["contents"][0];
-        assert_eq!(content["mimeType"], "application/json");
-        let text = content["text"].as_str().unwrap();
-        assert_eq!(artifact["bytes"], text.len());
-        let inventory: Value = serde_json::from_str(text).unwrap();
-        let schema: Value = serde_json::from_str(include_str!("../schemas/text.json")).unwrap();
-        mcp::validate(&schema, &inventory).unwrap();
-        assert_eq!(
-            inventory["sheets"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|s| s["number"].as_u64().unwrap())
-                .collect::<Vec<_>>(),
-            numbers
-        );
-        assert_eq!(
-            inventory["entries"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|e| e["sheet"].as_u64().unwrap())
-                .collect::<std::collections::BTreeSet<_>>(),
-            numbers.into_iter().collect()
-        );
-    }
     let error = mcp::call(
         &cache,
         "render",
