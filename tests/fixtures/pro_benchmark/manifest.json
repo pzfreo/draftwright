@@ -1,0 +1,13 @@
+[
+  {
+    "id": "P01",
+    "step": "corpus/nist/nist_ctc_01_asme1_rd.stp",
+    "reference": "synthetic-width-reference.json",
+    "spec": "synthetic-width-settings.json"
+  },
+  {
+    "id": "P02",
+    "step": "corpus/nist/nist_ctc_03_asme1_rc.stp",
+    "reference": "synthetic-hole-table-reference.json"
+  }
+]

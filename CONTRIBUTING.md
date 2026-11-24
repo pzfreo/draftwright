@@ -69,6 +69,40 @@ entries. Local latency assertions stay enabled.
 Counts above cover `ci.yml`; the existing path-filtered wheel,
 crate-package and CLI workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
 
+### Professional drawing benchmark
+
+With a release CLI and the public corpus, run:
+
+```sh
+export DRAFTWRIGHT_CORPUS=/path/to/quiddity/tests/corpus
+export REF=/path/to/nist-ref
+python3 -I tools/pro_benchmark.py --binary target/release/draftwright
+```
+
+Use `--json OUT` for the same counts in JSON and `--parts ctc_01 ftc_06` to
+select cases and skip the independent 30-part gate. A full run uses
+`tools/quality.py` and the maintained CI quality baseline. The benchmark
+uses `DRAFTWRIGHT_PLAN_CACHE` for public inputs when set.
+
+The source-PMI row measures rendered or explicitly reported STEP requirements.
+The NIST FTC workbook, specification indexes and SFA records describe the
+public reference cases. Their construct and analyzer counts are separate from
+the source audit, since an annotated export and a geometry-only export do
+not carry the same requirements.
+
+Completeness measures recognized features subject to the planner's completeness
+check. Sizing and locating findings count once per affected feature, including
+`feature_not_dimensioned`, `feature_not_sized`, `feature_not_located`,
+`dimensions_not_ported`, the feature requirement failures and the additional
+codes in `FEATURE_GAPS`. The separate true-view row counts the inclined-axis
+location variant of `feature_not_dimensioned` when every rendered view is
+oblique to the feature axis. Redundancy counts `duplicate_measurement`,
+`closed_dimension_chain`, `feature_located_twice` and `over_dimensioned_pattern`.
+
+Set `DRAFTWRIGHT_BENCH_PRIVATE` to run local human references alongside NIST.
+The tool's docstring defines the manifest and reference schema. The private
+report uses opaque case IDs and counts, and the private plan cache is temporary.
+
 ## Releasing
 
 Publish a release only after main CI is green; the guard waits up to 45 minutes for a run in progress.
