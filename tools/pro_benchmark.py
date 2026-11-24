@@ -3,6 +3,7 @@
     DRAFTWRIGHT_CORPUS=/path/to/corpus REF=/path/to/nist-ref \
       python3 -I tools/pro_benchmark.py --binary target/release/draftwright [--json OUT] [--parts ID ...]
 
+--nist DIR selects the public AP242 exports (default: REF/ap242).
 REF contains the public FTC definitions workbook and optional SFA expected PMI.
 The workbook inventories test constructs, which can span several requirements.
 SFA also has overlapping coverage categories. Neither is a source-ID crosswalk
@@ -719,6 +720,7 @@ def print_report(report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--binary", required=True, type=Path)
+    parser.add_argument("--nist", type=Path, metavar="DIR")
     parser.add_argument("--parts", nargs="+", metavar="ID")
     parser.add_argument("--json", type=Path, metavar="OUT")
     args = parser.parse_args()
@@ -726,13 +728,21 @@ def main():
     if not os.environ.get("DRAFTWRIGHT_CORPUS"):
         parser.error("Set DRAFTWRIGHT_CORPUS to the public corpus root.")
     corpus = Path(os.environ["DRAFTWRIGHT_CORPUS"]).resolve()
-    if not (corpus / "nist").is_dir() or not args.binary.is_file():
-        parser.error("The NIST corpus directory and draftwright binary are required.")
+    if not args.binary.is_file():
+        parser.error("The draftwright binary is required.")
     binary = args.binary.resolve()
     nist, missing = [], []
     selected = set(args.parts or ())
+    ref_root = Path(os.environ.get("REF", "nist-ref"))
+    nist_dir = args.nist or ref_root / "ap242"
     for case_id in NIST_IDS:
-        matches = sorted((corpus / "nist").glob(f"nist_{case_id}_*.stp"))
+        if selected and not any(
+                key == case_id or key.startswith(f"nist_{case_id}_") for key in selected):
+            continue
+        if not nist_dir.is_dir():
+            parser.error("Supply the NIST AP242 directory with --nist or REF/ap242.")
+        matches = sorted(p for p in nist_dir.glob(f"nist_{case_id}_*")
+                         if p.suffix.lower() in {".stp", ".step"} and "ap242" in p.stem.lower())
         if len(matches) > 1:
             parser.error(f"Ambiguous corpus exports for {case_id}.")
         if not matches:
@@ -742,7 +752,6 @@ def main():
         if not selected or case_id in selected or matches[0].stem in selected:
             nist.append(Case(case_id, matches[0]))
 
-    ref_root = Path(os.environ.get("REF", str(TOOLS.parent.parent / "nist-ref")))
     workbook = ref_root / "ftc-definitions" / "NIST-FTC-PMI-Definitions.xlsx"
     try:
         definitions = ftc_definitions(workbook) if workbook.is_file() else {}

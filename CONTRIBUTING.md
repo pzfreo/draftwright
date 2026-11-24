@@ -79,6 +79,11 @@ export REF=/path/to/nist-ref
 python3 -I tools/pro_benchmark.py --binary target/release/draftwright
 ```
 
+Download the semantic PMI STEP AP242 exports for CTC01–05 and FTC06–11 from
+[NIST's CAD and STEP downloads](https://www.nist.gov/ctl/smart-connected-systems-division/smart-connected-manufacturing-systems-group/mbe-pmi-0).
+Unpack one AP242 export per case into `$REF/ap242` or pass its directory
+explicitly with `--nist DIR`.
+
 Use `--json OUT` for the same counts in JSON and `--parts ctc_01 ftc_06` to
 select cases and skip the independent 30-part gate. A full run uses
 `tools/quality.py` and the maintained CI quality baseline. The benchmark
