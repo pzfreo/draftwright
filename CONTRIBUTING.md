@@ -88,6 +88,9 @@ Use `--json OUT` for the same counts in JSON and `--parts ctc_01 ftc_06` to
 select cases and skip the independent 30-part gate. A full run uses
 `tools/quality.py` and the maintained CI quality baseline. The benchmark
 uses `DRAFTWRIGHT_PLAN_CACHE` for public inputs when set.
+Cost is the sum of draftwright child-process instructions retired, collected
+with `/usr/bin/time -l` on macOS when the host exposes the counter. Other
+environments report n/a.
 
 The source-PMI row measures rendered or explicitly reported STEP requirements.
 The NIST FTC workbook, specification indexes and SFA records describe the

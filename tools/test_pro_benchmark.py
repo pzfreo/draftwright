@@ -59,8 +59,21 @@ class MetricsTest(unittest.TestCase):
     def test_requirement_coverage_tracks_drawn_listed_and_unaccounted(self):
         review = {"coverage": {"pmi": {"requirements": ["d1", "d2", "d3"],
                                       "drawn_sources": ["d1", "d2", "another"]}}}
-        result = bench.pmi_metric(review, {}, {"d2"})
-        self.assertEqual(result, bench.metric(1, 3, listed_not_shown=1, unaccounted=1))
+        analysis = {"pmi": {"read": {"records": [{"source_id": "d1"}, {"source_id": "d2"}]}}}
+        result = bench.pmi_metric(review, analysis, {"d2"})
+        self.assertEqual(result, bench.metric(1, 3, read=2, read_not_drawn=1,
+                                             listed_not_shown=1, unaccounted=1))
+
+    def test_retired_instructions_reads_only_the_counter(self):
+        self.assertEqual(bench.retired_instructions(b"  0.03 real\n  1234 instructions retired\n"), 1234)
+        self.assertIsNone(bench.retired_instructions("  32 cycles elapsed\n"))
+        self.assertIsNone(bench.cost_total([{"instructions_retired": None}]))
+        self.assertEqual(bench.cost_total([{"instructions_retired": 12}, {"instructions_retired": 3}]), 15)
+
+    def test_uncertainty_is_excluded_and_reported(self):
+        result = bench.dimension_counts([{"uncertain": True}], {}, {}, {}, set())
+        self.assertIsNone(result["denominator"])
+        self.assertEqual(result["uncertain"], 1)
 
     def test_section_match_checks_plane_and_direction(self):
         wanted = {"direction": [1, 0, 0], "origin": [4, 0, 0]}
@@ -101,6 +114,8 @@ class SyntheticManifestTest(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
             raw_json = output.read_text()
             report = json.loads(raw_json)
+            self.assertNotIn("wall_seconds", raw_json)
+            self.assertIn("instructions_retired", report)
             rows = {r["id"]: r for r in report["sets"]["Private"]["parts"]}
             self.assertEqual(set(rows), {"P01", "P02"})
             self.assertEqual(rows["P01"]["metrics"]["dimensions"], bench.metric(1, 2))

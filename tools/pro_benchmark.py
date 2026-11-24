@@ -39,6 +39,9 @@ Each reference is an object with these fields (null means unavailable):
   referenced letters in order. Omit neither the tolerance field nor the datum
   array. Without an occurrence ID, equal dimensions on the same feature kind
   are matched by multiplicity. One drawn statement can satisfy at most one entry.
+  Mark an unresolved dimension or view with "uncertain": true. Remaining fields
+  on that entry are optional. The benchmark reports these entries separately
+  and excludes them from the matching denominator.
 * "hole_table": boolean. "general_tolerance": {"stated": true, "text": "..."}
   or {"stated": false, "text": null}. General tolerance from the engineer's
   drawing is recorded for context. The scored cell uses only STEP or Spec input.
@@ -61,8 +64,8 @@ from pathlib import Path
 import posixpath
 import re
 import subprocess
+import sys
 import tempfile
-import time
 import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
@@ -215,6 +218,8 @@ def private_reference(path):
             if not isinstance(ref["views"][kind], list):
                 raise ValueError("expected a view list")
             for view in ref["views"][kind]:
+                if view.get("uncertain") is True:
+                    continue
                 direction(view["direction"])
                 if kind == "section":
                     vector(view["origin"], 3)
@@ -228,6 +233,8 @@ def private_reference(path):
         if not isinstance(ref["dimensions"], list):
             raise ValueError("expected a dimension list")
         for dim in ref["dimensions"]:
+            if dim.get("uncertain") is True:
+                continue
             if not isinstance(dim["feature"]["kind"], str) or not isinstance(dim["kind"], str):
                 raise ValueError("expected dimension and feature kinds")
             if "id" in dim["feature"] and not isinstance(dim["feature"]["id"], str):
@@ -310,14 +317,18 @@ def view_counts(reference, plan):
             kinds["section"].append(view)
         elif view["id"] in {"v:front", "v:rear", "v:side", "v:left", "v:plan", "v:bottom", "v:end"}:
             kinds["principal"].append(view)
-    counts = {kind: (match_count(reference[kind], kinds[kind],
-                                 lambda a, b: view_match(kind, a, b)), len(reference[kind]))
+    certain = {kind: [view for view in reference[kind] if view.get("uncertain") is not True]
+               for kind in VIEW_KINDS}
+    counts = {kind: (match_count(certain[kind], kinds[kind],
+                                 lambda a, b: view_match(kind, a, b)), len(certain[kind]))
               for kind in VIEW_KINDS}
+    uncertainty = {kind: len(reference[kind]) - len(certain[kind]) for kind in VIEW_KINDS}
     n, d = (sum(counts[kind][i] for kind in VIEW_KINDS[1:]) for i in (0, 1))
-    return metric(n, d, by_kind={key: metric(*counts[key]) for key in counts}) if d else metric(
-        reason="No derived views in the reference.",
-        by_kind={key: metric(*counts[key]) for key in counts},
-    )
+    extra = {"by_kind": {k: metric(*counts[k], uncertain=uncertainty[k]) for k in counts},
+             "uncertain": sum(uncertainty[k] for k in VIEW_KINDS[1:])}
+    if d:
+        return metric(n, d, **extra)
+    return metric(reason="No scorable derived views in the reference.", **extra)
 
 
 def drawing_findings(review):
@@ -339,7 +350,10 @@ def pmi_metric(review, analysis, bad):
     carried = set(evidence["drawn_sources"]) & required
     drawn = carried - bad
     listed = (required - drawn) & bad
-    return metric(len(drawn), len(required), listed_not_shown=len(listed),
+    records = analysis.get("pmi", {}).get("read", {}).get("records", ())
+    read = required & {r["source_id"] for r in records}
+    return metric(len(drawn), len(required), read=len(read),
+                  read_not_drawn=len(read - drawn), listed_not_shown=len(listed),
                   unaccounted=len(required - drawn - listed))
 
 
@@ -462,8 +476,10 @@ def spec_dimensions(plan):
 
 
 def dimension_counts(reference, analysis, plan, review, bad):
-    if not reference:
-        return na("No toleranced or datum-reference dimensions in the reference.")
+    certain = [dim for dim in reference if dim.get("uncertain") is not True]
+    uncertain = len(reference) - len(certain)
+    if not certain:
+        return metric(reason="No scorable toleranced or datum-reference dimensions.", uncertain=uncertain)
     features = {f["id"]: f for f in analysis["features"]}
     pmi = review["coverage"]["pmi"] or {}
     proven = set(pmi.get("drawn_sources", ())) - bad
@@ -489,20 +505,62 @@ def dimension_counts(reference, analysis, plan, review, bad):
             return False
         return "fit" not in want or want["fit"] == fit
 
-    return metric(match_count(reference, actual, matches), len(reference))
+    result = metric(match_count(certain, actual, matches), len(certain))
+    if uncertain:
+        result["uncertain"] = uncertain
+    return result
 
 
-def run_cli(binary, command, case, cache):
+def retired_instructions(stderr):
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    found = re.search(r"^\s*([0-9]+)\s+instructions retired\s*$", stderr, re.MULTILINE)
+    return int(found[1]) if found else None
+
+
+def instruction_counter_available():
+    if sys.platform != "darwin":
+        return False
+    try:
+        probe = subprocess.run(["/usr/bin/time", "-l", "/usr/bin/true"],
+                               capture_output=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0 and retired_instructions(probe.stderr) is not None
+
+
+class InstructionCounter:
+    def __init__(self, available):
+        self.counts = [] if available else None
+
+    def run(self, args, **kwargs):
+        if self.counts is None:
+            return subprocess.run(args, **kwargs)
+        result = subprocess.run(["/usr/bin/time", "-l", *args], **kwargs)
+        self.counts.append(retired_instructions(result.stderr))
+        return result
+
+    @property
+    def total(self):
+        return sum(self.counts) if self.counts and None not in self.counts else None
+
+
+def cost_total(rows):
+    costs = [row["instructions_retired"] for row in rows]
+    return sum(costs) if costs and None not in costs else None
+
+
+def run_cli(binary, command, case, cache, counter):
     args = [binary, command, case.step]
     if command != "analyse" and case.spec is not None:
         args.extend(("--spec", case.spec))
     env = {**os.environ, "DRAFTWRIGHT_PLAN_CACHE": str(cache)}
-    proc = subprocess.run(args, env=env, capture_output=True, check=True, timeout=600)
+    proc = counter.run(args, env=env, capture_output=True, check=True, timeout=600)
     return json.loads(proc.stdout)
 
 
-def measure(case, private, binary, cache):
-    start = time.monotonic()
+def measure(case, private, binary, cache, count_instructions):
+    counter = InstructionCounter(count_instructions)
     error = None
     reference = None
     if private:
@@ -511,9 +569,9 @@ def measure(case, private, binary, cache):
         except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
             error = "Reference unavailable or invalid."
     try:
-        analysis = run_cli(binary, "analyse", case, cache)
-        plan = run_cli(binary, "plan", case, cache)
-        review = run_cli(binary, "review", case, cache)
+        analysis = run_cli(binary, "analyse", case, cache, counter)
+        plan = run_cli(binary, "plan", case, cache, counter)
+        review = run_cli(binary, "review", case, cache, counter)
         findings = drawing_findings(review)
         bad = failed_pmi(findings)
         shown_true, complete = feature_metrics(plan, review, findings)
@@ -544,7 +602,7 @@ def measure(case, private, binary, cache):
             OverflowError):
         error = "Drawing command or coverage evidence unavailable."
         checks = {key: na(error) for key in METRICS}
-    row = {"id": case.id, "metrics": checks, "wall_seconds": round(time.monotonic() - start, 3)}
+    row = {"id": case.id, "metrics": checks, "instructions_retired": counter.total}
     if error:
         row["error"] = error
     if reference and reference["general_tolerance"] is not None:
@@ -576,16 +634,16 @@ def load_ci():
     return ci
 
 
-def quality_check(corpus, binary, cache, out):
+def quality_check(corpus, binary, cache, out, count_instructions):
     ci = load_ci()
     baseline = read_json(TOOLS / "ci-quality-baseline.json")
     manifest = ci.manifest("quality_parts.txt")
     if len(manifest) != 30 or set(baseline["parts"]) != ci.names(manifest) or baseline["metrics"] != ci.KEYS:
         return {"metric": na("Quality manifest or baseline is incomplete."), "parts": [], "passed": False}
     def one(path):
-        start = time.monotonic()
-        name, actual = ci.quality.one(str(corpus / path), str(binary), str(out))
-        return name, actual, round(time.monotonic() - start, 3)
+        counter = InstructionCounter(count_instructions)
+        name, actual = ci.quality.one(str(corpus / path), str(binary), str(out), run=counter.run)
+        return name, actual, counter.total
 
     # quality.one inherits the public plan cache and writes into this scratch directory.
     previous = os.environ.get("DRAFTWRIGHT_PLAN_CACHE")
@@ -600,7 +658,7 @@ def quality_check(corpus, binary, cache, out):
             os.environ["DRAFTWRIGHT_PLAN_CACHE"] = previous
     rows = []
     regressions = []
-    for name, actual, seconds in results:
+    for name, actual, instructions in results:
         try:
             worse = []
             for key in ci.KEYS:
@@ -611,7 +669,7 @@ def quality_check(corpus, binary, cache, out):
             regressions.extend(worse)
         except ValueError:
             count = na("Quality drawing or metric unavailable.")
-        rows.append({"id": name, "metric": count, "wall_seconds": seconds})
+        rows.append({"id": name, "metric": count, "instructions_retired": instructions})
     if any(row["metric"]["denominator"] is None for row in rows):
         return {"metric": na("Quality evidence missing for one or more parts."),
                 "parts": rows, "passed": False}
@@ -630,12 +688,15 @@ def quality_check(corpus, binary, cache, out):
 def aggregate(rows, key, skipped=None):
     cells = [row["metrics"][key] for row in rows]
     known = [cell for cell in cells if cell["denominator"] is not None]
+    extra = {}
+    if key in {"views", "dimensions"}:
+        extra["uncertain"] = sum(cell.get("uncertain", 0) for cell in cells)
     if not known:
         reason = "; ".join(sorted({cell["reason"] for cell in cells}))
-        return na(skipped or reason or "No selected cases.")
-    extra = {}
+        return metric(reason=skipped or reason or "No selected cases.", **extra)
     if key == "pmi":
-        extra = {count: sum(cell[count] for cell in known) for count in ("listed_not_shown", "unaccounted")}
+        extra = {count: sum(cell[count] for cell in known)
+                 for count in ("read", "read_not_drawn", "listed_not_shown", "unaccounted")}
     if key == "views":
         extra["by_kind"] = {
             kind: metric(sum(c["by_kind"][kind]["numerator"] for c in cells if "by_kind" in c),
@@ -648,20 +709,26 @@ def aggregate(rows, key, skipped=None):
 
 def display(key, cell, compact=False):
     n, d = cell["numerator"], cell["denominator"]
+    uncertainty = f"; {cell['uncertain']} uncertain" if cell.get("uncertain") and not compact else ""
     if n is None:
-        return "n/a" if compact else f"n/a — {cell['reason']}"
+        return "n/a" if compact else f"n/a — {cell['reason']}{uncertainty}"
     counts = f"{n}/{d}"
     if compact:
         return counts
     if key in {"pmi", "views", "complete", "dimensions", "tolerance", "hole_table"}:
         counts += f" ({100*n/d:.1f}%)"
     if key == "pmi":
-        counts += f"; {cell['listed_not_shown']} listed as not shown; {cell['unaccounted']} unaccounted"
+        counts += (f"; {cell['read']} read; {cell['listed_not_shown']} listed as not shown; "
+                   f"{cell['unaccounted']} unaccounted")
     if key in {"true", "redundancy"}:
         counts += " findings/parts" if key == "redundancy" else " affected/features"
     if cell.get("unavailable_parts") and key in {"pmi", "true", "complete", "redundancy"}:
         counts += f"; {cell['unavailable_parts']} cases unavailable"
-    return counts
+    return counts + uncertainty
+
+
+def show_cost(count):
+    return "n/a" if count is None else str(count)
 
 
 def print_report(report):
@@ -680,17 +747,19 @@ def print_report(report):
             print("Missing NIST cases: " + ", ".join(report["missing_nist"]))
         if not group["parts"]:
             continue
-        print("| Case | " + " | ".join(METRICS) + " | Seconds |")
+        print("| Case | " + " | ".join(METRICS) + " | Instructions retired |")
         print("|---|" + "---|" * (len(METRICS) + 1))
         for row in group["parts"]:
             numbers = [display(k, row["metrics"][k], compact=True) for k in METRICS]
-            print(f"| {row['id']} | " + " | ".join(numbers) + f" | {row['wall_seconds']:.3f} |")
+            print(f"| {row['id']} | " + " | ".join(numbers) +
+                  f" | {show_cost(row['instructions_retired'])} |")
         for row in group["parts"]:
             if row.get("error"):
                 print(f"  {row['id']} {row['error']}")
             pmi = row["metrics"]["pmi"]
             if pmi["denominator"] is not None:
-                print(f"  {row['id']} PMI: {pmi['listed_not_shown']} listed as not shown, "
+                print(f"  {row['id']} PMI: {pmi['read']} read, {pmi['read_not_drawn']} read but not drawn, "
+                      f"{pmi['listed_not_shown']} listed as not shown, "
                       f"{pmi['unaccounted']} unaccounted")
             if row.get("reference"):
                 print(f"  {row['id']} public reference counts: " + ", ".join(
@@ -698,7 +767,11 @@ def print_report(report):
             by_kind = row["metrics"]["views"].get("by_kind")
             if by_kind:
                 print(f"  {row['id']} views matched/expected: " + ", ".join(
-                    f"{key}={display('views', value, compact=True)}" for key, value in by_kind.items()))
+                    f"{key}={display('views', value, compact=True)} ({value['uncertain']} uncertain)"
+                    for key, value in by_kind.items()))
+            uncertain = row["metrics"]["dimensions"].get("uncertain")
+            if uncertain:
+                print(f"  {row['id']} dimensions uncertain: {uncertain}")
             if row.get("engineer_general_tolerance"):
                 cell = row["engineer_general_tolerance"]
                 print(f"  {row['id']} general tolerance in reference: {cell['numerator']}/{cell['denominator']}")
@@ -711,10 +784,10 @@ def print_report(report):
         for row in quality.get("regressions", []):
             print(f"  {row['id']} {row['metric']} {row['before']} -> {row['after']}")
         print("Quality per part (cells no worse/checked): " + ", ".join(
-            f"{p['id']} {display('quality', p['metric'], compact=True)}" for p in quality["parts"]))
-    for name, row in report["slowest"].items():
-        print(f"Slowest {name} part: {row['id']} ({row['wall_seconds']:.3f} s)")
-    print(f"Wall time: {report['wall_seconds']:.3f} s")
+            f"{p['id']} {display('quality', p['metric'], compact=True)} "
+            f"({show_cost(p['instructions_retired'])} instructions retired)" for p in quality["parts"]))
+    print("Instructions retired: " + ", ".join(
+        f"{key}={show_cost(value)}" for key, value in report["instructions_retired"].items()))
 
 
 def main():
@@ -724,7 +797,7 @@ def main():
     parser.add_argument("--parts", nargs="+", metavar="ID")
     parser.add_argument("--json", type=Path, metavar="OUT")
     args = parser.parse_args()
-    start = time.monotonic()
+    count_instructions = instruction_counter_available()
     if not os.environ.get("DRAFTWRIGHT_CORPUS"):
         parser.error("Set DRAFTWRIGHT_CORPUS to the public corpus root.")
     corpus = Path(os.environ["DRAFTWRIGHT_CORPUS"]).resolve()
@@ -776,8 +849,10 @@ def main():
         public_cache = Path(os.environ.get("DRAFTWRIGHT_PLAN_CACHE", scratch / "public-cache")).resolve()
         private_cache = scratch / "private-cache"
         with ThreadPoolExecutor(max_workers=4) as pool:
-            public_tasks = [pool.submit(measure, case, False, binary, public_cache) for case in nist]
-            private_tasks = [pool.submit(measure, case, True, binary, private_cache) for case in private]
+            public_tasks = [pool.submit(measure, case, False, binary, public_cache, count_instructions)
+                            for case in nist]
+            private_tasks = [pool.submit(measure, case, True, binary, private_cache, count_instructions)
+                             for case in private]
             nist_rows = [future.result() for future in public_tasks]
             private_rows = [future.result() for future in private_tasks]
         for case, row in zip(nist, nist_rows):
@@ -785,7 +860,7 @@ def main():
         if selected:
             quality = {"metric": na("Quality corpus skipped with --parts."), "parts": [], "passed": None}
         else:
-            quality = quality_check(corpus, binary, public_cache, scratch / "quality")
+            quality = quality_check(corpus, binary, public_cache, scratch / "quality", count_instructions)
     groups = {"NIST": nist_rows, "Private": private_rows, "Overall": nist_rows + private_rows}
     sets = {}
     for name, rows in groups.items():
@@ -798,13 +873,12 @@ def main():
             sets[name]["status"] = status
     if not workbook.is_file():
         sets["NIST"]["status"] = "FTC definitions workbook unavailable through REF."
-    timed = {"NIST": nist_rows, "Private": private_rows, "quality": quality["parts"]}
+    cost_sets = {"NIST": nist_rows, "Private": private_rows, "Quality": quality["parts"]}
+    all_rows = groups["Overall"] + quality["parts"]
     report = {
         "sets": sets, "quality": quality, "missing_nist": missing,
-        "slowest": {name: {key: row[key] for key in ("id", "wall_seconds")}
-                    for name, rows in timed.items() if rows
-                    for row in [max(rows, key=lambda part: part["wall_seconds"])]},
-        "wall_seconds": round(time.monotonic() - start, 3),
+        "instructions_retired": {**{name: cost_total(rows) for name, rows in cost_sets.items()},
+                                 "Total": cost_total(all_rows)},
     }
     print_report(report)
     if args.json:
