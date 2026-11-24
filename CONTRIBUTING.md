@@ -110,6 +110,9 @@ oblique to the feature axis. Redundancy counts `duplicate_measurement`,
 Set `DRAFTWRIGHT_BENCH_PRIVATE` to run local human references alongside NIST.
 The tool's docstring defines the manifest and reference schema. The private
 report uses opaque case IDs and counts, and the private plan cache is temporary.
+Dimension presence includes automatic dimensions and requires the reference
+feature, kind, nominal and datum references. The next row also requires any
+specified tolerance or fit.
 
 ## Releasing
 

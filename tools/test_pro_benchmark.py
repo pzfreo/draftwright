@@ -79,21 +79,166 @@ class MetricsTest(unittest.TestCase):
         self.assertIsNone(bench.cost_total([{"instructions_retired": None}]))
         self.assertEqual(bench.cost_total([{"instructions_retired": 12}, {"instructions_retired": 3}]), 15)
 
+    def test_retired_instructions_from_macos_stderr_samples(self):
+        # Successful capture reproduced in the installed macOS time(1) manual.
+        sample = b"""real 5.01
+user 0.00
+sys 0.00
+         0  maximum resident set size
+         0  average shared memory size
+         0  average unshared data size
+         0  average unshared stack size
+        80  page reclaims
+         0  page faults
+         0  swaps
+         1  block input operations
+         0  block output operations
+         0  messages sent
+         0  messages received
+         0  signals received
+         3  voluntary context switches
+         0  involuntary context switches
+   2054316  instructions retired
+   2445544  cycles elapsed
+    241664  peak memory footprint
+"""
+        self.assertEqual(bench.retired_instructions(sample), 2054316)
+        denied = b"        0.00 real         0.00 user         0.00 sys\n" \
+                 b"time: sysctl kern.clockrate: Operation not permitted\n"
+        self.assertIsNone(bench.retired_instructions(denied))
+
     def test_uncertainty_is_excluded_and_reported(self):
-        result = bench.dimension_counts([{"uncertain": True}], {}, {}, {}, set())
-        self.assertIsNone(result["denominator"])
-        self.assertEqual(result["uncertain"], 1)
+        results = bench.dimension_counts([{"uncertain": True}], {}, {}, {}, set())
+        for result in results:
+            self.assertIsNone(result["denominator"])
+            self.assertEqual(result["uncertain"], 1)
 
     def test_section_match_checks_plane_and_direction(self):
         wanted = {"direction": [1, 0, 0], "origin": [4, 0, 0]}
-        view = {"direction": [1, 0, 0], "cut": {"origin": [4, 100, 3]}}
+        view = {"direction": [0, 1, 0], "cut": {"normal": [1, 0, 0], "origin": [4, 100, 3]}}
         self.assertTrue(bench.view_match("section", wanted, view))
-        self.assertFalse(bench.view_match("section", {**wanted, "origin": [5, 0, 0]}, view))
-        self.assertFalse(bench.view_match("section", {**wanted, "direction": [-1, 0, 0]}, view))
+        self.assertTrue(bench.view_match("section", {**wanted, "origin": [4.5, 0, 0]}, view))
+        self.assertFalse(bench.view_match("section", {**wanted, "origin": [4.51, 0, 0]}, view))
+        self.assertTrue(bench.view_match("section", {**wanted, "direction": [-1, 0, 0]}, view))
+        self.assertFalse(bench.view_match("section", {**wanted, "direction": [0, 1, 0]}, view))
+
+    def test_views_use_unsigned_axes_and_detail_bounds(self):
+        wanted = {"direction": [0, 0, 1], "bounds": [[0, 0, 0], [5, 5, 5]]}
+        actual = {"direction": [0, 0, -1],
+                  "detail": {"marked_bounds": [[2, 0, 0], [5, 5, 5]]}}
+        for kind in ("principal", "auxiliary", "detail"):
+            self.assertTrue(bench.view_match(kind, wanted, actual))
+        actual["detail"]["marked_bounds"][0][0] = 2.01
+        self.assertFalse(bench.view_match("detail", wanted, actual))
+
+    def test_unknown_axes_match_by_kind_and_count(self):
+        unknown = {"direction": None, "axis_unknown": True}
+        ref = {"principal": [unknown], "section": [unknown, unknown], "detail": [],
+               "auxiliary": [unknown, {"direction": [1, 0, 0]}]}
+        plan = {"views": [
+            {"id": "v:front", "direction": [1, 0, 0]},
+            {"id": "v:section", "cut": {"normal": [1, 0, 0], "origin": [0, 0, 0]}},
+            {"id": "v:aux1", "direction": [-1, 0, 0], "auxiliary": {"id": "a"}},
+            {"id": "v:aux2", "direction": [0, -1, 0], "auxiliary": {"id": "b"}},
+        ]}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "synthetic.json"
+            path.write_text(json.dumps({"views": ref, "dimensions": None,
+                                        "hole_table": None, "general_tolerance": None}))
+            actual = bench.view_counts(bench.private_reference(path)["views"], plan)
+        self.assertEqual(actual["by_kind"]["principal"], bench.metric(1, 1, uncertain=0))
+        self.assertEqual(actual["by_kind"]["section"], bench.metric(1, 2, uncertain=0))
+        self.assertEqual(actual["by_kind"]["auxiliary"], bench.metric(2, 2, uncertain=0))
+        self.assertEqual((actual["numerator"], actual["denominator"]), (3, 4))
 
     def test_matching_reserves_specific_occurrences(self):
         self.assertEqual(bench.match_count([{1, 2}, {1}, {1}], [1, 2],
                                            lambda want, got: got in want), 2)
+
+
+class DimensionMatcherTest(unittest.TestCase):
+    features = {"features": [
+        {"id": "hole-1", "kind": "hole", "faces": [1], "legacy_id": "old-hole-1"},
+        {"id": "hole-2", "kind": "hole", "faces": [2]},
+    ]}
+    review = {"coverage": {"pmi": None}}
+
+    def wanted(self, kind="diameter", feature="hole-1", nominal=10, datums=()):
+        return {"feature": {"kind": "hole", "id": feature}, "nominal": nominal, "unit": "mm",
+                "kind": kind, "tolerance": {"lower": -0.1, "upper": 0.1}, "datums": list(datums)}
+
+    def callout(self, *measurements, state="shown", terms=(), from_spec=()):
+        return {"id": "d:hole-1/bore.diameter", "value": 10, "kind": "callout",
+                "state": {"kind": state}, "placed": {"label_at": [1, 2]}, "terms": terms,
+                "from_spec": from_spec, "measurements": [
+                    {"feature": feature, "parameter": role, "value": value}
+                    for feature, role, value in measurements]}
+
+    def score(self, wanted, dimensions, *, gdt=(), analysis=None, review=None):
+        plan = {"sheet": {}, "dimensions": dimensions, "gdt": gdt}
+        present, toleranced = bench.dimension_counts(
+            wanted, analysis or self.features, plan, review or self.review, set())
+        return present["numerator"], toleranced["numerator"]
+
+    def test_automatic_measurements_have_presence_without_tolerance(self):
+        shown = self.callout(("hole-1", "bore.diameter", 10), ("hole-1", "counterbore.depth", 4))
+        covered = self.callout(("hole-2", "bore.diameter", 10), state="covered")
+        refs = [self.wanted(feature="old-hole-1", nominal=10.004),
+                self.wanted(kind="linear", nominal=4),
+                self.wanted(kind="radius"), self.wanted(feature="hole-2"),
+                self.wanted(nominal=10.006)]
+        self.assertEqual(self.score(refs, [shown, covered]), (2, 0))
+
+    def test_model_reference_diameter_retains_its_feature_kind(self):
+        claimed = self.callout(("geometry:face-key", "diameter", 10))
+        analysis = {**self.features, "edge_ink": {
+            "references": {"face-key": [{"features": ["hole-1"]}]}}}
+        self.assertEqual(self.score([self.wanted(), self.wanted("radius")], [claimed],
+                                    analysis=analysis), (1, 0))
+
+    def test_automatic_location_uses_its_drawn_datum(self):
+        location = dict(self.callout(("hole-1", "location.length.x", 10)),
+                        kind="linear", basis="a location; measured from datum A (datum:#1)")
+        datum = {"id": "pmi:datum", "source": "datum:#1", "kind": "datum_feature",
+                 "state": {"kind": "shown"}, "placed": {"tip": [1, 2]}, "cells": ["A"]}
+        self.assertEqual(self.score([self.wanted("linear", datums=["A"])],
+                                    [location], gdt=[datum]), (1, 0))
+        self.assertEqual(self.score([self.wanted("linear", datums=["B"])],
+                                    [location], gdt=[datum]), (0, 0))
+
+    def test_printed_fit_and_tolerance_only_attach_to_the_qualified_quantity(self):
+        m = (("hole-1", "bore.diameter", 10), ("hole-1", "counterbore.depth", 4))
+        band = self.callout(*m, terms=["⌀10", "±0.1", "↧4"], from_spec=["tolerance"])
+        self.assertEqual(self.score([self.wanted(), self.wanted(kind="linear", nominal=4)],
+                                    [band]), (2, 1))
+        fit = self.callout(*m, terms=["⌀10", "H7", "↧4"], from_spec=["fit"])
+        wanted = dict(self.wanted(), tolerance=None, fit="H7")
+        self.assertEqual(self.score([wanted], [fit]), (1, 1))
+        self.assertEqual(self.score([dict(wanted, fit="h7")], [fit]), (1, 0))
+
+    def test_pmi_claim_adds_attributes_to_the_same_printed_statement(self):
+        d = self.callout(("hole-1", "bore.diameter", 10), ("pmi:key", "diameter", 10))
+        source = {"source_id": "diameter:#1", "category": "dimension", "kind": "diameter",
+                  "value": 10, "faces": [1], "upper_tol": 0.1, "lower_tol": -0.1,
+                  "datum_refs": [], "fields": [["reference datum", "A"]]}
+        analysis = {**self.features, "pmi": {"read": {"records": [source]}}}
+        review = {"coverage": {"pmi": {"drawn_items": {"pmi:key": "diameter:#1"}}}}
+        wanted = self.wanted(datums=["A"])
+        self.assertEqual(self.score([wanted, wanted, self.wanted()], [d],
+                                    analysis=analysis, review=review), (1, 1))
+
+    def test_gdt_requires_a_drawn_frame_with_magnitude_and_ordered_datums(self):
+        item = "pmi:geometric_tolerance.position:f1"
+        frame = {"id": item, "source": "spec:control", "state": {"kind": "shown"},
+                 "placed": {"tip": [1, 2]}, "kind": "control_frame", "faces": [1],
+                 "cells": ["⌖", "⌀0.2", "A", "B"]}
+        review = {"coverage": {"pmi": {"drawn_items": {item: "spec:control"}}}}
+        good = dict(self.wanted("gdt.position", nominal=0.2, datums=["A", "B"]), tolerance=None)
+        refs = [good, dict(good, kind="gdt.flatness"), dict(good, datums=["B", "A"]),
+                dict(good, nominal=0.3), self.wanted("gdt.position", "hole-2", 0.2, ["A", "B"])]
+        self.assertEqual(self.score(refs, [], gdt=[frame], review=review), (1, 1))
+        self.assertEqual(self.score([good], [], gdt=[dict(frame, state={"kind": "not_drawable"})],
+                                    review=review), (0, 0))
 
 
 @unittest.skipUnless(BINARY.is_file() and CORPUS and (CORPUS / "nist").is_dir(),
@@ -128,6 +273,7 @@ class SyntheticManifestTest(unittest.TestCase):
             rows = {r["id"]: r for r in report["sets"]["Private"]["parts"]}
             self.assertEqual(set(rows), {"P01", "P02"})
             self.assertEqual(rows["P01"]["metrics"]["dimensions"], bench.metric(1, 2))
+            self.assertEqual(rows["P01"]["metrics"]["dimension_tolerance"], bench.metric(1, 2))
             self.assertEqual(rows["P01"]["metrics"]["tolerance"], bench.metric(1, 1))
             self.assertEqual(rows["P02"]["metrics"]["hole_table"], bench.metric(1, 1))
             self.assertEqual(rows["P02"]["metrics"]["views"]["numerator"], 0)
@@ -142,6 +288,13 @@ class SyntheticManifestTest(unittest.TestCase):
                         self.assertNotIn(Path(row[key]).stem, run.stdout + run.stderr + raw_json)
                 text = bench.read_json(Path(row["reference"]))["general_tolerance"]["text"]
                 self.assertNotIn(text, run.stdout + run.stderr + raw_json)
+            fixture[0].pop("spec")
+            manifest.write_text(json.dumps(fixture), encoding="utf-8")
+            automatic = self.run_benchmark(manifest, output, "P01")
+            self.assertEqual(automatic.returncode, 0, automatic.stdout + automatic.stderr)
+            measures = bench.read_json(output)["sets"]["Private"]["parts"][0]["metrics"]
+            self.assertEqual(measures["dimensions"], bench.metric(1, 2))
+            self.assertEqual(measures["dimension_tolerance"], bench.metric(0, 2))
 
     def test_invalid_private_reference_is_redacted(self):
         marker = "synthetic-error-marker"

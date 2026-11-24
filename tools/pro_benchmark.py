@@ -20,12 +20,17 @@ Use opaque unique IDs matching P followed by at least two digits.
 
 Each reference is an object with these fields (null means unavailable):
 * "views": an object with an array for each kind: principal, section, auxiliary,
-  detail. Each view has "direction" (toward viewer, part-frame vector). A section
-  also has "origin" (a point on the cut plane in part-frame mm) and may have
-  "half": true with "keep" (direction toward the cut half). A detail also has
+  detail. Each view has "direction" (part-frame vector, either sign). For a
+  section this is the cut-plane normal. A section also has "origin" (a point
+  on the cut plane in part-frame mm) and may have "half": true with "keep"
+  (direction toward the cut half). Section offsets allow 0.5 mm to account for
+  estimating the cut position from the drawing. A detail also has
   "bounds": [[xmin,ymin,zmin],[xmax,ymax,zmax]] in part-frame mm for its intended
-  crop. Empty arrays mean the drawing uses none of that kind. The scored row
-  covers derived views; principal view counts are reported for context.
+  crop, with a 2 mm tolerance for each bounds point to account for estimation.
+  Use "direction": null with "axis_unknown": true to match one remaining view
+  of the same kind by count. No origin or bounds are needed for that entry.
+  Empty arrays mean the drawing uses none of that kind. The scored row covers
+  derived views; principal view counts are reported for context.
 * "dimensions": one entry per toleranced or datum-referenced dimension, e.g.
   {"feature":{"kind":"hole","id":"f:hole:f73"},"kind":"diameter",
    "nominal":20,"unit":"mm","tolerance":{"lower":-0.1,"upper":0.1},"datums":[]}.
@@ -39,6 +44,8 @@ Each reference is an object with these fields (null means unavailable):
   referenced letters in order. Omit neither the tolerance field nor the datum
   array. Without an occurrence ID, equal dimensions on the same feature kind
   are matched by multiplicity. One drawn statement can satisfy at most one entry.
+  Presence matches kind, feature, nominal and ordered datums. The second score
+  uses the same denominator and also requires any stated tolerance band or fit.
   Mark an unresolved dimension or view with "uncertain": true. Remaining fields
   on that entry are optional. The benchmark reports these entries separately
   and excludes them from the matching denominator.
@@ -47,7 +54,7 @@ Each reference is an object with these fields (null means unavailable):
   drawing is recorded for context. The scored cell uses only STEP or Spec input.
 
 Private subprocess output and temporary caches stay local. The report carries
-only validated case IDs, counts, timings and fixed diagnostic reasons.
+only validated case IDs, counts and fixed diagnostic reasons.
 """
 from __future__ import annotations
 
@@ -76,6 +83,7 @@ METRICS = {
     "views": ("Engineer's views matched (sections, aux, detail)", "90%"),
     "complete": ("Features complete (sized and located)", "95%"),
     "dimensions": ("Engineer's toleranced / datum dimensions present, with the same references", "85%"),
+    "dimension_tolerance": ("Present with the engineer's tolerance or fit", "Reported alongside presence"),
     "redundancy": ("Redundancy", "No worse than today"),
     "tolerance": ("Tolerance box filled when the file or settings give one", "100%"),
     "hole_table": ("Hole table where the engineer used one", "All"),
@@ -220,6 +228,10 @@ def private_reference(path):
             for view in ref["views"][kind]:
                 if view.get("uncertain") is True:
                     continue
+                if view.get("axis_unknown") is True:
+                    if view["direction"] is not None:
+                        raise ValueError("an unknown viewing axis requires null direction")
+                    continue
                 direction(view["direction"])
                 if kind == "section":
                     vector(view["origin"], 3)
@@ -287,21 +299,31 @@ def same_direction(a, b):
     return math.dist(direction(a), direction(b)) <= 1e-3
 
 
+def same_axis(a, b):
+    a, b = direction(a), direction(b)
+    return min(math.dist(a, b), math.dist(a, [-v for v in b])) <= 1e-3
+
+
 def view_match(kind, wanted, actual):
-    if not same_direction(wanted["direction"], actual["direction"]):
-        return False
+    if wanted.get("axis_unknown") is True:
+        return True
     if kind == "section":
         half = actual.get("half_section")
         cut = half or actual["cut"]
+        actual_normal = actual["direction"] if half else cut["normal"]
+        if not same_axis(wanted["direction"], actual_normal):
+            return False
         if bool(wanted.get("half")) != bool(half):
             return False
         if half and not same_direction(wanted["keep"], half["keep"]):
             return False
         normal = direction(wanted["direction"])
         return abs(sum((a - b) * n for a, b, n in
-                       zip(wanted["origin"], cut["origin"], normal))) <= .05
+                       zip(wanted["origin"], cut["origin"], normal))) <= .5
+    if not same_axis(wanted["direction"], actual["direction"]):
+        return False
     if kind == "detail":
-        return all(math.dist(a, b) <= .05
+        return all(math.dist(a, b) <= 2
                    for a, b in zip(wanted["bounds"], actual["detail"]["marked_bounds"]))
     return True
 
@@ -416,8 +438,8 @@ def filled_tolerance(plan, analysis, review, step):
     return metric(int(review["coverage"]["tolerance_box_filled"]), 1)
 
 
-def numeric_band(record):
-    nominal = record["value"]
+def numeric_band(record, measured):
+    nominal = record["value"] if record["value"] is not None else measured
     def deviation(side):
         if record.get(f"{side}_tol") is not None:
             return record[f"{side}_tol"]
@@ -439,97 +461,195 @@ def feature_kind(features, fid):
     return features.get(fid, {}).get("kind", fid if fid == "envelope" else None)
 
 
-def pmi_dimensions(analysis, proven, features):
-    records = analysis.get("pmi", {}).get("read", {}).get("records", ())
-    for record in records:
-        category, kind, value = record["category"], record["kind"], record["value"]
-        if (category not in {"dimension", "geometric_tolerance"} or value is None
-                or record.get("reference") or record["source_id"] not in proven):
+@dataclass(frozen=True)
+class DrawnDimension:
+    kind: str
+    nominal: float
+    owners: set[str]
+    datums: tuple[str, ...] = ()
+    band: tuple[float, float] | None = None
+    fit: str | None = None
+
+
+def measurement_kind(parameter):
+    role, _, kind = parameter.partition(".")
+    kind = kind.split(".")[0] or role
+    if kind == "angle":
+        return "angular"
+    if kind in {"diameter", "radius"}:
+        return kind
+    return "thickness" if role == "thickness" else "linear"
+
+
+def owning_features(features, faces):
+    faces = set(faces)
+    return {fid for fid, f in features.items() if faces.intersection(f["faces"])}
+
+
+NUMBER = r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+FIT = r"[A-Za-z]{1,2}[0-9]+"
+
+
+def printed_spec_tolerance(dim, scale):
+    """Match printed formatted terms, including asymmetric bands with one zero."""
+    mode = dim.get("from_spec", ())
+    band, fit = None, None
+    for term in dim.get("terms", ()):
+        if "fit" in mode and (f := re.fullmatch(rf"({FIT})(?:\s+.*)?", term)):
+            fit = f[1]
+        if "tolerance" in mode and (s := re.fullmatch(rf"±({NUMBER})", term)):
+            upper = float(s[1]) * scale
+            band = (-upper, upper)
+        if "tolerance" in mode and (a := re.fullmatch(rf"(\+{NUMBER}|0)\s+(-{NUMBER}|0)", term)):
+            band = (float(a[2]) * scale, float(a[1]) * scale)
+    return band, fit
+
+
+def shown(item):
+    return item.get("state", {}).get("kind") == "shown"
+
+
+def measurement_groups(measurements, carrier_kind, references=None, features=None):
+    """Group owner aliases on a printed quantity. Callouts may print distinct roles."""
+    groups = {}
+    for m in measurements:
+        if m["feature"].startswith(("pmi:", "specify_general:")):
             continue
-        faces = set(record["faces"])
-        owners = {fid for fid, f in features.items() if faces.intersection(f["faces"])}
-        datums = datum_letters(record)
-        band = numeric_band(record)
-        if category == "geometric_tolerance":
-            kind = "gdt." + kind
-        yield (kind, value, "deg" if kind == "angular" else "mm", band,
-               record.get("fit"), datums, owners)
+        parameter = m["parameter"]
+        kind = "angular" if carrier_kind == "angular" else measurement_kind(parameter)
+        key = (kind, m["value"], parameter if carrier_kind == "callout" else None)
+        feature = m["feature"]
+        owners = groups.setdefault(key, set())
+        if feature.startswith("geometry:") and references is not None:
+            for ref in feature.removeprefix("geometry:").split("|"):
+                target = ref.removeprefix("axis:")
+                if target in features:
+                    owners.add(target)
+                elif len(matches := references.get(target, ())) == 1:
+                    owners.update(matches[0].get("features", ()))
+        else:
+            owners.add(feature)
+    return groups
 
 
-def spec_dimensions(plan):
-    """Use placed, Spec-authored statements and their measurement role, never label equality."""
-    spec = plan["spec"]
-    authored = spec.get("dimensions", {})
-    withheld = {sub for p in plan["problems"] if p["code"] == "tolerance_withheld"
-                for sub in p["subjects"]}
+def drawn_dimensions(analysis, plan, review, bad, features):
+    """Yield statements with alternatives for their recognised and source-authored identities."""
+    pmi = review["coverage"]["pmi"] or {}
+    drawn_items = {item: source for item, source in pmi.get("drawn_items", {}).items()
+                   if source not in bad}
+    records = {r["source_id"]: r for r in analysis.get("pmi", {}).get("read", {}).get("records", ())}
+    scale = 25.4 if plan["sheet"].get("units") == "in" else 1
+    references = analysis.get("edge_ink", {}).get("references", {})
+    frames = plan.get("gdt", ())
+    drawn_datums = {frame["source"]: frame["cells"][0] for frame in frames
+                    if shown(frame) and frame.get("placed") and frame["kind"] == "datum_feature"}
     for dim in plan["dimensions"]:
-        if not dim.get("placed") or dim.get("reference") or dim["id"] in withheld:
+        if not shown(dim) or not dim.get("placed"):
             continue
-        mode = set(dim.get("from_spec", ())) & {"fit", "tolerance"}
-        if not mode:
+        measurements = dim["measurements"]
+        groups = measurement_groups(measurements, dim["kind"], references, features)
+        alternatives = {key: [] for key in groups}
+        primary = dim["id"].partition("/")[2]
+        leading = [key for key in groups if key[1] == dim["value"]]
+        exact = [key for key in leading if key[2] == primary]
+        primary_key = next(iter(exact or (leading if len(leading) == 1 else [])), None)
+        band, fit = printed_spec_tolerance(dim, 1 if dim["kind"] == "angular" else scale)
+        origin = re.search(r"; measured from datum ([A-Z]+[0-9]*) \(([^)]+)\)", dim.get("basis", ""))
+        origin_datums = (origin[1],) if origin and drawn_datums.get(origin[2]) == origin[1] else ()
+
+        for m in measurements:
+            record = records.get(drawn_items.get(m["feature"]))
+            if record is None or record["category"] != "dimension":
+                continue
+            kind, nominal = record["kind"], m["value"]
+            owners = owning_features(features, record["faces"])
+            matching = [key for key in groups if key[0] == kind
+                        and math.isclose(key[1], nominal, rel_tol=0, abs_tol=1e-6)]
+            if len(matching) > 1:
+                matching = [key for key in matching if groups[key] & owners]
+            if len(matching) == 1:
+                key = matching[0]
+                alternatives[key].append(DrawnDimension(
+                    kind, key[1], groups[key] | owners, datum_letters(record),
+                    band if key == primary_key and band is not None else numeric_band(record, nominal),
+                    fit if key == primary_key and fit is not None else record.get("fit"),
+                ))
+            elif not matching and not any(math.isclose(key[1], nominal, rel_tol=0, abs_tol=1e-6)
+                                          for key in groups):
+                key = (kind, nominal, None)
+                alternatives.setdefault(key, []).append(DrawnDimension(
+                    kind, nominal, owners, datum_letters(record),
+                    (band if not groups else None) or numeric_band(record, nominal),
+                    (fit if not groups else None) or record.get("fit"),
+                ))
+
+        for key, options in alternatives.items():
+            kind, nominal, _ = key
+            yield options or [DrawnDimension(
+                kind, nominal, groups[key], origin_datums if key == primary_key else (),
+                band if key == primary_key else None, fit if key == primary_key else None,
+            )]
+
+    for frame in frames:
+        if (not shown(frame) or not frame.get("placed") or frame["kind"] != "control_frame"
+                or drawn_items.get(frame["id"]) != frame["source"]):
             continue
-        owner, _, primary = dim["id"].partition("/")
-        measurements = [m for m in dim["measurements"] if m["parameter"] == primary]
-        if not measurements:
-            continue
-        owners = {m["feature"] for m in measurements}
-        lead = measurements[0]["parameter"]
-        unit = "deg" if dim["kind"] == "angular" else "mm"
-        kind = ("angular" if unit == "deg" else "diameter" if lead.endswith(".diameter") else
-                "radius" if lead.endswith(".radius") else "thickness" if lead == "thickness.length"
-                else "linear")
-        entry = authored.get(dim["id"], {})
-        band, fit = None, None
-        if "fit" in mode:
-            fit = entry.get("fit") or spec.get("features", {}).get(measurements[0]["feature"], {}).get("fit")
-        if "tolerance" in mode:
-            value = entry.get("tolerance") or (spec.get("envelope_tolerance") if owner == "d:envelope" else None)
-            if value:
-                value = value.strip()
-                scale = 25.4 if unit == "mm" and plan["sheet"].get("units") == "in" else 1
-                if value.startswith("±"):
-                    upper = float(value[1:]) * scale
-                    band = (-upper, upper)
-                else:
-                    upper, lower = map(float, value.split())
-                    band = (lower * scale, upper * scale)
-        yield (kind, dim["value"], unit, band, fit, (), owners)
+        characteristic = frame["id"].split(":")[1].removeprefix("geometric_tolerance.")
+        magnitude = re.search(NUMBER, frame["cells"][1])
+        if magnitude:
+            yield [DrawnDimension(
+                "gdt." + characteristic, float(magnitude[0]) * scale,
+                owning_features(features, frame["faces"]),
+                tuple(cell.strip().rstrip("ⓂⓁⓈ").rstrip() for cell in frame["cells"][2:]),
+            )]
+
+    for table in plan.get("hole_tables") or [plan.get("hole_table")]:
+        if table and shown(table):
+            for row in table["rows"]:
+                for (kind, nominal, _), owners in measurement_groups(row["measurements"], "callout").items():
+                    yield [DrawnDimension(kind, nominal, owners)]
+    if table := plan.get("radius_table"):
+        for row in table["rows"]:
+            yield [DrawnDimension("radius", row["radius"], {row["feature"]})]
 
 
 def dimension_counts(reference, analysis, plan, review, bad):
     certain = [dim for dim in reference if dim.get("uncertain") is not True]
     uncertain = len(reference) - len(certain)
     if not certain:
-        return metric(reason="No scorable toleranced or datum-reference dimensions.", uncertain=uncertain)
+        missing = metric(reason="No scorable toleranced or datum-reference dimensions.",
+                         uncertain=uncertain)
+        return missing, missing
     features = {f["id"]: f for f in analysis["features"]}
-    pmi = review["coverage"]["pmi"] or {}
-    proven = set(pmi.get("drawn_sources", ())) - bad
-    actual = [*pmi_dimensions(analysis, proven, features), *spec_dimensions(plan)]
+    actual = list(drawn_dimensions(analysis, plan, review, bad, features))
 
-    def matches(want, got):
-        kind, nominal, unit, band, fit, datums, owners = got
+    def matches(want, got, check_tolerance):
         target = want["feature"]
-        if (want["kind"] != kind or (want["unit"] == "deg") != (unit == "deg")
-                or tuple(want["datums"]) != datums):
+        if (want["kind"] != got.kind or (want["unit"] == "deg") != (got.kind == "angular")
+                or tuple(want["datums"]) != got.datums):
             return False
         if not any(target["kind"] == feature_kind(features, fid) and (
                 "id" not in target or target["id"] == fid or
-                target["id"] == features.get(fid, {}).get("legacy_id")) for fid in owners):
+                target["id"] == features.get(fid, {}).get("legacy_id")) for fid in got.owners):
             return False
         scale = UNIT_SCALE[want["unit"]]
         delta = want.get("resolution", RESOLUTION[want["unit"]]) * scale / 2
-        if abs(want["nominal"] * scale - nominal) > delta + 1e-9:
+        if abs(want["nominal"] * scale - got.nominal) > delta + 1e-9:
             return False
+        if not check_tolerance:
+            return True
         given = want["tolerance"]
-        if given is not None and (band is None or any(
-                abs(given[key] * scale - n) > 1e-6 for key, n in zip(("lower", "upper"), band))):
+        if given is not None and (got.band is None or any(
+                abs(given[key] * scale - n) > 1e-6 for key, n in zip(("lower", "upper"), got.band))):
             return False
-        return "fit" not in want or want["fit"] == fit
+        return "fit" not in want or want["fit"] == got.fit
 
-    result = metric(match_count(certain, actual, matches), len(certain))
-    if uncertain:
-        result["uncertain"] = uncertain
-    return result
+    def score(check_tolerance):
+        n = match_count(certain, actual, lambda want, options: any(
+            matches(want, got, check_tolerance) for got in options))
+        return metric(n, len(certain), **({"uncertain": uncertain} if uncertain else {}))
+
+    return score(False), score(True)
 
 
 def retired_instructions(stderr):
@@ -609,11 +729,14 @@ def measure(case, private, binary, cache, count_instructions):
                 checks[key] = na("No engineer's 2D reference for NIST.")
             elif reference is None or reference[key] is None:
                 checks[key] = na("Reference data unavailable.")
+        if "dimensions" in checks:
+            checks["dimension_tolerance"] = checks["dimensions"]
         if reference is not None:
             if reference["views"] is not None:
                 checks["views"] = view_counts(reference["views"], plan)
             if reference["dimensions"] is not None:
-                checks["dimensions"] = dimension_counts(reference["dimensions"], analysis, plan, review, bad)
+                checks["dimensions"], checks["dimension_tolerance"] = dimension_counts(
+                    reference["dimensions"], analysis, plan, review, bad)
             if reference["hole_table"] is not None:
                 tables = plan.get("hole_tables") or [plan.get("hole_table")]
                 has_table = any(t and t["rows"] and t["blocks"] for t in tables)
@@ -710,7 +833,7 @@ def aggregate(rows, key, skipped=None):
     cells = [row["metrics"][key] for row in rows]
     known = [cell for cell in cells if cell["denominator"] is not None]
     extra = {}
-    if key in {"views", "dimensions"}:
+    if key in {"views", "dimensions", "dimension_tolerance"}:
         extra["uncertain"] = sum(cell.get("uncertain", 0) for cell in cells)
     if not known:
         reason = "; ".join(sorted({cell["reason"] for cell in cells}))
@@ -737,7 +860,7 @@ def display(key, cell, compact=False):
     counts = f"{n}/{d}"
     if compact:
         return counts
-    if key in {"pmi", "views", "complete", "dimensions", "tolerance", "hole_table"}:
+    if key in {"pmi", "views", "complete", "dimensions", "dimension_tolerance", "tolerance", "hole_table"}:
         counts += f" ({100*n/d:.1f}%)"
     if key == "pmi":
         counts += (f"; {cell['read']} read; {cell['listed_not_shown']} listed as not shown; "
