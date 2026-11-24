@@ -17,6 +17,12 @@ use crate::{
 pub struct ReviewCoverage {
     /// Recognition records subject to the planner's feature completeness check.
     dimensionable_features: Vec<String>,
+    /// Every recognized feature, including ones without their own drafting grammar.
+    recognized_features: Vec<String>,
+    /// Features the planner exempts from its undimensioned check.
+    undrafted_features: BTreeSet<String>,
+    /// Rendered measurement roles claimed on each exempt feature.
+    undrafted_measurements: BTreeMap<String, BTreeSet<String>>,
     /// Features with the planner's inclined-axis location gap and no square rendered view.
     inclined_location_gaps: BTreeSet<String>,
     /// A general-tolerance value produced ink in a title-block cell.
@@ -39,12 +45,33 @@ pub(crate) fn review_coverage(
     plan: &Plan,
     drawings: &[Drawing],
 ) -> ReviewCoverage {
+    let recognized_features = analysis.features.iter().map(|f| f.id.clone()).collect();
+    let undrafted_features: BTreeSet<_> = analysis
+        .features
+        .iter()
+        .filter(|feature| crate::dims::undrafted(feature))
+        .map(|feature| feature.id.clone())
+        .collect();
     let dimensionable_features = analysis
         .features
         .iter()
-        .filter(|feature| !crate::dims::undrafted(feature))
+        .filter(|feature| !undrafted_features.contains(&feature.id))
         .map(|feature| feature.id.clone())
         .collect();
+    let marks: Vec<_> = if undrafted_features.is_empty() && analysis.pmi.is_none() {
+        Vec::new()
+    } else {
+        drawings.iter().flat_map(lint::marks).collect()
+    };
+    let mut undrafted_measurements = BTreeMap::<String, BTreeSet<String>>::new();
+    for claim in marks.iter().flat_map(|mark| &mark.claims) {
+        if undrafted_features.contains(&claim.feature) {
+            undrafted_measurements
+                .entry(claim.feature.clone())
+                .or_default()
+                .insert(claim.parameter.clone());
+        }
+    }
     let inclined_location_gaps = plan
         .problems
         .iter()
@@ -95,7 +122,6 @@ pub(crate) fn review_coverage(
                 .filter(|source| !excluded.contains(source))
                 .cloned()
                 .collect();
-            let marks: Vec<_> = drawings.iter().flat_map(lint::marks).collect();
             let identities = report.identities();
             let drawn_sources: BTreeSet<_> = lint::pmi_coverage::drawn(&marks, &identities)
                 .into_iter()
@@ -117,6 +143,9 @@ pub(crate) fn review_coverage(
     };
     ReviewCoverage {
         dimensionable_features,
+        recognized_features,
+        undrafted_features,
+        undrafted_measurements,
         inclined_location_gaps,
         tolerance_box_filled: drawings.iter().any(|d| {
             d.sheet
