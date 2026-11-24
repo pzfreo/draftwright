@@ -448,6 +448,8 @@ pub struct Review {
     pub svg: String,
     /// Physical holes whose bore sizes actually reached these rendered sheets.
     pub drawing_consumer: crate::evaluation::DrawingConsumer,
+    /// Coverage inputs read from this drawing, independent of the output formats.
+    pub coverage: crate::evaluation::ReviewCoverage,
     /// SVGs for sheets 2..m, in document order.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<String>,
@@ -502,6 +504,7 @@ fn reviewed(step: &Path, given: Given, spec: &Spec) -> Result<Review, Error> {
     let sheets = drawings.iter().skip(1).map(Drawing::svg).collect();
     let lint = lint::lint_sheets(analysis, &drawings);
     let structural = lint::structural::check_sheets(&drawings);
+    let coverage = crate::evaluation::review_coverage(analysis, &plan, &drawings);
     let summary = crate::finding::Summary::new(
         plan.problems
             .iter()
@@ -512,6 +515,7 @@ fn reviewed(step: &Path, given: Given, spec: &Spec) -> Result<Review, Error> {
         summary,
         svg,
         drawing_consumer,
+        coverage,
         sheets,
         problems: plan.problems,
         lint,

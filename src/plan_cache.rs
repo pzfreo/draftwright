@@ -276,6 +276,8 @@ struct Hidden {
 
 #[derive(Serialize, Deserialize)]
 struct RawProblem {
+    #[serde(default)]
+    inclined_axis_gap: bool,
     fix: Vec<crate::items::Op>,
     fixes: Vec<RawFix>,
 }
@@ -321,6 +323,7 @@ impl Entry {
                     .problems
                     .iter()
                     .map(|p| RawProblem {
+                        inclined_axis_gap: p.inclined_axis_gap,
                         fix: p.fix.clone(),
                         fixes: p
                             .fixes
@@ -364,6 +367,7 @@ impl Entry {
             }
         }
         for (problem, raw) in plan.problems.iter_mut().zip(hidden.problems) {
+            problem.inclined_axis_gap = raw.inclined_axis_gap;
             problem.fix = raw.fix;
             problem.fixes = raw
                 .fixes

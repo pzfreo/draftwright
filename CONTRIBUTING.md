@@ -69,6 +69,64 @@ entries. Local latency assertions stay enabled.
 Counts above cover `ci.yml`; the existing path-filtered wheel,
 crate-package and CLI workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
 
+### Professional drawing benchmark
+
+With a release CLI and the public corpus, run:
+
+```sh
+export DRAFTWRIGHT_CORPUS=/path/to/quiddity/tests/corpus
+export REF=/path/to/nist-ref
+python3 -I tools/pro_benchmark.py --binary target/release/draftwright
+```
+
+Download the semantic PMI STEP AP242 exports for CTC01–05 and FTC06–11 from
+[NIST's CAD and STEP downloads](https://www.nist.gov/ctl/smart-connected-systems-division/smart-connected-manufacturing-systems-group/mbe-pmi-0).
+Unpack one AP242 export per case into `$REF/ap242` or pass its directory
+explicitly with `--nist DIR`.
+
+Use `--json OUT` for the same counts in JSON and `--parts ctc_01 ftc_06` to
+select cases and skip the independent 30-part gate. A full run uses
+`tools/quality.py` and the maintained CI quality baseline. The benchmark
+uses `DRAFTWRIGHT_PLAN_CACHE` for public inputs when set.
+Cost is the sum of draftwright child-process instructions retired, collected
+with `/usr/bin/time -l` on macOS when the host exposes the counter. Other
+environments report n/a.
+
+The source-PMI row measures the share of inventoried STEP requirements drawn
+and verified by draftwright's fidelity checks. It separately counts drawn
+requirements with fidelity failures and absent requirements. For the latter,
+it counts sources that review reports as not drawn through omission findings.
+The NIST FTC workbook, specification indexes and SFA records describe the
+public reference cases. Their construct and analyzer counts are separate from
+the source audit, since an annotated export and a geometry-only export do
+not carry the same requirements.
+
+Completeness includes every recognized feature and uses draftwright's own
+findings. A feature with no sizing or locating failure counts as complete.
+Features the planner exempts from drafting by design are counted separately.
+An exempt feature also needs explicit rendered measurement claims on its own
+feature ID for both a size and a location. Sizing and locating findings count
+once per affected feature, including
+`feature_not_dimensioned`, `feature_not_sized`, `feature_not_located`,
+`dimensions_not_ported`, the feature requirement failures and the additional
+codes in `FEATURE_GAPS`. The true-view row counts only inclined holes and
+bosses with the inclined-axis location variant of `feature_not_dimensioned`
+and no rendered view along the feature axis. Its denominator gives the total
+recognized feature count for context. Redundancy counts `duplicate_measurement`,
+`closed_dimension_chain`, `feature_located_twice` and `over_dimensioned_pattern`.
+
+Set `DRAFTWRIGHT_BENCH_PRIVATE` to run local human references alongside NIST.
+The tool's docstring defines the manifest and reference schema. The private
+report uses opaque case IDs and counts, and the private plan cache is temporary.
+Dimension presence includes automatic dimensions and drawn Spec-authored
+control frames. It requires the reference feature, kind, nominal and ordered
+datum references. Linear and thickness dimensions can match each other. A
+datum reference needs STEP PMI or a Spec datum used by the drawing. A geometry-only
+part with no Spec cannot satisfy a datum-referenced dimension. Both dimension
+rows show separate counts for datum-referenced and toleranced-only dimensions.
+The agreement row uses the same denominator and also requires any specified
+tolerance or fit.
+
 ## Releasing
 
 Publish a release only after main CI is green; the guard waits up to 45 minutes for a run in progress.

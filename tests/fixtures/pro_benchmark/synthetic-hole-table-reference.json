@@ -1,0 +1,11 @@
+{
+  "views": {
+    "principal": [],
+    "section": [{"direction": [1, 0, 0], "origin": [0, 0, 0]}],
+    "auxiliary": [],
+    "detail": []
+  },
+  "dimensions": null,
+  "hole_table": true,
+  "general_tolerance": {"stated": true, "text": "Example tolerance reference text 4597"}
+}

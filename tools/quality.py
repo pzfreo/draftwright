@@ -687,13 +687,14 @@ def footprint_fill(a, p, furniture=()):
     return (union_area(clipped)-union_area(in_title))/((w-20)*(h-20)-(tb[2]-tb[0])*(tb[3]-tb[1]))
 
 
-def one(f, dw, out, spec=None, timeout=600, review=True):
+def one(f, dw, out, spec=None, timeout=600, review=True, run=None):
+    run = run or subprocess.run
     name = os.path.basename(f).split(".")[0]
     os.makedirs(out, exist_ok=True)
     extra = ["--spec", spec] if spec else []
     try:
-        r = subprocess.run([dw, "render", f, "-o", f"{out}/{name}", "--formats", "svg", *extra], capture_output=True, text=True, timeout=timeout)
-        p = subprocess.run([dw, "plan", f, *extra], capture_output=True, text=True, timeout=timeout)
+        r = run([dw, "render", f, "-o", f"{out}/{name}", "--formats", "svg", *extra], capture_output=True, text=True, timeout=timeout)
+        p = run([dw, "plan", f, *extra], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as error:
         return name, {"error": str(error)}
     try:
@@ -709,7 +710,7 @@ def one(f, dw, out, spec=None, timeout=600, review=True):
     with open(f"{out}/{name}.render.json", "w") as output:
         json.dump(rend, output, indent=1, sort_keys=True)
     if plan['sheet'].get('page'):
-        analysis = subprocess.run([dw, "analyse", f], capture_output=True, text=True, timeout=timeout)
+        analysis = run([dw, "analyse", f], capture_output=True, text=True, timeout=timeout)
         if analysis.returncode:
             return name, {"error": analysis.stderr[:200]}
         a = json.loads(analysis.stdout)
@@ -722,7 +723,7 @@ def one(f, dw, out, spec=None, timeout=600, review=True):
     # Render reports planning problems. Centre-line contacts are judged on actual drawn labels.
     if review and any(v.get("line_work") or v.get("cut") for v in plan["views"]):
         try:
-            q = subprocess.run([dw, "review", f, *extra], capture_output=True, text=True, timeout=timeout)
+            q = run([dw, "review", f, *extra], capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as error:
             return name, {"error": str(error)}
         try:

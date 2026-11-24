@@ -110,7 +110,7 @@ fn category_name(c: Category) -> &'static str {
 /// the source of the record whose item ID it is (a record's ID is its semantic identity,
 /// [`crate::pmi::Report::identities`]); any other (a material's census source, an ID no record
 /// has) as it is.
-fn drawn<'a>(marks: &'a [Mark], ids: &'a Identities) -> BTreeSet<&'a str> {
+pub(crate) fn drawn<'a>(marks: &'a [Mark], ids: &'a Identities) -> BTreeSet<&'a str> {
     let source = |name: &'a str| {
         name.strip_prefix("pmi:")
             .map(|s| ids.source(name).unwrap_or(s))

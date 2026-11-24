@@ -114,6 +114,8 @@ jobs:
       - run: target/ci-python/bin/python -m unittest discover -s tools -p 'test_ci_tiers.py'
       - run: python3 -m unittest discover -s tools -p 'test_release_ci.py'
       - run: python3 -m unittest discover -s tools -p 'test_ci_acceptance.py'
+      # The binary job runs the corpus cases with this commit's fresh release executable.
+      - run: env -u DRAFTWRIGHT_CORPUS python3 -m unittest discover -s tools -p 'test_pro_benchmark.py'
       - name: PR WASM safeguards
         if: github.event_name == 'pull_request' && needs.changes.outputs.wasm_changed == 'true'
         run: python3 -m unittest discover -s tools -p 'test_wasm_safeguards.py'
@@ -185,6 +187,7 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo build --release --locked --bin draftwright
+      - run: python3 -m unittest discover -s tools -p 'test_pro_benchmark.py'
       - run: |
           test -x target/release/draftwright
           tar -czf acceptance-inputs.tar.gz target/release/draftwright quiddity/tests/corpus

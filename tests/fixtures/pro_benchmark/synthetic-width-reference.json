@@ -1,0 +1,28 @@
+{
+  "views": {
+    "principal": [{"direction": [0, 0, 1]}],
+    "section": [],
+    "auxiliary": [],
+    "detail": []
+  },
+  "dimensions": [
+    {
+      "feature": {"kind": "envelope"},
+      "kind": "linear",
+      "nominal": 800,
+      "unit": "mm",
+      "tolerance": {"lower": -0.1, "upper": 0.1},
+      "datums": []
+    },
+    {
+      "feature": {"kind": "envelope"},
+      "kind": "linear",
+      "nominal": 800,
+      "unit": "mm",
+      "tolerance": {"lower": -0.1, "upper": 0.1},
+      "datums": ["Q"]
+    }
+  ],
+  "hole_table": false,
+  "general_tolerance": {"stated": true, "text": "Example tolerance reference text 7318"}
+}
