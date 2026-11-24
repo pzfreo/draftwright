@@ -8946,6 +8946,30 @@ fn plan_with_presentation(
     furniture = crate::centrelines::obstacles(&views);
     furniture.extend(crate::incremental::obstacles());
     furniture.extend(fixed.iter().cloned());
+    // Replanning around a schedule origin can leave a counted radius on its
+    // nonradial fallback. Give it a clear corridor before GD&T and tags are
+    // placed around the settled dimensions.
+    let scheduled_radii = if let Some(selection) = presentation.filter(|p| p.reserve_origins)
+        && crate::nominal::authored_pmi(analysis)
+        && !crate::nominal::comparison()
+        && !crate::placement_intent::has_pins(spec)
+    {
+        let mut obstacles = furniture.clone();
+        obstacles.extend(crate::hole_table::origin_reservations(
+            analysis, selection, sheet.page, &views,
+        ));
+        crate::dims::reserve_radius_leaders(
+            analysis,
+            spec,
+            &sheet,
+            &views,
+            &mut dimensions,
+            &obstacles,
+            &footprint_cache,
+        )
+    } else {
+        BTreeMap::new()
+    };
     // The part's PMI, placed beyond the dimensions; the notes and tables keep clear of both.
     let mut annotation_obstacles = dimensions.clone();
     let furniture_ink: Vec<_> = furniture.into_iter().filter(|d| d.kind == "ink").collect();
@@ -9108,6 +9132,9 @@ fn plan_with_presentation(
         &settle_fixed,
         &footprint_cache,
     );
+    for (id, reports) in scheduled_radii {
+        rerouted.entry(id).or_insert(reports);
+    }
     if crate::nominal::geometry_eligible(analysis) && !crate::nominal::comparison() {
         // A conveyed alias has no ink. Unlike a user omission, it must not
         // obstruct the final physical solve with its latent raw witnesses.
