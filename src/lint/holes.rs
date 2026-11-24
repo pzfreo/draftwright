@@ -48,6 +48,10 @@ use super::{LintIssue, Mark, Requirement, Severity};
 use crate::bridge::holes::{self, Countersink, Hole, MouthChamfer, Recess};
 use crate::model::Analysis;
 
+/// What a drawing must say where the model gives a bore no depth. Lint states it for itself, as
+/// it does `THRU`, so that it can tell a drawing which words it wrongly.
+const DEPTH_UNDEFINED: &str = "DEPTH UNDEFINED";
+
 /// Holes that share one machining specification, and so one callout.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HoleGroup {
@@ -165,7 +169,7 @@ impl HoleGroup {
         out += &if s.through {
             " THRU".to_string()
         } else if s.depth == Some(0.0) {
-            format!(" {}", crate::wording::DEPTH_UNDEFINED)
+            format!(" {}", DEPTH_UNDEFINED)
         } else {
             format!(" ↧ {}", f(s.depth))
         };
@@ -806,7 +810,7 @@ pub fn verified_schedule_size(analysis: &Analysis, mark: &Mark) -> bool {
         .filter(|(p, _)| !matches!(p.as_str(), "grouping.count" | "bore.through"))
         .all(|(parameter, value)| {
             if parameter == "bore.depth" && group.sizes.depth == Some(0.0) {
-                return mark.text.contains(crate::wording::DEPTH_UNDEFINED)
+                return mark.text.contains(DEPTH_UNDEFINED)
                     && callout.term(parameter, false, 0).is_none();
             }
             mark.claims
