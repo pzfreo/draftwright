@@ -66,6 +66,7 @@ class MetricsTest(unittest.TestCase):
 
     def test_general_tolerance_presentation_note(self):
         payload = (b"#4=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','APPLIES TO ALL');\n"
+                   b"#7=DESCRIPTIVE_REPRESENTATION_ITEM('','/n');\n"
                    b"#5=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','UNTOLERANCED SURFACES.');")
         self.assertTrue(bench.has_general_tolerance_note(payload))
         self.assertFalse(bench.has_general_tolerance_note(b"ISO 2768-m"))

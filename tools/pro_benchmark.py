@@ -399,7 +399,8 @@ GLOBAL_TOLERANCE_NOTE = re.compile(
 
 def has_general_tolerance_note(step):
     # AP242 presentation notes may split a global-profile clause over consecutive text items.
-    text = b" ".join(STEP_DESCRIPTIVE_TEXT.findall(step))
+    text = b" ".join(value for value in STEP_DESCRIPTIVE_TEXT.findall(step)
+                     if value.strip().lower() != b"/n")
     text = re.sub(rb"\\X\\0[AD]|\\{1,2}n", b" ", text, flags=re.IGNORECASE)
     return GLOBAL_TOLERANCE_NOTE.search(text) is not None
 
