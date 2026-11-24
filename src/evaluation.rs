@@ -1,9 +1,115 @@
 //! Observed drawing-consumer coverage (Python #1202): size evidence comes from the actual
 //! rendered sheets. Recognition supplies the denominator; an unsuccessful build is unknown,
 //! never supported by a capability declaration or treated as a successful empty drawing.
+use std::collections::BTreeSet;
+
 use serde::Serialize;
 
-use crate::{bridge::holes, lint, model::Analysis, output::Drawing};
+use crate::{
+    bridge::holes,
+    lint,
+    model::{Analysis, Plan},
+    output::Drawing,
+    pmi::{Category, Reading},
+};
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ReviewCoverage {
+    /// Recognition records subject to the planner's feature completeness check.
+    dimensionable_features: Vec<String>,
+    /// Features with the planner's inclined-axis location gap and no square rendered view.
+    inclined_location_gaps: BTreeSet<String>,
+    /// Semantic source inventory. Absent when the file has no reading or the reader refused it.
+    pmi: Option<PmiCoverage>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct PmiCoverage {
+    requirements: BTreeSet<String>,
+    /// Source identities carried by rendered marks. Review lint judges their fidelity.
+    drawn_sources: BTreeSet<String>,
+}
+
+pub(crate) fn review_coverage(
+    analysis: &Analysis,
+    plan: &Plan,
+    drawings: &[Drawing],
+) -> ReviewCoverage {
+    let dimensionable_features = analysis
+        .features
+        .iter()
+        .filter(|feature| !crate::dims::undrafted(feature))
+        .map(|feature| feature.id.clone())
+        .collect();
+    let inclined_location_gaps = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "feature_not_dimensioned" && p.inclined_axis_gap)
+        .flat_map(|p| &p.subjects)
+        .filter(|id| {
+            let axis = analysis
+                .features
+                .iter()
+                .find(|f| &f.id == *id)
+                .and_then(|f| f.fingerprint.axis);
+            !axis.is_some_and(|axis| {
+                let len = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
+                drawings
+                    .iter()
+                    .flat_map(|d| d.sheet.frames.values())
+                    .any(|frame| {
+                        let dot = axis
+                            .iter()
+                            .zip(frame.direction)
+                            .map(|(a, b)| a * b)
+                            .sum::<f64>();
+                        len > 0.0 && dot.abs() >= len * (1.0 - 1e-6)
+                    })
+            })
+        })
+        .cloned()
+        .collect();
+    let pmi = match &analysis.pmi {
+        Some(Reading::Read(report)) => {
+            let excluded: BTreeSet<_> = report
+                .records
+                .iter()
+                .filter(|r| crate::pmi_lowering::no_part_requirement(r))
+                .map(|r| &r.source_id)
+                .collect();
+            let requirements = report
+                .records
+                .iter()
+                .map(|r| &r.source_id)
+                .chain(
+                    report
+                        .sources
+                        .iter()
+                        .filter(|s| s.category != Category::Other || s.id.starts_with("material:"))
+                        .map(|s| &s.id),
+                )
+                .filter(|source| !excluded.contains(source))
+                .cloned()
+                .collect();
+            let marks: Vec<_> = drawings.iter().flat_map(lint::marks).collect();
+            let identities = report.identities();
+            let drawn_sources = lint::pmi_coverage::drawn(&marks, &identities)
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            Some(PmiCoverage {
+                requirements,
+                drawn_sources,
+            })
+        }
+        _ => None,
+    };
+    ReviewCoverage {
+        dimensionable_features,
+        inclined_location_gaps,
+        pmi,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
