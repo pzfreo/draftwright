@@ -6142,7 +6142,40 @@ fn install_selection_form(
     let mut reserved = selection.clone();
     reserved.reserve_origins = true;
     let mut scheduled = plan(&reserved)?;
-    Ok(crate::hole_table::install(analysis, &mut scheduled, &reserved).then_some(scheduled))
+    if !crate::hole_table::install(analysis, &mut scheduled, &reserved) {
+        return Ok(None);
+    }
+    if !crate::nominal::authored_pmi(analysis)
+        || crate::nominal::comparison()
+        || crate::placement_intent::has_pins(&scheduled.spec)
+    {
+        return Ok(Some(scheduled));
+    }
+    let nonradial = crate::dims::nonradial_radius_leaders(analysis, &scheduled);
+    if nonradial.is_empty() {
+        return Ok(Some(scheduled));
+    }
+    // A radial repair can compete for a tag's corridor. Keep the already
+    // installed schedule unless the alternative retains its certified tags.
+    reserved.reserve_radii = true;
+    if let Ok(mut trial) = plan(&reserved)
+        && crate::hole_table::install(analysis, &mut trial, &reserved)
+        && scheduled.balloons.iter().filter(|b| b.certifying).all(|b| {
+            trial
+                .balloons
+                .iter()
+                .any(|tag| tag.certifying && tag.id == b.id && tag.features == b.features)
+        })
+        && crate::dims::callout_routes::no_regression(&scheduled.problems, &trial.problems)
+        && carries_required(&scheduled, &trial)
+        && undrawn_gdt(&trial) <= undrawn_gdt(&scheduled)
+    {
+        let remaining = crate::dims::nonradial_radius_leaders(analysis, &trial);
+        if remaining.len() < nonradial.len() && remaining.is_subset(&nonradial) {
+            return Ok(Some(trial));
+        }
+    }
+    Ok(Some(scheduled))
 }
 
 fn recover_tables(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
@@ -8674,7 +8707,7 @@ fn plan_with_presentation(
             &notes_given,
             &radius_notes,
             &inactive,
-            presentation.map(|p| (p.reserve_origins, p.columns)),
+            presentation.map(|p| (p.reserve_origins, p.reserve_radii, p.columns)),
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("resolved candidate inputs serialize")
@@ -8949,11 +8982,7 @@ fn plan_with_presentation(
     // Replanning around a schedule origin can leave a counted radius on its
     // nonradial fallback. Give it a clear corridor before GD&T and tags are
     // placed around the settled dimensions.
-    let scheduled_radii = if let Some(selection) = presentation.filter(|p| p.reserve_origins)
-        && crate::nominal::authored_pmi(analysis)
-        && !crate::nominal::comparison()
-        && !crate::placement_intent::has_pins(spec)
-    {
+    let scheduled_radii = if let Some(selection) = presentation.filter(|p| p.reserve_radii) {
         let mut obstacles = furniture.clone();
         obstacles.extend(crate::hole_table::origin_reservations(
             analysis, selection, sheet.page, &views,

@@ -2425,6 +2425,8 @@ pub(crate) struct Selection {
     /// marks need ([`origin_reservations`]): set for a second attempt when dimension ink took
     /// such a place in the first ([`annotation_takes_origin`]).
     pub reserve_origins: bool,
+    /// Give an uncorrected radius leader space before placing dependent ink.
+    pub reserve_radii: bool,
     /// A bounded layout trial; an authored column count takes precedence.
     pub columns: Option<usize>,
     /// Whether a row replaces a callout whose size comes from PMI ([`select`]).
