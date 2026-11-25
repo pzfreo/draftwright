@@ -10,6 +10,8 @@ mod angled_steps;
 mod authored_dimensions;
 #[path = "../auxiliary_views.rs"]
 mod auxiliary_views;
+#[path = "../blind_recess_depths.rs"]
+mod blind_recess_depths;
 #[path = "../coverage_holes.rs"]
 mod coverage_holes;
 #[path = "../datum_placement.rs"]
@@ -58,6 +60,8 @@ mod planned_hole_tables;
 mod plate_coverage;
 #[path = "../pmi_angular.rs"]
 mod pmi_angular;
+#[path = "../pmi_depth_compat.rs"]
+mod pmi_depth_compat;
 #[path = "../pmi_dimensions.rs"]
 mod pmi_dimensions;
 #[path = "../pmi_modes.rs"]

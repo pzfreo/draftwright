@@ -778,6 +778,7 @@ pub fn centre_marks(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
 /// A scheduled opening must identify its axial entry plane and drilling direction.
 pub fn schedule_entries(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let mut issues = Vec::new();
+    let mut manufacturing = None;
     for size in marks
         .iter()
         .filter(|m| m.name.starts_with("hole_schedule_") && m.name.ends_with("/size"))
@@ -787,7 +788,9 @@ pub fn schedule_entries(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             .iter()
             .filter(|c| c.parameter == "bore.diameter")
         {
-            let Some(h) = holes::read(analysis)
+            let manufacturing =
+                manufacturing.get_or_insert_with(|| crate::pmi_lowering::manufacturing(analysis));
+            let Some(h) = holes::read_with_threads(analysis, manufacturing)
                 .into_iter()
                 .find_map(|(f, h)| (f.id == claim.feature).then_some(h.ok()).flatten())
             else {
@@ -820,7 +823,7 @@ pub fn schedule_entries(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                         }))
                     })
                     .fold(f64::INFINITY, f64::min);
-                let want = dot(h.at) - back;
+                let want = dot(h.at) - dot(h.direction) * h.opening_offset() - back;
                 let want_dir = if dot(h.direction) > 0.0 { "+Z" } else { "−Z" };
                 let Some((position, direction)) = m.text.split_once('/') else {
                     return false;

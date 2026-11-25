@@ -1569,12 +1569,15 @@ basis, placed, reference?, determined_by?}`:
   leg, the one `C` states) and the angle is the cone's angle **from the face the hole opens on**,
   not from the hole's axis (a 0.4 × 30° chamfer is 0.4 wide and 0.23 deep); this is the oriented
   chamfers' rule (first leg × section angle from its face). No table header restates it.
-  **Depths are measured from the surface the hole opens on** (ISO 129-1, ASME Y14.5), which a
-  mouth chamfer's axial entry lies beyond quiddity's cylinder: a ⌀5 counterbore 2.0 deep under a
-  0.25 chamfer is `⌴ ⌀5 ↧ 2.25`, and a blind ⌀4.2 bore 9.2 long under a 0.8 chamfer is
-  `⌀4.2 ↧ 10 C0.8`, so no depth stops short of the floor. The same depth is the claim lint
-  checks (`bore.depth`, `counterbore.depth`), the hole table's depth, and the entry plane of its
-  row (the surface, not the cylinder). A blind bore whose recorded depth has a magnitude below
+  An unthreaded blind bore adds the recorded axial lengths of its counterbore, outer steps,
+  spotface, opening-side countersink, and mouth chamfer. A 15 mm bore under a 5 mm counterbore
+  prints `⌀6 ↧ 20 ⌴ ⌀12 ↧ 5`. A blind bore whose thread is accepted states its
+  own length plus the mouth chamfer. Recess depths include their mouth chamfer (`⌴ ⌀5 ↧ 2.25` is
+  2.0 deep under a 0.25 chamfer) and are claims lint checks, and the hole table matches the callout. Its entry includes
+  the mouth chamfer and, for an unthreaded blind bore, an opening countersink beyond the cylinder.
+  An authored depth attaches at the innermost counterbore floor, or the spotface floor when there
+  is no counterbore, or otherwise at the recorded opening adjusted for its mouth chamfer. When it replaces the bore term, the planner and lint
+  compare it with the bore length plus the mouth chamfer. A blind bore whose recorded depth has a magnitude below
   `1e-6 mm` prints `DEPTH UNDEFINED` in its callout or table row and retains its diameter and
   location. Which end a chamfer is on is judged from the end the rest
   of the callout is stated from: a hole with a recess (`⌴`, a spotface, a countersink) from

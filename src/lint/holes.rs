@@ -208,6 +208,32 @@ impl HoleGroup {
         [0, 1, 2].map(|k| self.centres.iter().map(|c| c[k]).sum::<f64>() / n)
     }
 
+    fn expected(&self, a: &Analysis, mark: &Mark, marks: &[Mark], size: (&str, f64)) -> f64 {
+        let (parameter, value) = size;
+        let authored = |m: &Mark| {
+            m.claims
+                .iter()
+                .any(|c| c.parameter == "linear" && c.feature.starts_with("pmi:"))
+        };
+        if parameter == "bore.depth"
+            && let Some(f) = a.features.iter().find(|f| f.id == self.members[0])
+            && let Ok(h) = Hole::read(f, &holes::frame(a))
+            && let Some(depth) = h.depth_with_chamfer().filter(|&d| d != value)
+            // A grouped schedule repeats the size on every row, with the source claim on one.
+            && (authored(mark)
+                || (mark.name.starts_with("hole_schedule_")
+                    && marks.iter().any(|m| {
+                        m.text == mark.text
+                            && m.name.split('/').next() == mark.name.split('/').next()
+                            && m.claims.iter().any(|c| self.members.contains(&c.feature))
+                            && authored(m)
+                    })))
+        {
+            return depth;
+        }
+        value
+    }
+
     fn noun(&self) -> String {
         let s = &self.sizes;
         let operation = match s.depth {
@@ -244,10 +270,12 @@ fn fmt(x: f64) -> String {
 /// The Analysis's holes in groups that share a callout. A hole whose record cannot be read is
 /// in no group ([`coverage`] reports it).
 pub fn groups(analysis: &Analysis) -> Vec<HoleGroup> {
-    let holes: Vec<Hole> = holes::read(analysis)
+    let manufacturing = crate::pmi_lowering::manufacturing(analysis);
+    let holes: Vec<Hole> = holes::read_with_threads(analysis, &manufacturing)
         .into_iter()
         .filter_map(|(_, h)| h.ok())
         .collect();
+    let requirement = |h: &Hole| (h.requirement(), h.depth_from_mouth().map(holes::size_key));
     // `holes` is in Analysis order, so sorted indices give the members in Analysis order.
     let group = |members: &[usize], pattern: bool| {
         let mut members = members.to_vec();
@@ -287,14 +315,14 @@ pub fn groups(analysis: &Analysis) -> Vec<HoleGroup> {
         // fingerprints, accepted only when exactly its count of holes share its count and pitch,
         // the requirement and the opening's level along the drilling direction (to 1e-3 mm).
         None => {
-            let mut patterns: BTreeMap<(usize, i64, Vec<i64>, i64), Vec<usize>> = BTreeMap::new();
+            let mut patterns: BTreeMap<_, Vec<usize>> = BTreeMap::new();
             for (i, h) in holes.iter().enumerate() {
                 if let Some(p) = &h.feature.fingerprint.pattern {
                     let level = (0..3).map(|k| h.direction[k] * h.at[k]).sum::<f64>();
                     let key = (
                         p.count,
                         holes::size_key(p.pitch),
-                        h.requirement(),
+                        requirement(h),
                         (level * 1e3).round() as i64,
                     );
                     patterns.entry(key).or_default().push(i);
@@ -308,10 +336,10 @@ pub fn groups(analysis: &Analysis) -> Vec<HoleGroup> {
             }
         }
     }
-    let mut loose: BTreeMap<Vec<i64>, Vec<usize>> = BTreeMap::new();
+    let mut loose: BTreeMap<_, Vec<usize>> = BTreeMap::new();
     for (i, h) in holes.iter().enumerate() {
         if !taken[i] {
-            loose.entry(h.requirement()).or_default().push(i);
+            loose.entry(requirement(h)).or_default().push(i);
         }
     }
     for members in loose.values() {
@@ -785,7 +813,7 @@ pub fn states_bore(text: &str, diameter: f64) -> bool {
 /// A scheduled size cell is one physical hole's complete callout. Its physical riders
 /// (THRU and quantity) are usable only while every size it claims is borne out by that
 /// cell's own ink. A pitch-circle diameter or a number in another row proves nothing.
-pub fn verified_schedule_size(analysis: &Analysis, mark: &Mark) -> bool {
+pub fn verified_schedule_size(analysis: &Analysis, mark: &Mark, marks: &[Mark]) -> bool {
     if !mark.name.starts_with("hole_schedule_") || !mark.name.ends_with("/size") {
         return true;
     }
@@ -819,7 +847,7 @@ pub fn verified_schedule_size(analysis: &Analysis, mark: &Mark) -> bool {
                 && value.is_some_and(|v| {
                     callout.states(
                         parameter,
-                        v,
+                        group.expected(analysis, mark, marks, (parameter, v)),
                         group.sizes.counterbore.is_some(),
                         group.sizes.outer_steps.len(),
                     )
@@ -909,7 +937,7 @@ fn tangent_notes(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
 }
 
 /// The hole coverage findings: each requirement of each group that the marks do not state.
-pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+pub fn coverage(analysis: &Analysis, marks: &[Mark], observed: &[Mark]) -> Vec<LintIssue> {
     // A thread's source-bound manufacturing row can carry its tapping-drill values.
     // This evidence augments only that owner's hole check, never measurement ownership.
     let manufacturing = crate::pmi_lowering::manufacturing(analysis);
@@ -957,14 +985,12 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 p => p,
             };
             let synthetic = carrier != parameter;
-            let claiming: Vec<&Mark> = marks
-                .iter()
-                .filter(|m| {
-                    m.claims
-                        .iter()
-                        .any(|c| c.parameter == carrier && g.members.contains(&c.feature))
-                })
-                .collect();
+            let claims_size = |m: &&Mark| {
+                m.claims
+                    .iter()
+                    .any(|c| c.parameter == carrier && g.members.contains(&c.feature))
+            };
+            let claiming: Vec<_> = marks.iter().filter(claims_size).collect();
             let requirements: Vec<Requirement> = g
                 .members
                 .iter()
@@ -1012,9 +1038,10 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             };
             let counterbore = g.sizes.counterbore.is_some();
             let outer = g.sizes.outer_steps.len();
+            let expected = |m: &&Mark| g.expected(analysis, m, observed, (parameter, value));
             let stated = |m: &&Mark| match parameter {
                 "bore.through" => says_thru(&m.text),
-                _ => Callout::from_mark(m).states(parameter, value, counterbore, outer),
+                _ => Callout::from_mark(m).states(parameter, expected(m), counterbore, outer),
             };
             if match parameter {
                 "grouping.count" => uncounted.is_empty(),
@@ -1038,9 +1065,24 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             } {
                 continue;
             }
+            let observed_mark = claiming
+                .first()
+                .copied()
+                .or_else(|| observed.iter().find(claims_size));
+            let authored_group = g.sizes.depth.and_then(|depth| {
+                let compared =
+                    g.expected(analysis, observed_mark?, observed, ("bore.depth", depth));
+                (compared != depth).then(|| {
+                    let mut group = g.clone();
+                    group.sizes.depth = Some(compared);
+                    group
+                })
+            });
+            let g = authored_group.as_ref().unwrap_or(&g);
             let what = match parameter {
                 "bore.through" => "THRU".to_string(),
                 "grouping.count" => format!("{}×", g.drillings),
+                "bore.depth" => fmt(g.sizes.depth.unwrap_or(value)),
                 _ => fmt(value),
             };
             // A size claimed but misprinted cannot be credited; THRU or the quantity left off
@@ -1250,7 +1292,7 @@ mod tests {
         };
         // 9.13 of thread at the top of a 19.1 hole, as in cgb243.
         let a = threaded(true, -1.13, 8.0, 0.0, 8.0, 19.1);
-        let issues = coverage(&a, &[mark]);
+        let issues = coverage(&a, std::slice::from_ref(&mark), std::slice::from_ref(&mark));
         assert!(
             issues
                 .iter()
@@ -1316,7 +1358,7 @@ mod tests {
     }
 
     fn found(analysis: &Analysis, marks: &[Mark]) -> Vec<String> {
-        coverage(analysis, marks)
+        coverage(analysis, marks, marks)
             .into_iter()
             .map(|i| {
                 format!(
@@ -1436,7 +1478,7 @@ mod tests {
             ),
             mark("⌀8 THRU", &[("f:hole:2", "bore.diameter")]),
         ];
-        let issues = coverage(&a, &marks);
+        let issues = coverage(&a, &marks, &marks);
         assert_eq!(
             found(&a, &marks),
             ["hole_requirement_unverifiable f:hole:1 bore.depth"]
@@ -1591,7 +1633,7 @@ mod tests {
         };
         let stated = [
             mark(
-                "⌀6.6 ↧ 10 ⌴ ⌀11 ↧ 6.4",
+                "⌀6.6 ↧ 16.4 ⌴ ⌀11 ↧ 6.4",
                 &claims(
                     "f:hole:1",
                     &[
@@ -1619,7 +1661,7 @@ mod tests {
         ];
         assert_eq!(found(&a, &stated), Vec::<String>::new());
         // The fix states every size.
-        assert_eq!(g[0].callout(), "⌀6.6 ↧ 10 ⌴ ⌀11 ↧ 6.4");
+        assert_eq!(g[0].callout(), "⌀6.6 ↧ 16.4 ⌴ ⌀11 ↧ 6.4");
         assert_eq!(g[1].callout(), "⌀6.6 THRU ⌵ ⌀12.4 × 90°");
         assert_eq!(g[2].callout(), "⌀6.6 THRU ⌴SF ⌀14 ↧ 0.5");
         let mut symbol = stated.clone();
@@ -1627,7 +1669,7 @@ mod tests {
         assert_eq!(found(&a, &symbol), Vec::<String>::new());
         // Leaving the countersink's angle off, and misprinting the counterbore's depth.
         let mut short = stated.clone();
-        short[0].text = "⌀6.6 ↧ 10 ⌴ ⌀11 ↧ 6.9".into();
+        short[0].text = "⌀6.6 ↧ 16.4 ⌴ ⌀11 ↧ 6.9".into();
         short[1].text = "⌀6.6 THRU ⌵ ⌀12.4".into();
         short[1].claims.pop();
         assert_eq!(

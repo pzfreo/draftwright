@@ -6,6 +6,9 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Unthreaded blind-hole callouts and schedules include their opening recess depths. Threaded blind
+  holes still state the bore's own length plus the mouth chamfer.
+
 - **Python 3.11 or newer is now required** (was 3.9), matching quiddity. Python 3.9 and 3.10 are past
   end of life. The wheel is abi3 for 3.11+, and CI installs it on 3.11 and 3.15. The PyPI page lists 3.11 to 3.15.
 

@@ -2739,11 +2739,11 @@ fn select_with(
         .filter(|o| matches!(&o.state, crate::items::State::Covered { by } if by.starts_with("hole_schedule_")))
         .map(|o| o.id.clone())
         .collect();
-    let read: BTreeMap<_, _> = holes::read(analysis)
+    let manufacturing = crate::pmi_lowering::manufacturing(analysis);
+    let read: BTreeMap<_, _> = holes::read_with_threads(analysis, &manufacturing)
         .into_iter()
         .filter_map(|(f, h)| Some((f.id.as_str(), h.ok()?)))
         .collect();
-    let manufacturing = crate::pmi_lowering::manufacturing(analysis);
     for view in &plan.views {
         if !plan.spec.dimension_schemes.is_empty()
             && plan
@@ -3025,9 +3025,8 @@ fn select_with(
                         });
                     }
                 }
-                // The entry plane is the surface the hole opens on, which a mouth chamfer's entry
-                // lies beyond quiddity's cylindrical location.
-                let surface: [f64; 3] = std::array::from_fn(|k| h.at[k] - h.direction[k] * h.entry);
+                let offset = h.opening_offset();
+                let surface: [f64; 3] = std::array::from_fn(|k| h.at[k] - h.direction[k] * offset);
                 cells.push(entry_cell(
                     analysis,
                     view.direction,

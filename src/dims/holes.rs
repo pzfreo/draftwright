@@ -342,14 +342,21 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
 
+    // The part's threads and knurls on their owners: a hole's, or a pattern's when the Spec
+    // authors one on it ([`crate::spec_notes`]).
+    let manufacturing = crate::pmi_lowering::manufacturing(analysis);
     let mut holes: Vec<Hole> = Vec::new();
-    for (f, read) in holes::read(analysis) {
+    for (f, read) in holes::read_with_threads(analysis, &manufacturing) {
         match hole(read) {
             Ok(mut h) => {
                 h.both = both_mouths(analysis, &h);
                 let bottom = h.bottom;
                 if !matches!(bottom, Some("through" | "flat" | "drill_point"))
-                    && let Some(depth) = h.depth.filter(|&d| d != 0.0)
+                    && let Some(depth) = if h.threaded {
+                        h.depth.filter(|&d| d != 0.0)
+                    } else {
+                        h.depth_from_mouth()
+                    }
                 {
                     // Called out blind to its recognised depth, as draftwright does, but the
                     // recogniser did not establish that it stops there.
@@ -416,9 +423,6 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     let mut coincident: Vec<(usize, P3, Sites)> = Vec::new(); // callout index, station
     let reads: Vec<&holes::Hole> = holes.iter().map(|h| &h.read).collect();
     let bosses = holes::bosses(analysis);
-    // The part's threads and knurls on their owners: a hole's, or a pattern's when the Spec
-    // authors one on it ([`crate::spec_notes`]).
-    let manufacturing = crate::pmi_lowering::manufacturing(analysis);
     for p in patterns {
         let members = match holes::established_with(p, &reads, &bosses) {
             Ok(members) => members,
