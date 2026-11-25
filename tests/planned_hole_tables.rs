@@ -181,6 +181,118 @@ fn the_dense_acceptance_parts_have_no_hole_location_tower(name: &str) {
 }
 
 #[test]
+fn a_zero_length_bore_keeps_its_diameter_and_location() {
+    // An 80 × 50 × 10 build123d plate with an off-centre blind ø8 bore. In the STEP,
+    // the bore floor and cylinder end were moved up to the opening plane.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (part, analysis) =
+        model::analyse_native(&root.join("tests/fixtures/parts/zero-depth-bore.step.gz")).unwrap();
+    let hole = analysis.features.iter().find(|f| f.kind == "hole").unwrap();
+    assert_eq!(hole.parameters["depth"].as_f64(), Some(0.0));
+    assert_eq!(hole.parameters["diameter"].as_f64(), Some(8.0));
+    assert_eq!(hole.parameters["bottom"], "flat");
+    assert_undefined_bore(&part, &analysis);
+}
+
+#[test]
+fn a_bore_below_one_millionth_of_a_mm_has_undefined_depth() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (part, mut analysis) =
+        model::analyse_native(&root.join("tests/fixtures/parts/zero-depth-bore.step.gz")).unwrap();
+    // Native recognition rounds away this residue. Exercise the value an imported
+    // recognition record can carry by changing just the synthetic bore's depth.
+    let hole = analysis
+        .features
+        .iter_mut()
+        .find(|f| f.kind == "hole")
+        .unwrap();
+    hole.parameters.insert("depth".into(), 5e-7.into());
+    assert_undefined_bore(&part, &analysis);
+
+    let hole = analysis
+        .features
+        .iter_mut()
+        .find(|f| f.kind == "hole")
+        .unwrap();
+    hole.parameters.insert("depth".into(), 1e-6.into());
+    let read = draftwright::bridge::holes::read(&analysis);
+    assert_eq!(read[0].1.as_ref().unwrap().depth_from_mouth(), Some(1e-6));
+}
+
+fn assert_undefined_bore(part: &haecceity::Part, analysis: &Analysis) {
+    use draftwright::output::Item;
+
+    let hole = analysis.features.iter().find(|f| f.kind == "hole").unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let font = Font::open(&root.join("fonts/IBMPlexMono-Regular.ttf")).unwrap();
+
+    for table in ["never", "always"] {
+        let spec: Spec =
+            serde_json::from_value(serde_json::json!({"hole_table":table,"units":"in"})).unwrap();
+        let plan = model::plan_recovered(analysis, &spec).unwrap();
+        let drawing = model::render(part, analysis, &plan, &font).unwrap();
+        let run = drawing
+            .text
+            .iter()
+            .position(|r| r.text == "⌀.315 DEPTH UNDEFINED")
+            .unwrap();
+        assert!(!drawing.svg().contains("↧ .000"));
+        for axis in ["location.length.x", "location.length.y"] {
+            assert!(drawing.annotations.iter().any(|a| {
+                a.claims
+                    .iter()
+                    .any(|m| m.feature == hole.id && m.parameter == axis)
+            }));
+        }
+        assert_eq!(
+            plan.hole_tables
+                .iter()
+                .flat_map(|t| &t.rows)
+                .any(|r| r.feature == hole.id),
+            table == "always"
+        );
+        if table == "always" {
+            let terms = ["⌀.315", "DEPTH", "UNDEFINED"].map(str::to_owned);
+            let ink = draftwright::dims::label_ink(&terms, &font);
+            let natural = ink.max[0] - ink.min[0];
+            let bounds = draftwright::output::items_bbox(
+                drawing
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.items)
+                    .filter(|item| matches!(item, Item::Glyph(_, i) if *i == run)),
+            )
+            .unwrap();
+            assert!((bounds[2] - bounds[0] - natural).abs() < 1e-6);
+            let block = &plan.hole_tables[0].blocks[0].placed.as_ref().unwrap();
+            assert!(
+                block.columns[2] - block.columns[1]
+                    >= natural + 2. * draftwright::tables::PAD - 1e-6
+            );
+        }
+        let issues = draftwright::lint::lint(analysis, &drawing);
+        let finding = issues
+            .iter()
+            .find(|i| {
+                i.code == "hole_requirement_unverifiable"
+                    && i.requirements
+                        .iter()
+                        .any(|r| r.feature == hole.id && r.parameter == "bore.depth")
+            })
+            .unwrap();
+        assert!(finding.message.contains("model defines no depth"));
+        assert!(finding.message.contains("zero-length bore"));
+        assert!(finding.fix.as_deref().unwrap().contains("source model"));
+        assert!(
+            !issues
+                .iter()
+                .flat_map(|i| &i.requirements)
+                .any(|r| { r.feature == hole.id && r.parameter == "bore.diameter" })
+        );
+    }
+}
+
+#[test]
 fn an_omitted_hole_location_is_not_silently_reintroduced_by_a_table() {
     let analysis = &plate().1;
     let first = cache::default_plan(analysis, false);

@@ -399,7 +399,11 @@ fn forced() -> (&'static (Part, Analysis), Plan) {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/scattered_holes.step");
         model::analyse_native(&path).unwrap()
     });
-    let mut p = model::plan(&read.1, &Spec::default()).unwrap();
+    (read, force_rescue(&read.1))
+}
+
+fn force_rescue(analysis: &Analysis) -> Plan {
+    let mut p = model::plan(analysis, &Spec::default()).unwrap();
     let id = p
         .dimensions
         .iter()
@@ -408,8 +412,47 @@ fn forced() -> (&'static (Part, Analysis), Plan) {
         .id
         .clone();
     stand_in_off_sheet(&mut p, id);
-    hole_table::escalate(&read.1, &mut p, None);
-    (read, p)
+    hole_table::escalate(analysis, &mut p, None);
+    p
+}
+
+#[test]
+fn rescue_table_prints_undefined_depth_at_natural_width() {
+    use draftwright::output::Item;
+
+    let ((part, analysis), _) = forced();
+    let mut analysis = analysis.clone();
+    let bore = analysis
+        .features
+        .iter_mut()
+        .find(|f| f.kind == "hole")
+        .unwrap();
+    bore.parameters.insert("bottom".into(), "flat".into());
+    bore.parameters.insert("depth".into(), 0.0.into());
+    let label = "DEPTH UNDEFINED";
+    let font = font();
+    let ink = draftwright::tables::text_ink(label, &font);
+    let natural = ink.max[0] - ink.min[0];
+    let plan = force_rescue(&analysis);
+    let table = plan.hole_table.as_ref().expect("the rescue table fits");
+    let block = table
+        .blocks
+        .iter()
+        .find(|b| b.rows.iter().any(|row| row[2] == label))
+        .unwrap();
+    let columns = &block.placed.as_ref().unwrap().columns;
+    assert!(columns[3] - columns[2] >= natural + 2. * draftwright::tables::PAD - 1e-6);
+    let drawing = model::render(part, &analysis, &plan, &font).unwrap();
+    let run = drawing.text.iter().position(|r| r.text == label).unwrap();
+    let bounds = draftwright::output::items_bbox(
+        drawing
+            .layers
+            .iter()
+            .flat_map(|l| &l.items)
+            .filter(|item| matches!(item, Item::Glyph(_, i) if *i == run)),
+    )
+    .unwrap();
+    assert!((bounds[2] - bounds[0] - natural).abs() < 1e-6);
 }
 
 /// Reports item *id* of *plan* off the sheet, as placement would (a stand-in drop).

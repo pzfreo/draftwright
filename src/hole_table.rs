@@ -811,10 +811,9 @@ fn rows(
         let diameter = at.map_or(String::new(), |k| {
             let mut s = format!("ø{}", &d.terms[k]['⌀'.len_utf8()..]);
             if tolerance
-                && let Some(t) = d
-                    .terms
-                    .get(k + 1)
-                    .filter(|t| !matches!(t.as_str(), "THRU" | "↧"))
+                && let Some(t) = d.terms.get(k + 1).filter(|t| {
+                    !matches!(t.as_str(), "THRU" | "↧" | crate::wording::DEPTH_UNDEFINED)
+                })
             {
                 s += &format!(" {t}");
             }
@@ -822,6 +821,8 @@ fn rows(
         });
         let depth = if d.terms.iter().any(|t| t == "THRU") {
             "THRU".to_string()
+        } else if d.terms.iter().any(|t| t == crate::wording::DEPTH_UNDEFINED) {
+            crate::wording::DEPTH_UNDEFINED.into()
         } else {
             d.terms
                 .iter()
@@ -2971,6 +2972,8 @@ fn select_with(
                         drill += " THRU";
                     } else if let Some(depth) = h.depth_from_mouth() {
                         drill += &format!(" ↧ {}", schedule_number(depth, plan.sheet.units));
+                    } else if h.depth == Some(0.0) {
+                        drill += &format!(" {}", crate::wording::DEPTH_UNDEFINED);
                     }
                     size = format!("{drill} {size}");
                 }

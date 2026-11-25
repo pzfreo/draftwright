@@ -48,6 +48,10 @@ use super::{LintIssue, Mark, Requirement, Severity};
 use crate::bridge::holes::{self, Countersink, Hole, MouthChamfer, Recess};
 use crate::model::Analysis;
 
+/// What a drawing must say where the model gives a bore no depth. Lint states it for itself, as
+/// it does `THRU`, so that it can tell a drawing which words it wrongly.
+const DEPTH_UNDEFINED: &str = "DEPTH UNDEFINED";
+
 /// Holes that share one machining specification, and so one callout.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HoleGroup {
@@ -114,7 +118,7 @@ impl HoleGroup {
         if s.through {
             out.push(("bore.through".into(), None));
         } else {
-            out.push(("bore.depth".into(), s.depth));
+            out.push(("bore.depth".into(), s.depth.filter(|&d| d != 0.0)));
         }
         let recess = |r: Option<Recess>| r.map(|r| (r.diameter, r.from_mouth()));
         let mut sizes = vec![("counterbore".to_string(), recess(s.counterbore))];
@@ -164,6 +168,8 @@ impl HoleGroup {
         out += &format!("⌀{}", fmt(s.diameter));
         out += &if s.through {
             " THRU".to_string()
+        } else if s.depth == Some(0.0) {
+            format!(" {}", DEPTH_UNDEFINED)
         } else {
             format!(" ↧ {}", f(s.depth))
         };
@@ -206,6 +212,7 @@ impl HoleGroup {
         let s = &self.sizes;
         let operation = match s.depth {
             _ if s.through => "THRU".to_string(),
+            Some(0.0) => "depth undefined".into(),
             Some(d) => format!("blind depth {}", fmt(d)),
             None => "blind, depth not given".to_string(),
         };
@@ -802,6 +809,10 @@ pub fn verified_schedule_size(analysis: &Analysis, mark: &Mark) -> bool {
         .iter()
         .filter(|(p, _)| !matches!(p.as_str(), "grouping.count" | "bore.through"))
         .all(|(parameter, value)| {
+            if parameter == "bore.depth" && group.sizes.depth == Some(0.0) {
+                return mark.text.contains(DEPTH_UNDEFINED)
+                    && callout.term(parameter, false, 0).is_none();
+            }
             mark.claims
                 .iter()
                 .any(|c| c.feature == bores[0].feature && c.parameter == *parameter)
@@ -970,15 +981,20 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 Some(v) => v,
                 None if parameter == "bore.through" => f64::NAN,
                 None => {
+                    let zero_bore = parameter == "bore.depth" && g.sizes.depth == Some(0.0);
                     issues.push(LintIssue {
                     sheet: None,
                     id: format!("l:hole_requirement_unverifiable:{}/{parameter}", g.members[0]),
                     code: "hole_requirement_unverifiable".into(),
                     severity: Severity::Warning,
-                    message: format!(
-                        "{}: requirement {parameter} cannot be checked: the analysis does not give its value",
-                        g.noun()
-                    ),
+                    message: if zero_bore {
+                        format!("The model defines no depth for {} (zero-length bore).", g.noun())
+                    } else {
+                        format!(
+                            "{}: requirement {parameter} cannot be checked: the analysis does not give its value",
+                            g.noun()
+                        )
+                    },
                     at: None,
                     view: claiming.first().and_then(|m| m.view.clone()),
                     subjects: g.members.clone(),
@@ -989,7 +1005,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     annotation: claiming.first().map(|m| m.name.clone()),
                     related: claiming.iter().skip(1).map(|m| m.name.clone()).collect(),
                     evidence: Some(format!("the hole record gives no {parameter}")),
-                    fix: None,
+                    fix: zero_bore.then(|| "Define the bore depth in the source model and export the STEP again.".into()),
                 });
                     continue;
                 }

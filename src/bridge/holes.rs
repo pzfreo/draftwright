@@ -23,6 +23,7 @@ use crate::model::Analysis;
 
 /// The identity frame: quiddity's coordinates when the Analysis carries no recognition frame.
 const IDENTITY: [[f64; 3]; 4] = [[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+const ZERO_BORE_TOLERANCE_MM: f64 = 1e-6;
 
 /// A counterbore or spotface: its diameter, and its depth when quiddity gives one.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -114,6 +115,7 @@ pub struct Hole<'a> {
     /// quiddity's bottom (`through`, `flat`, `drill_point`, …), if it gives one.
     pub bottom: Option<&'a str>,
     /// The bore's depth (for a through hole, the thickness it passes through), if given.
+    /// A blind bore within 1e-6 mm of zero is recorded as zero, an undefined depth.
     pub depth: Option<f64>,
     /// The innermost counterbore-class step (quiddity's `cbore`).
     pub counterbore: Option<Recess>,
@@ -286,6 +288,14 @@ impl<'a> Hole<'a> {
         }
         let direction = d.map(|c| c / n);
         let bottom = p.get("bottom").and_then(Value::as_str);
+        let through = bottom == Some("through");
+        let depth = p.get("depth").and_then(Value::as_f64).map(|d| {
+            if !through && d.abs() < ZERO_BORE_TOLERANCE_MM {
+                0.0
+            } else {
+                d
+            }
+        });
         let recess = |name: &str| {
             sized(p, name, "diameter", "depth").map(|r| {
                 r.map(|(diameter, depth)| Recess {
@@ -315,9 +325,9 @@ impl<'a> Hole<'a> {
                 .get("diameter")
                 .and_then(Value::as_f64)
                 .ok_or("it has no diameter")?,
-            through: bottom == Some("through"),
+            through,
             bottom,
-            depth: p.get("depth").and_then(Value::as_f64),
+            depth,
             counterbore: entered(recess("cbore")?),
             outer_steps: outer_steps(p)?
                 .into_iter()
@@ -340,7 +350,9 @@ impl<'a> Hole<'a> {
     /// its own opening (quiddity-rust#244), so `⌀4.2 ↧ 9.2` under a 0.8 chamfer is `↧ 10`.
     /// A through hole states none.
     pub fn depth_from_mouth(&self) -> Option<f64> {
-        self.depth.filter(|_| !self.through).map(|d| d + self.entry)
+        self.depth
+            .filter(|&d| !self.through && d != 0.0)
+            .map(|d| d + self.entry)
     }
 
     /// What makes two holes one machining requirement (quiddity's `HoleSpec`, compared at

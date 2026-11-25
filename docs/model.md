@@ -1574,7 +1574,9 @@ basis, placed, reference?, determined_by?}`:
   0.25 chamfer is `⌴ ⌀5 ↧ 2.25`, and a blind ⌀4.2 bore 9.2 long under a 0.8 chamfer is
   `⌀4.2 ↧ 10 C0.8`, so no depth stops short of the floor. The same depth is the claim lint
   checks (`bore.depth`, `counterbore.depth`), the hole table's depth, and the entry plane of its
-  row (the surface, not the cylinder). Which end a chamfer is on is judged from the end the rest
+  row (the surface, not the cylinder). A blind bore whose recorded depth has a magnitude below
+  `1e-6 mm` prints `DEPTH UNDEFINED` in its callout or table row and retains its diameter and
+  location. Which end a chamfer is on is judged from the end the rest
   of the callout is stated from: a hole with a recess (`⌴`, a spotface, a countersink) from
   quiddity's opening, where the recess is; a plain through hole from the end its view looks at
   (the plan view sees the top face), whichever end quiddity calls the opening; a blind hole has

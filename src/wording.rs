@@ -8,6 +8,9 @@ use crate::bridge::Feature;
 use crate::dims::fmt;
 use crate::model::Analysis;
 
+/// A bore recognised without a measurable blind depth.
+pub(crate) const DEPTH_UNDEFINED: &str = "DEPTH UNDEFINED";
+
 /// *s* to start a sentence with: its first letter a capital, or, for a label that starts with a
 /// number or symbol (`30.1`, `⌀8 THRU`), `The dimension` before it.
 pub fn capital(s: &str) -> String {
