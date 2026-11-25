@@ -407,13 +407,6 @@ fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
             mark.claims.clear();
         }
     }
-    // Withdraw a damaged scheduled size cell as a unit, including its THRU/count riders.
-    // The requirement inventory remains in the Analysis and still reports the missing ink.
-    for mark in &mut marks {
-        if !holes::verified_schedule_size(analysis, mark) {
-            mark.claims.clear();
-        }
-    }
     let marks: Vec<_> = marks
         .into_iter()
         .filter(|m| blends::verified_row(analysis, m))
@@ -669,6 +662,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
 }
 
 fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    let observed = marks;
     let mut verified: Vec<_> = marks
         .iter()
         .filter(|m| blends::verified_row(analysis, m))
@@ -677,6 +671,9 @@ fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     // Captured drawings can still carry exact legacy ladder claims. Resolve them
     // from geometry evidence before judging the unchanged printed text.
     for mark in &mut verified {
+        if !holes::verified_schedule_size(analysis, mark, observed) {
+            mark.claims.clear();
+        }
         for claim in &mut mark.claims {
             if claim.feature == "step_level"
                 && let Some(current) =
@@ -732,7 +729,7 @@ fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(oriented_slots::coverage(analysis, marks));
     issues.extend(steps::coverage(analysis, marks));
     issues.extend(slots::coverage(analysis, marks));
-    issues.extend(holes::coverage(analysis, marks));
+    issues.extend(holes::coverage(analysis, marks, observed));
     issues.extend(channels::coverage(analysis, marks));
     issues.extend(plates::coverage(analysis, marks));
     issues.extend(polygonal::stock_coverage(analysis, marks));

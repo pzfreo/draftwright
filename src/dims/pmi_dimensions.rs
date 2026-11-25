@@ -489,12 +489,12 @@ fn hole_depth_callout(a: &Analysis, wants: &[Want], r: &Record) -> Option<usize>
             let Ok(h) = crate::bridge::holes::Hole::read(f, &frame) else {
                 return false;
             };
-            let Some(depth) = h.depth_from_mouth() else {
+            let Some(depth) = h.depth_with_chamfer() else {
                 return false;
             };
             // A counterbore's drilling starts on its innermost floor. Recognition's
             // location remains at the outer opening, but its bore depth is the drill's
-            // own length, as printed by the native callout.
+            // own length, which is the span an authored depth names here.
             let (entry, floor) = if let Some(recess) = h.counterbore.or(h.spotface) {
                 let Some(offsets) = std::iter::once(recess)
                     .chain(h.outer_steps.iter().copied())
@@ -1012,6 +1012,7 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
     }
     let mut depth_sources = BTreeSet::new();
     let mut depth_mismatches = Vec::new();
+    let frame = crate::bridge::holes::frame(cx.analysis);
     for (i, js) in depths {
         let first = records[js[0]];
         let value = first.value.expect("depth has a nominal");
@@ -1035,9 +1036,16 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
                 .measurements
                 .iter()
                 .filter(|m| m.parameter == "bore.depth")
+                .filter_map(|m| {
+                    let f = cx.analysis.features.iter().find(|f| f.id == m.feature)?;
+                    let value = crate::bridge::holes::Hole::read(f, &frame)
+                        .ok()?
+                        .depth_with_chamfer()?;
+                    Some(Measurement { value, ..m.clone() })
+                })
                 .collect();
             if measured.iter().any(|m| (m.value - value).abs() > 1e-6) {
-                depth_mismatches.push((r, measured.into_iter().cloned().collect::<Vec<_>>()));
+                depth_mismatches.push((r, measured));
             }
             w.measurements.push(claim(&ids, r, value));
             w.basis += &format!(

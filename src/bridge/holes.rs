@@ -117,6 +117,8 @@ pub struct Hole<'a> {
     /// The bore's depth (for a through hole, the thickness it passes through), if given.
     /// A blind bore within 1e-6 mm of zero is recorded as zero, an undefined depth.
     pub depth: Option<f64>,
+    /// The hole carries an owned thread requirement in the effective Analysis.
+    pub(crate) threaded: bool,
     /// The innermost counterbore-class step (quiddity's `cbore`).
     pub counterbore: Option<Recess>,
     /// The larger counterbore-class steps outside it, outermost first, each depth its own
@@ -328,6 +330,7 @@ impl<'a> Hole<'a> {
             through,
             bottom,
             depth,
+            threaded: false,
             counterbore: entered(recess("cbore")?),
             outer_steps: outer_steps(p)?
                 .into_iter()
@@ -345,14 +348,55 @@ impl<'a> Hole<'a> {
         })
     }
 
-    /// A blind hole's depth from the surface it opens on (ISO 129-1, ASME Y14.5): the bore's own
-    /// length and the axial entry of the chamfer on its mouth. quiddity measures the cylinder from
-    /// its own opening (quiddity-rust#244), so `⌀4.2 ↧ 9.2` under a 0.8 chamfer is `↧ 10`.
-    /// A through hole states none.
-    pub fn depth_from_mouth(&self) -> Option<f64> {
+    /// A countersink contributes when the unthreaded blind bore starts at its minor rim and its
+    /// axis points into the bore. Recognition rounds the cone geometry to four places.
+    fn opening_sink_depth(&self) -> Option<f64> {
+        if self.through || self.threaded || self.countersink.is_none() {
+            return None;
+        }
+        let parameters = &self.feature.parameters;
+        let sink = parameters.get("csink")?;
+        let depth = sink.get("depth")?.as_f64().filter(|&d| d > 0.0)?;
+        let axis = point(sink.get("axis"))?;
+        let wide = point(sink.get("location"))?;
+        let opening = point(parameters.get("location"))?;
+        let into = point(parameters.get("axis"))?;
+        let aligned = (0..3).map(|k| axis[k] * into[k]).sum::<f64>() > 0.0;
+        let tolerance = 0.001 + depth * 1e-4;
+        (aligned && (0..3).all(|k| (wide[k] + depth * axis[k] - opening[k]).abs() <= tolerance))
+            .then_some(depth)
+    }
+
+    /// Entry before the recorded cylindrical location. Counterbore and spotface lengths already
+    /// start at that location; only a cone outside it moves the schedule's opening station.
+    pub(crate) fn opening_offset(&self) -> f64 {
+        self.entry + self.opening_sink_depth().unwrap_or(0.0)
+    }
+
+    /// The bore's own length plus its mouth chamfer, used to check an authored bore depth.
+    pub(crate) fn depth_with_chamfer(&self) -> Option<f64> {
         self.depth
             .filter(|&d| !self.through && d != 0.0)
             .map(|d| d + self.entry)
+    }
+
+    /// A threaded bore keeps its own length plus its mouth chamfer. An unthreaded bore also
+    /// adds the recorded opening recesses. Through or zero-length bores state none.
+    pub fn depth_from_mouth(&self) -> Option<f64> {
+        let base = self.depth_with_chamfer()?;
+        if self.threaded {
+            return Some(base);
+        }
+        // Match the recogniser's hundredth-millimetre precision for the bore length.
+        let sink = self.opening_sink_depth().unwrap_or(0.0);
+        let recesses: f64 = self
+            .counterbore
+            .iter()
+            .chain(&self.outer_steps)
+            .chain(&self.spotface)
+            .filter_map(|r| r.depth)
+            .sum();
+        Some(base + (sink * 100.0).round_ties_even() / 100.0 + recesses)
     }
 
     /// What makes two holes one machining requirement (quiddity's `HoleSpec`, compared at
@@ -394,6 +438,9 @@ impl<'a> Hole<'a> {
                 size_key(c.size),
                 size_key(c.angle),
             ]);
+        }
+        if let Some(depth) = self.opening_sink_depth() {
+            k.push(size_key(depth));
         }
         k
     }
@@ -518,6 +565,28 @@ pub fn read(analysis: &Analysis) -> Vec<(&Feature, Result<Hole<'_>, String>)> {
         .filter(|f| f.kind == "hole")
         .map(|f| (f, Hole::read(f, &frame)))
         .collect()
+}
+
+/// Apply the manufacturing owners to physical holes, expanding a pattern owner to its members.
+pub(crate) fn read_with_threads<'a>(
+    analysis: &'a Analysis,
+    manufacturing: &crate::pmi_lowering::Manufacturing,
+) -> Vec<(&'a Feature, Result<Hole<'a>, String>)> {
+    let mut holes = read(analysis);
+    let owned = &manufacturing.owned;
+    if !owned.is_empty() {
+        let threaded = |id: &str| owned.iter().any(|o| o.aspect == "thread" && o.owner == id);
+        let members = analysis
+            .recognition
+            .iter()
+            .flat_map(|r| &r.patterns)
+            .filter(|p| threaded(&p.id))
+            .flat_map(|p| &p.members);
+        for h in holes.iter_mut().filter_map(|(_, h)| h.as_mut().ok()) {
+            h.threaded = threaded(&h.feature.id) || members.clone().any(|id| id == &h.feature.id);
+        }
+    }
+    holes
 }
 
 /// The Analysis's bosses' axes (quiddity's `BossRecord`: `location`, `axis`), in the part's

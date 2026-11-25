@@ -392,12 +392,12 @@ fn compound_callouts_keep_every_value_tolerance_and_fit_and_lint_rejects_false_l
     // AFTER PLATING").
     assert_eq!(
         d.label,
-        "DRILL ⌀6.25 H7 ↧ 4.75\n⌴ ⌀8.75 ↧ 1.875\n⌵ ⌀10.25 × 82.5° AFTER\nPLATING"
+        "DRILL ⌀6.25 H7 ↧ 6.62\n⌴ ⌀8.75 ↧ 1.875\n⌵ ⌀10.25 × 82.5° AFTER\nPLATING"
     );
     assert_eq!(d.value, old.value);
     assert_eq!(d.measurements, old.measurements);
     assert!(d.label.contains("H7"));
-    for term in ["6.25", "4.75", "8.75", "1.875", "10.25", "82.5"] {
+    for term in ["6.25", "6.62", "8.75", "1.875", "10.25", "82.5"] {
         assert!(d.label.contains(term), "{}", d.label);
     }
     let drawing = model::render(&part, &a, &p, &font()).unwrap();

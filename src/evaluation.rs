@@ -215,7 +215,7 @@ pub fn drawing_consumer(analysis: &Analysis, build: Result<&[Drawing], &str>) ->
                         .iter()
                         .any(|c| c.feature == feature.id && c.parameter == "bore.diameter")
                         && lint::holes::states_bore(&m.text, hole.diameter)
-                        && lint::holes::verified_schedule_size(analysis, m)
+                        && lint::holes::verified_schedule_size(analysis, m, &marks)
                 })
                 .map(|m| m.name.clone())
                 .collect();
