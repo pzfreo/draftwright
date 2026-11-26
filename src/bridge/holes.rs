@@ -119,6 +119,8 @@ pub struct Hole<'a> {
     pub depth: Option<f64>,
     /// The hole carries an owned thread requirement in the effective Analysis.
     pub(crate) threaded: bool,
+    /// This hole's own records carry recesses at both ends of a through bore.
+    pub(crate) both_ends: bool,
     /// The innermost counterbore-class step (quiddity's `cbore`).
     pub counterbore: Option<Recess>,
     /// The larger counterbore-class steps outside it, outermost first, each depth its own
@@ -318,7 +320,7 @@ impl<'a> Hole<'a> {
                 ..r
             })
         };
-        Ok(Hole {
+        let mut h = Hole {
             feature: f,
             at: to_part(frame, location),
             direction,
@@ -331,6 +333,7 @@ impl<'a> Hole<'a> {
             bottom,
             depth,
             threaded: false,
+            both_ends: false,
             counterbore: entered(recess("cbore")?),
             outer_steps: outer_steps(p)?
                 .into_iter()
@@ -345,7 +348,42 @@ impl<'a> Hole<'a> {
                 .map_or(0.0, |c| c.depth),
             mouth_chamfers: chamfers,
             frame: *frame,
-        })
+        };
+        let has_cyl = h.counterbore.is_some() || !h.outer_steps.is_empty() || h.spotface.is_some();
+        h.both_ends = h.through
+            && has_cyl
+            && h.csink_direction()
+                .is_some_and(|cd| (0..3).map(|k| cd[k] * h.direction[k]).sum::<f64>() < 0.0);
+        Ok(h)
+    }
+
+    /// Reads hole feature *f* within *analysis*, also noting recesses recorded at both ends.
+    pub(crate) fn read_in(analysis: &'a Analysis, f: &'a Feature) -> Result<Hole<'a>, String> {
+        let mut h = Self::read(f, &frame(analysis))?;
+        let d = h.direction;
+        let span = |fa: usize| {
+            let b = analysis.face_attachments.get(fa)?.bounds?;
+            Some((0..3).fold((0.0, 0.0), |(lo, hi), i| {
+                let (p, q) = (d[i] * b[i], d[i] * b[i + 3]);
+                (lo + p.min(q), hi + p.max(q))
+            }))
+        };
+        h.both_ends = h.through
+            && (h.both_ends
+                || ["cbore", "spotface", "csink"].into_iter().any(|k| {
+                    let spans: Vec<_> = f
+                        .parameters
+                        .get(k)
+                        .and_then(|v| v.get("faces")?.as_array())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|v| span(v.as_u64()? as usize))
+                        .collect();
+                    spans.len() >= 2
+                        && spans.iter().map(|s| s.1).fold(f64::INFINITY, f64::min)
+                            <= spans.iter().map(|s| s.0).fold(f64::NEG_INFINITY, f64::max) + 1e-3
+                }));
+        Ok(h)
     }
 
     /// A countersink contributes when the unthreaded blind bore starts at its minor rim and its
@@ -423,7 +461,13 @@ impl<'a> Hole<'a> {
             k.extend([2, size_key(r.diameter), opt(r.depth)]);
         }
         match self.countersink {
-            Some(c) => k.extend([1, size_key(c.diameter), opt(c.angle)]),
+            Some(c) => {
+                k.extend([1, size_key(c.diameter), opt(c.angle)]);
+                match self.csink_direction() {
+                    Some(d) => k.extend([1, size_key(d[0]), size_key(d[1]), size_key(d[2])]),
+                    None => k.push(0),
+                }
+            }
             None => k.push(0),
         }
         // Mouth chamfers last, so a hole without them keeps the key it had before they existed.
@@ -442,7 +486,26 @@ impl<'a> Hole<'a> {
         if let Some(depth) = self.opening_sink_depth() {
             k.push(size_key(depth));
         }
+        if self.both_ends {
+            k.push(4);
+        }
         k
+    }
+
+    /// Whether this hole has a counterbore, outer step, spotface or countersink.
+    pub fn has_recess(&self) -> bool {
+        self.counterbore.is_some()
+            || !self.outer_steps.is_empty()
+            || self.spotface.is_some()
+            || self.countersink.is_some()
+    }
+
+    /// The countersink seat's unit drilling direction in the part's frame, when recorded.
+    pub(crate) fn csink_direction(&self) -> Option<[f64; 3]> {
+        let p = point(self.feature.parameters.get("csink")?.get("axis"))?;
+        let d = dir_to_part(&self.frame, p);
+        let n = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        (n > 0.0).then(|| d.map(|c| c / n))
     }
 
     /// The mouth chamfers a callout states, first the one at its reference end and then the one at
@@ -461,10 +524,7 @@ impl<'a> Hole<'a> {
             return (mouth, None, false);
         }
         let toward = self.toward_viewer();
-        let recessed = self.counterbore.is_some()
-            || self.spotface.is_some()
-            || !self.outer_steps.is_empty()
-            || self.countersink.is_some();
+        let recessed = self.has_recess();
         let seen = |c: &&MouthChamfer| {
             if recessed {
                 c.at_opening
@@ -558,12 +618,11 @@ pub fn drillings<'h, 'a: 'h>(holes: impl IntoIterator<Item = &'h Hole<'a>> + Clo
 
 /// The Analysis's hole features, each read in the part's frame, or why it cannot be.
 pub fn read(analysis: &Analysis) -> Vec<(&Feature, Result<Hole<'_>, String>)> {
-    let frame = frame(analysis);
     analysis
         .features
         .iter()
         .filter(|f| f.kind == "hole")
-        .map(|f| (f, Hole::read(f, &frame)))
+        .map(|f| (f, Hole::read_in(analysis, f)))
         .collect()
 }
 

@@ -122,7 +122,7 @@ fn ftc06_prints_the_authored_bands_as_draftwright_does() {
     // symbol ("4× ⌀7.137 ±0.03 THRU ⌴\n⌀10.16 ↧ 7.94"); the port carries `⌴` to the next line.
     assert_eq!(
         label(&plan, "d:f:hole_pattern:f65/bore.diameter"),
-        "4× ⌀7.137 ±0.03 THRU\n⌴ ⌀10.16 ↧ 7.94"
+        "4× ⌀7.137 ±0.03 THRU\n⌴ ⌀10.16 ↧ 7.94 FAR SIDE"
     );
     let differs = [
         // ARCH0019-2: draftwright prints the band of nothing as "±0.0", a tolerance that states

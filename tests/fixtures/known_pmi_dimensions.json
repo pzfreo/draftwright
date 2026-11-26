@@ -1080,7 +1080,7 @@
   },
   "record": "dimension:0:1:4:97",
   "rust": {
-   "detail": "4× ⌀7.137 +0.1524/-0.0254\nTHRU ⌴ ⌀11.11 ↧ 7.62",
+   "detail": "4× ⌀7.137 +0.1524/-0.0254\nTHRU ⌴ ⌀11.11 ↧ 7.62\nFAR SIDE",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
@@ -1114,7 +1114,7 @@
   },
   "record": "dimension:0:1:4:113",
   "rust": {
-   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 2",
+   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 2 FAR SIDE",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
@@ -1130,7 +1130,7 @@
   },
   "record": "dimension:0:1:4:114",
   "rust": {
-   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 2",
+   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 2 FAR SIDE",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
@@ -1148,7 +1148,7 @@
   },
   "record": "dimension:0:1:4:115",
   "rust": {
-   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 2",
+   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 2 FAR SIDE",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
@@ -1259,7 +1259,7 @@
   },
   "record": "dimension:0:1:4:89",
   "rust": {
-   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 1.8",
+   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 1.8 FAR SIDE",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
@@ -1275,7 +1275,7 @@
   },
   "record": "dimension:0:1:4:91",
   "rust": {
-   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 1.8",
+   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 1.8 FAR SIDE",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
@@ -1291,7 +1291,7 @@
   },
   "record": "dimension:0:1:4:92",
   "rust": {
-   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 1.8",
+   "detail": "4× ⌀6 ±0.15 THRU ⌴ ⌀10\n↧ 1.8 FAR SIDE",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",

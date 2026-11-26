@@ -234,6 +234,7 @@ catalogue! {
     hole_exit_obstructed => Advisory, Information, Code, "A through hole has a partly obstructed exit; covering geometry and fraction are reported.";
     hole_pattern_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     hole_pattern_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
+    hole_recess_side_undecided => Incomplete, Requirement, Code, "The recess's entry side relative to the callout's view could not be decided; the callout states the recess without FAR SIDE.";
     hole_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     hole_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     hole_table_entry_invalid => Incomplete, Requirement, Code, "The drawn evidence does not correctly state the required source information.";

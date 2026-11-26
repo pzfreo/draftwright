@@ -199,13 +199,12 @@ fn only_the_chamfer_on_a_recess_mouth_adds_to_its_depth() {
     );
 }
 
-/// The chamfer is judged from the end the rest of the callout is stated from: a counterbore cut
-/// from the underside and seen in plan is stated at its own mouth, plain, whatever the view; the
-/// far bore's chamfer is the far side, and is not the counterbore's chamfer's twin (`BOTH SIDES`)
-/// though both are `C0.25`.
+/// A counterbore cut from the underside and seen in plan says `FAR SIDE` directly after its
+/// recess terms and before its own mouth chamfer; on a top-side counterbore the far bore's
+/// chamfer stays `C0.25 FAR SIDE`, distinct from the counterbore's own `C0.25`.
 #[test]
 fn a_counterbores_chamfers_are_judged_from_its_own_mouth() {
-    assert_eq!(fixture("cbore_under").1, "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25");
+    assert_eq!(fixture("cbore_under").1, "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25");
     assert_eq!(
         fixture("cbore_far").1,
         "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25 C0.25 FAR SIDE"
@@ -318,4 +317,744 @@ fn a_chamfer_on_the_face_the_view_looks_at_has_no_side() {
         words.contains(&"⌀62 THRU ⌴ ⌀70 ↧ 10".to_string()),
         "{words:?}"
     );
+}
+
+fn words_of(d: &draftwright::dims::PlannedDimension) -> String {
+    d.terms
+        .iter()
+        .map(String::as_str)
+        .filter(|t| !t.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn bundled_font() -> Font {
+    Font::new(
+        std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts/IBMPlexMono-Regular.ttf"),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+fn far_countersink() -> (haecceity::Part, Analysis) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/far_countersink.step.gz");
+    model::analyse_native(&path).unwrap()
+}
+
+fn rotate_analysis(a: &mut Analysis, rot: impl Fn([f64; 3]) -> [f64; 3]) {
+    let rotate_box = |lo: [f64; 3], hi: [f64; 3]| {
+        let mut rlo = [f64::INFINITY; 3];
+        let mut rhi = [f64::NEG_INFINITY; 3];
+        for mask in 0..8 {
+            let p = rot([
+                if mask & 1 == 0 { lo[0] } else { hi[0] },
+                if mask & 2 == 0 { lo[1] } else { hi[1] },
+                if mask & 4 == 0 { lo[2] } else { hi[2] },
+            ]);
+            for k in 0..3 {
+                rlo[k] = rlo[k].min(p[k]);
+                rhi[k] = rhi[k].max(p[k]);
+            }
+        }
+        [rlo, rhi]
+    };
+    let [lo, hi] = a.envelope;
+    a.envelope = rotate_box(lo, hi);
+    if let Some(rec) = &mut a.recognition {
+        for v in &mut rec.frame {
+            *v = rot(*v);
+        }
+    }
+    if let Some(ink) = &mut a.edge_ink {
+        for poly in &mut ink.edges {
+            for p in poly {
+                *p = rot(*p);
+            }
+        }
+        for plane in &mut ink.planes {
+            plane.normal = rot(plane.normal);
+        }
+        for curved in &mut ink.curved {
+            let [clo, chi] = curved.bounds;
+            curved.bounds = rotate_box(clo, chi);
+            if let Some(cyl) = &mut curved.cylinder {
+                cyl.origin = rot(cyl.origin);
+                cyl.axis = rot(cyl.axis);
+            }
+        }
+        ink.resolved.clear();
+    }
+    for fa in &mut a.face_attachments {
+        if let Some(b) = fa.bounds {
+            let [nlo, nhi] = rotate_box([b[0], b[1], b[2]], [b[3], b[4], b[5]]);
+            fa.bounds = Some([nlo[0], nlo[1], nlo[2], nhi[0], nhi[1], nhi[2]]);
+        }
+        if let Some(n) = &mut fa.normal {
+            *n = rot(*n);
+        }
+        for s in &mut fa.sites {
+            *s = rot(*s);
+        }
+        for s in &mut fa.face_on {
+            *s = rot(*s);
+        }
+    }
+    a.principal_profiles.clear();
+}
+
+fn rotate_x(a: &mut Analysis, degrees: f64) {
+    let (s, c) = degrees.to_radians().sin_cos();
+    rotate_analysis(a, |p| [p[0], c * p[1] - s * p[2], s * p[1] + c * p[2]]);
+}
+
+/// Countersinks cut from below say `FAR SIDE` in the plan view; countersinks on the top face stay
+/// plain, and lint accepts the drawing without hole findings.
+#[test]
+fn a_countersink_cut_from_below_says_far_side_in_plan_view() {
+    let (part, a) = far_countersink();
+    let plan = plan_of(&a);
+    let callout_for = |id: &str| {
+        words_of(
+            plan.dimensions
+                .iter()
+                .find(|d| d.id == id)
+                .unwrap_or_else(|| panic!("missing {id}")),
+        )
+    };
+    assert_eq!(
+        callout_for("d:f:hole:f17/bore.diameter"),
+        "2× ⌀6 THRU ⌵ ⌀12 × 90° FAR SIDE"
+    );
+    assert_eq!(
+        callout_for("d:f:hole:f12/bore.diameter"),
+        "2× ⌀5 THRU ⌵ ⌀10 × 90°"
+    );
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided")
+    );
+    let drawing = model::render(&part, &a, &plan, &bundled_font()).unwrap();
+    let hole_issues: Vec<_> = draftwright::lint::lint(&a, &drawing)
+        .into_iter()
+        .filter(|i| i.code.contains("hole") || i.message.contains("hole:"))
+        .map(|i| i.message)
+        .collect();
+    assert!(hole_issues.is_empty(), "{hole_issues:?}");
+}
+
+/// A counterbore cut from below says `FAR SIDE` directly after its recess terms (both plain and
+/// before its own mouth chamfer), and lint accepts the rendered drawing.
+#[test]
+fn a_counterbore_cut_from_below_says_far_side() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_under.step");
+    let (part, a) = model::analyse_native(&path).unwrap();
+    let plan = plan_of(&a);
+    assert_eq!(callout(&plan).1, "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25");
+    let drawing = model::render(&part, &a, &plan, &bundled_font()).unwrap();
+    let hole_issues: Vec<_> = draftwright::lint::lint(&a, &drawing)
+        .into_iter()
+        .filter(|i| i.code.contains("hole") || i.message.contains("hole:"))
+        .map(|i| i.message)
+        .collect();
+    assert!(hole_issues.is_empty(), "{hole_issues:?}");
+
+    let mut plain_cbore = a.clone();
+    let params = hole_mut(&mut plain_cbore);
+    params.remove("mouth_chamfers");
+    params["cbore"]["depth"] = json!(2.0);
+    assert_eq!(
+        callout(&plan_of(&plain_cbore)).1,
+        "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE"
+    );
+}
+
+/// The same bottom-countersunk hole seen from the opposite view (looking at the bottom face) has
+/// no `FAR SIDE`, while the top-countersunk hole gains `FAR SIDE`; a side-on view stays plain
+/// without raising `hole_recess_side_undecided`.
+#[test]
+fn a_far_recess_in_the_opposite_view_has_no_far_side_and_side_on_is_plain() {
+    let (_, a) = far_countersink();
+    let spec = Spec::default();
+    let plan = plan_of(&a);
+
+    let mut opposite_views = plan.views.clone();
+    opposite_views
+        .iter_mut()
+        .find(|v| v.id == "v:plan")
+        .unwrap()
+        .direction = [0.0, 0.0, -1.0];
+    let (dims, _, problems) =
+        draftwright::dims::plan(&a, &spec, &plan.sheet, &opposite_views).unwrap();
+    let callout_in = |dims: &[draftwright::dims::PlannedDimension], id: &str| {
+        words_of(
+            dims.iter()
+                .find(|d| d.id == id)
+                .unwrap_or_else(|| panic!("missing {id}")),
+        )
+    };
+    assert_eq!(
+        callout_in(&dims, "d:f:hole:f17/bore.diameter"),
+        "2× ⌀6 THRU ⌵ ⌀12 × 90°"
+    );
+    assert_eq!(
+        callout_in(&dims, "d:f:hole:f12/bore.diameter"),
+        "2× ⌀5 THRU ⌵ ⌀10 × 90° FAR SIDE"
+    );
+    assert!(
+        !problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided")
+    );
+
+    let mut side_on_views = plan.views.clone();
+    let plan_view = side_on_views.iter_mut().find(|v| v.id == "v:plan").unwrap();
+    plan_view.direction = [0.0, -1.0, 0.0];
+    plan_view.up = [0.0, 0.0, 1.0];
+    let (dims, _, problems) =
+        draftwright::dims::plan(&a, &spec, &plan.sheet, &side_on_views).unwrap();
+    assert_eq!(
+        callout_in(&dims, "d:f:hole:f17/bore.diameter"),
+        "2× ⌀6 THRU ⌵ ⌀12 × 90°"
+    );
+    assert!(
+        !problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided"),
+        "side-on view must not warn: {problems:?}"
+    );
+}
+
+/// Hole-table size cells omit recess `FAR SIDE`, including with an authored suffix or a thread.
+#[test]
+fn hole_table_omits_far_side_for_far_recesses() {
+    let (_, a) = far_countersink();
+    let mut spec = Spec {
+        hole_table: draftwright::hole_table::Setting::Always,
+        ..Spec::default()
+    };
+    spec.sheet.size = Some("A3".into());
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let rows: Vec<_> = plan.hole_tables.iter().flat_map(|t| &t.rows).collect();
+    assert_eq!(rows.len(), 4);
+    for feature in ["f:hole:f17", "f:hole:f18"] {
+        let row = rows.iter().find(|r| r.feature == feature).unwrap();
+        assert_eq!(row.cells[1], "⌀6 THRU ⌵ ⌀12 × 90°");
+    }
+    for feature in ["f:hole:f12", "f:hole:f14"] {
+        let row = rows.iter().find(|r| r.feature == feature).unwrap();
+        assert_eq!(row.cells[1], "⌀5 THRU ⌵ ⌀10 × 90°");
+    }
+
+    let suffix_spec: Spec = serde_json::from_value(json!({
+        "hole_table": "always",
+        "sheet": {"size": "A3"},
+        "dimensions": { "d:f:hole:f17/bore.diameter": { "text": {"suffix": "AFTER PLATING"} } }
+    }))
+    .unwrap();
+    let plan = model::plan_recovered(&a, &suffix_spec).unwrap();
+    let row = plan
+        .hole_tables
+        .iter()
+        .flat_map(|t| &t.rows)
+        .find(|r| r.feature == "f:hole:f17")
+        .unwrap();
+    assert_eq!(row.cells[1], "⌀6 THRU ⌵ ⌀12 × 90° AFTER PLATING");
+
+    let thread_spec: Spec = serde_json::from_value(json!({
+        "hole_table": "always",
+        "sheet": {"size": "A3"},
+        "features": { "f:hole:f17": {"thread": {"designation": "M7"}} }
+    }))
+    .unwrap();
+    let plan = model::plan_recovered(&a, &thread_spec).unwrap();
+    let row = plan
+        .hole_tables
+        .iter()
+        .flat_map(|t| &t.rows)
+        .find(|r| r.feature == "f:hole:f17")
+        .unwrap();
+    assert!(!row.cells[1].contains("FAR SIDE"), "{:?}", row.cells);
+}
+
+/// Four identical bores with two countersink seats on the top face and two on the bottom face must
+/// not be grouped into one `4× … FAR SIDE` callout (loose or as a recognised pattern).
+#[test]
+fn mixed_countersink_seats_are_not_grouped() {
+    let (_, mut a) = far_countersink();
+    let mut ids = Vec::new();
+    for f in a.features.iter_mut().filter(|f| f.kind == "hole") {
+        ids.push(f.id.clone());
+        f.parameters["diameter"] = json!(6.0);
+        f.parameters["axis"] = json!([0.0, 0.0, -1.0]);
+        let csink = f.parameters["csink"].as_object_mut().unwrap();
+        csink.insert("major_diameter".into(), json!(12.0));
+        csink.insert("drill_diameter".into(), json!(6.0));
+        csink.insert("included_angle".into(), json!(90.0));
+    }
+    assert_eq!(ids.len(), 4);
+    if let Some(rec) = &mut a.recognition {
+        rec.patterns.push(draftwright::bridge::HolePattern {
+            presentation_order: None,
+            legacy_id: None,
+            id: "f:hole_pattern:mixed".into(),
+            arrangement: "grid".into(),
+            members: ids,
+            faces: vec![],
+            parameters: serde_json::Map::new(),
+        });
+    }
+    let plan = plan_of(&a);
+    let mut callouts: Vec<String> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout")
+        .map(words_of)
+        .collect();
+    callouts.sort();
+    assert_eq!(
+        callouts,
+        vec!["2× ⌀6 THRU ⌵ ⌀12 × 90°", "2× ⌀6 THRU ⌵ ⌀12 × 90° FAR SIDE"]
+    );
+}
+
+/// `mouth_cbore_under` and `mouth_cbore_far_only` must print distinct callouts (`FAR SIDE C0.25`
+/// vs `C0.25 FAR SIDE`) and lint must reject swapping them.
+#[test]
+fn opposite_cbore_and_far_chamfer_operations_are_distinct_in_callout_and_lint() {
+    let under_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_under.step");
+    let far_only_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_far_only.step");
+    let (under_part, under_a) = model::analyse_native(&under_path).unwrap();
+    let (far_part, far_a) = model::analyse_native(&far_only_path).unwrap();
+    let under_plan = plan_of(&under_a);
+    let far_plan = plan_of(&far_a);
+
+    assert_eq!(callout(&under_plan).1, "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25");
+    assert_eq!(callout(&far_plan).1, "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25 FAR SIDE");
+
+    let font = bundled_font();
+    let under_drawing = model::render(&under_part, &under_a, &under_plan, &font).unwrap();
+    let far_drawing = model::render(&far_part, &far_a, &far_plan, &font).unwrap();
+    let hole_issues = |a: &Analysis, d: &draftwright::output::Drawing| -> Vec<String> {
+        draftwright::lint::lint(a, d)
+            .into_iter()
+            .filter(|i| i.code.contains("hole") || i.message.contains("hole:"))
+            .map(|i| format!("{}: {}", i.code, i.message))
+            .collect()
+    };
+    assert!(hole_issues(&under_a, &under_drawing).is_empty());
+    assert!(hole_issues(&far_a, &far_drawing).is_empty());
+
+    let replace_callout = |drawing: &draftwright::output::Drawing, text: &str| {
+        let mut d = drawing.clone();
+        let ann = d
+            .annotations
+            .iter()
+            .find(|a| a.name.starts_with("d:f:hole:") && a.name.ends_with("/bore.diameter"))
+            .unwrap()
+            .clone();
+        for (idx, &run) in ann.runs.iter().enumerate() {
+            d.text[run].text = if idx == 0 { text.into() } else { String::new() };
+        }
+        d
+    };
+    assert!(
+        !hole_issues(
+            &under_a,
+            &replace_callout(&under_drawing, "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25 FAR SIDE")
+        )
+        .is_empty()
+    );
+    assert!(
+        !hole_issues(
+            &far_a,
+            &replace_callout(&far_drawing, "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25")
+        )
+        .is_empty()
+    );
+}
+
+/// `FAR SIDE` placement in mm and inch units precedes the recess's own mouth chamfer.
+#[test]
+fn far_side_placement_in_inch_units_precedes_mouth_chamfer() {
+    let a = analysis();
+    for (units, expected_end) in [
+        (draftwright::units::Units::Mm, "FAR SIDE C0.25"),
+        (draftwright::units::Units::In, "FAR SIDE C.010"),
+    ] {
+        let spec = Spec {
+            units,
+            ..Spec::default()
+        };
+        let plan = model::plan_recovered(&a, &spec).unwrap();
+        let mut opposite_views = plan.views.clone();
+        opposite_views
+            .iter_mut()
+            .find(|v| v.id == "v:plan")
+            .unwrap()
+            .direction = [0.0, 0.0, -1.0];
+        let (dims, _, _) =
+            draftwright::dims::plan(&a, &spec, &plan.sheet, &opposite_views).unwrap();
+        let d = dims
+            .iter()
+            .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+            .unwrap();
+        let words = words_of(d);
+        assert!(
+            words.ends_with(expected_end),
+            "units={units:?}: expected suffix {expected_end:?}, got {words:?}"
+        );
+    }
+}
+
+/// Missing `csink.axis` leaves the seat direction unrecorded: both groups stay plain and each
+/// callout raises one `hole_recess_side_undecided` warning.
+#[test]
+fn missing_countersink_axis_stays_plain_with_warning() {
+    let (_, mut a) = far_countersink();
+    for f in a.features.iter_mut().filter(|f| f.kind == "hole") {
+        if let Some(csink) = f
+            .parameters
+            .get_mut("csink")
+            .and_then(|v| v.as_object_mut())
+        {
+            csink.remove("axis");
+        }
+    }
+    let plan = plan_of(&a);
+    let mut callouts: Vec<String> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(words_of)
+        .collect();
+    callouts.sort();
+    assert_eq!(
+        callouts,
+        vec!["2× ⌀5 THRU ⌵ ⌀10 × 90°", "2× ⌀6 THRU ⌵ ⌀12 × 90°"]
+    );
+    let warnings: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "hole_recess_side_undecided")
+        .collect();
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    for p in warnings {
+        assert_eq!(p.severity, "warning");
+        assert!(p.message.contains("hole"), "{}", p.message);
+        assert!(p.message.contains("countersink"), "{}", p.message);
+        assert!(p.message.contains("without FAR SIDE"), "{}", p.message);
+    }
+}
+
+/// A tilted recess axis (neither parallel nor perpendicular to the view) stays plain and raises
+/// one `hole_recess_side_undecided` warning per callout; CTC-04's tilted counterbores stay plain
+/// with that warning on two A2 sheets.
+#[test]
+fn tilted_recess_stays_plain_with_warning() {
+    let cbore_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_under.step");
+    let (_, mut inclined) = model::analyse_native(&cbore_path).unwrap();
+    hole_mut(&mut inclined).remove("mouth_chamfers");
+    hole_mut(&mut inclined)["cbore"]["depth"] = json!(2.0);
+    rotate_x(&mut inclined, 22.0);
+    let plan = plan_of(&inclined);
+    let d = plan
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .unwrap();
+    assert_eq!(d.view, "v:plan");
+    assert_eq!(words_of(d), "⌀6 THRU ⌴ ⌀10 ↧ 2");
+    let warnings: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "hole_recess_side_undecided")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].severity, "warning");
+    assert!(warnings[0].message.contains("counterbore"));
+    assert!(warnings[0].message.contains("without FAR SIDE"));
+
+    // Symmetric counterbore rotated 135° about X (bore is along Y): tilted -> plain + warning.
+    let lm10_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/bearing-lm10uu.step.gz");
+    let (_, lm10) = model::analyse_native(&lm10_path).unwrap();
+    let mut tilted = lm10.clone();
+    rotate_x(&mut tilted, 135.0);
+    let tilted_plan = plan_of(&tilted);
+    let rotated: Vec<String> = tilted_plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(words_of)
+        .collect();
+    assert!(!rotated.is_empty() && rotated.iter().all(|w| !w.contains("FAR SIDE")));
+    assert!(
+        tilted_plan
+            .problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided" && p.severity == "warning")
+    );
+
+    if let Some(corpus) = corpus::dir() {
+        let (_, ctc04) =
+            model::analyse_native(&corpus.join("nist/nist_ctc_04_asme1_rd.stp")).unwrap();
+        let plan = plan_of(&ctc04);
+        let cbore = plan
+            .dimensions
+            .iter()
+            .find(|d| d.kind == "callout" && d.label.contains("⌴") && d.label.contains("20"))
+            .expect("CTC-04 ⌀20 counterbore callout");
+        assert_eq!(cbore.view, "v:plan");
+        assert!(
+            !words_of(cbore).contains("FAR SIDE"),
+            "CTC-04 tilted counterbores must stay plain: {:?}",
+            words_of(cbore)
+        );
+        assert_eq!(plan.sheet.size, "A2");
+        assert_eq!(plan.sheets.len(), 1, "CTC-04 must stay on two A2 sheets");
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.code == "hole_recess_side_undecided" && p.severity == "warning")
+        );
+    }
+}
+
+/// A through hole countersunk at both mouths (`countersink-two-face.step`, from its own
+/// `csink.faces`, not cross-feature matching) stays plain and raises `hole_recess_side_undecided`.
+#[test]
+fn both_end_countersink_stays_plain_with_warning() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/coverage-holes/countersink-two-face.step");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let plan = plan_of(&a);
+    assert_eq!(callout(&plan).1, "⌀6 THRU ⌵ ⌀14 × 90°");
+    let warnings: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "hole_recess_side_undecided")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].severity, "warning");
+}
+
+/// Rotating a counterbored hole with chamfers 180° about X flips only which end faces the viewer:
+/// the recess qualifier comes from the recess's own direction only, chamfers stay classified
+/// against the recess, and no false warning fires.
+#[test]
+fn flipped_recess_with_chamfers_keeps_chamfers_relative_to_recess() {
+    for (name, expected) in [
+        (
+            "mouth_cbore_far_only.step",
+            "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25 FAR SIDE",
+        ),
+        (
+            "mouth_cbore_far.step",
+            "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25 C0.25 FAR SIDE",
+        ),
+        ("mouth_cbore_under.step", "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25"),
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts")
+            .join(name);
+        let (_, mut a) = model::analyse_native(&path).unwrap();
+        rotate_x(&mut a, 180.0);
+        let plan = plan_of(&a);
+        assert_eq!(callout(&plan).1, expected, "{name}");
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "hole_recess_side_undecided"),
+            "{name}: unexpected warning {:?}",
+            plan.problems
+        );
+    }
+    // Hole table strips the recess's `FAR SIDE` while keeping the recess's own chamfer.
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_under.step");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let table_plan = model::plan_recovered(
+        &a,
+        &Spec {
+            hole_table: draftwright::hole_table::Setting::Always,
+            ..Spec::default()
+        },
+    )
+    .unwrap();
+    let rows: Vec<_> = table_plan
+        .hole_tables
+        .iter()
+        .flat_map(|t| &t.rows)
+        .collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].cells[1], "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25");
+}
+
+/// Two ⌀6 bores on one plate — one countersunk underneath only and one countersunk at both mouths —
+/// must never be grouped into `2× … FAR SIDE`: the single-ended hole says `FAR SIDE` without a
+/// warning, and the both-ends hole stays plain with `hole_recess_side_undecided`.
+#[test]
+fn mixed_single_and_both_end_countersinks_are_not_grouped() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mixed_csink_plate.step");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let plan = plan_of(&a);
+    let mut callouts: Vec<String> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(words_of)
+        .collect();
+    callouts.sort();
+    assert_eq!(
+        callouts,
+        vec!["⌀6 THRU ⌵ ⌀12 × 90°", "⌀6 THRU ⌵ ⌀12 × 90° FAR SIDE"]
+    );
+    let warnings: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "hole_recess_side_undecided")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].severity, "warning");
+}
+
+/// A counterbore recorded at both ends of a hole feature (`cbore.faces` spanning both mouths) that
+/// is not established as `BOTH SIDES` stays plain and raises `hole_recess_side_undecided`.
+#[test]
+fn unestablished_both_end_cbore_stays_plain_with_warning() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/bearing-lm10uu.step.gz");
+    let (_, mut a) = model::analyse_native(&path).unwrap();
+    // Without `edge_ink`, `both_mouths` cannot establish `BOTH SIDES`, while `cbore.faces` still
+    // records cylinders at both ends of the bore.
+    a.edge_ink = None;
+    let plan = plan_of(&a);
+    let words = callout(&plan).1;
+    assert_eq!(words, "⌀10 THRU ⌴ ⌀16.4 ↧ 1.4");
+    assert!(
+        plan.problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided" && p.severity == "warning"),
+        "{:?}",
+        plan.problems
+    );
+}
+
+/// On a clevis (two arms with a gap), a single-ended countersunk hole on one arm keeps `FAR SIDE`
+/// without a warning even when a coaxial hole on the other arm carries an opposing seat across
+/// the gap.
+#[test]
+fn clevis_coaxial_seat_across_gap_does_not_warn_on_single_ended_hole() {
+    let opposing = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/clevis_opposing_seat.step");
+    let (_, a) = model::analyse_native(&opposing).unwrap();
+    let plan = plan_of(&a);
+    let d6 = plan
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.label.contains("⌀6"))
+        .expect("⌀6 clevis hole callout");
+    assert_eq!(words_of(d6), "⌀6 THRU ⌵ ⌀12 × 90° FAR SIDE");
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided"),
+        "coaxial seat across gap must not warn: {:?}",
+        plan.problems
+    );
+
+    let one_seat =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/clevis_one_seat.step");
+    let (_, a) = model::analyse_native(&one_seat).unwrap();
+    let plan = plan_of(&a);
+    let mut callouts: Vec<String> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(words_of)
+        .collect();
+    callouts.sort();
+    assert_eq!(callouts, vec!["⌀6 THRU", "⌀6 THRU ⌵ ⌀12 × 90° FAR SIDE"]);
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided")
+    );
+}
+
+/// Different opposite counterbores (`diff_end_recesses.step` and NIST CTC-02) still say `FAR SIDE`.
+#[test]
+fn different_opposite_recess_does_not_hide_far_side() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/diff_end_recesses.step");
+    let (part, a) = model::analyse_native(&path).unwrap();
+    let plan = plan_of(&a);
+    let d = plan
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .expect("hole callout");
+    assert_eq!(d.view, "v:plan");
+    assert_eq!(words_of(d), "⌀6 THRU ⌴ ⌀14 ↧ 4 FAR SIDE");
+
+    let mut opposite_views = plan.views.clone();
+    opposite_views
+        .iter_mut()
+        .find(|v| v.id == "v:plan")
+        .unwrap()
+        .direction = [0.0, 0.0, -1.0];
+    let (dims, _, _) =
+        draftwright::dims::plan(&a, &Spec::default(), &plan.sheet, &opposite_views).unwrap();
+    let opp = dims
+        .iter()
+        .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .unwrap();
+    assert_eq!(words_of(opp), "⌀6 THRU ⌴ ⌀14 ↧ 4");
+
+    let drawing = model::render(&part, &a, &plan, &bundled_font()).unwrap();
+    let hole_issues: Vec<_> = draftwright::lint::lint(&a, &drawing)
+        .into_iter()
+        .filter(|i| i.code.contains("hole") || i.message.contains("hole:"))
+        .map(|i| i.message)
+        .collect();
+    assert!(hole_issues.is_empty(), "{hole_issues:?}");
+
+    if let Some(corpus) = corpus::dir() {
+        let (_, ctc02) =
+            model::analyse_native(&corpus.join("nist/nist_ctc_02_asme1_rc.stp")).unwrap();
+        let plan = plan_of(&ctc02);
+        let callout_for = |feature: &str| {
+            let d = plan
+                .dimensions
+                .iter()
+                .find(|d| {
+                    d.kind == "callout"
+                        && d.measurements
+                            .iter()
+                            .any(|m| m.feature == feature && m.parameter == "bore.diameter")
+                })
+                .unwrap_or_else(|| panic!("missing callout for {feature}"));
+            words_of(d)
+        };
+        assert_eq!(
+            callout_for("f:hole:f150"),
+            "⌀52 THRU ⌴ ⌀115 ↧ 23.49 FAR SIDE"
+        );
+        assert_eq!(callout_for("f:hole:f153"), "⌀52 THRU ⌴ ⌀115 ↧ 23.49");
+        assert_eq!(callout_for("f:hole:f337"), "⌀40 THRU ⌴ ⌀120 ↧ 8 FAR SIDE");
+        assert_eq!(callout_for("f:hole:f130"), "⌀40 THRU ⌴ ⌀120 ↧ 8");
+    }
 }

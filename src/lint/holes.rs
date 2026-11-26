@@ -654,10 +654,13 @@ impl Callout {
                 (diameter, depth, first) = (false, false, false);
                 continue;
             }
-            // `C0.25`: the chamfer's form, its size the number after.
+            // `C0.25` (or inch `C.010`): the chamfer's form, its size the number after.
             if c == 'C'
                 && (i == 0 || chars[i - 1].is_whitespace())
-                && chars.get(i + 1).is_some_and(char::is_ascii_digit)
+                && (chars.get(i + 1).is_some_and(char::is_ascii_digit)
+                    || (!units.is_mm()
+                        && chars.get(i + 1) == Some(&'.')
+                        && chars.get(i + 2).is_some_and(char::is_ascii_digit)))
             {
                 c_form = true;
                 first = false;
@@ -1711,6 +1714,25 @@ mod tests {
         let sunk = "⌀6.6 THRU ⌵ ⌀12.4 × 90°";
         assert_eq!(term(sunk, "countersink.angle"), Some(90.0));
         assert_eq!(term(sunk, "mouth_chamfer.size"), None);
+        // Far recesses with `FAR SIDE`, plain or before the recess's own mouth chamfer.
+        let far_sunk = "2× ⌀6 THRU ⌵ ⌀12 × 90° FAR SIDE";
+        assert_eq!(Callout::read(far_sunk).count, Some(2));
+        assert_eq!(term(far_sunk, "bore.diameter"), Some(6.0));
+        assert_eq!(term(far_sunk, "countersink.diameter"), Some(12.0));
+        assert_eq!(term(far_sunk, "countersink.angle"), Some(90.0));
+        let far_cbore = "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE";
+        assert_eq!(term(far_cbore, "counterbore.diameter"), Some(10.0));
+        assert_eq!(term(far_cbore, "counterbore.depth"), Some(2.0));
+        // Far recess with its own mouth chamfer: `FAR SIDE` precedes the chamfer so it stays
+        // distinct from a far-end bore chamfer (`C0.25 FAR SIDE`).
+        let far_cbore_chamfer = "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25";
+        assert_eq!(term(far_cbore_chamfer, "counterbore.depth"), Some(2.0));
+        assert_eq!(term(far_cbore_chamfer, "mouth_chamfer.size"), Some(0.25));
+        assert_eq!(term(far_cbore_chamfer, "far_mouth_chamfer.size"), None);
+        let far_end_chamfer = "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25 FAR SIDE";
+        assert_eq!(term(far_end_chamfer, "counterbore.depth"), Some(2.0));
+        assert_eq!(term(far_end_chamfer, "mouth_chamfer.size"), None);
+        assert_eq!(term(far_end_chamfer, "far_mouth_chamfer.size"), Some(0.25));
         // A thread's `M2 x 0.4` is not one either.
         assert_eq!(term("⌀1.6 ↧ 4 M2 x 0.4-6H", "mouth_chamfer.size"), None);
     }

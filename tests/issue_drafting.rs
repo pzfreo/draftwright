@@ -223,16 +223,16 @@ fn ftc06_measurement_text(value: f64, units: Units) -> &'static str {
 fn ftc06_hole_text(id: &str, units: Units) -> &'static str {
     let (mm, inch) = match id {
         "d:f:hole_pattern:f47/bore.diameter" => (
-            "4× ⌀10.541 THRU ⌴ ⌀15.88\n↧ 12.7",
-            "4× ⌀.415 THRU ⌴ ⌀.625\n↧ .500",
+            "4× ⌀10.541 THRU ⌴ ⌀15.88\n↧ 12.7 FAR SIDE",
+            "4× ⌀.415 THRU ⌴ ⌀.625\n↧ .500 FAR SIDE",
         ),
         "d:f:hole_pattern:f65/bore.diameter" => (
-            "4× ⌀7.137 THRU ⌴ ⌀10.16\n↧ 7.94",
-            "4× ⌀.281 THRU ⌴ ⌀.400\n↧ .313",
+            "4× ⌀7.137 THRU ⌴ ⌀10.16\n↧ 7.94 FAR SIDE",
+            "4× ⌀.281 THRU ⌴ ⌀.400\n↧ .313 FAR SIDE",
         ),
         "d:f:hole:f59/bore.diameter" => (
-            "2× ⌀14.287 THRU ⌴ ⌀20.64\n↧ 14.29",
-            "2× ⌀.562 THRU ⌴ ⌀.813\n↧ .563",
+            "2× ⌀14.287 THRU ⌴ ⌀20.64\n↧ 14.29 FAR SIDE",
+            "2× ⌀.562 THRU ⌴ ⌀.813\n↧ .563 FAR SIDE",
         ),
         "d:f:hole:f106/bore.diameter" => ("2× ⌀6.35 ↧ 12.7", "2× ⌀.250 ↧ .500"),
         _ => panic!("unexpected FTC-06 hole callout {id}"),
