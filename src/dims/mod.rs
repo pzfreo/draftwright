@@ -1647,6 +1647,9 @@ fn route<'a>(
     let mut end_on: Vec<Vec<&'static str>> = Vec::new();
     for w in wants.iter_mut() {
         if let Some(view) = auxiliary.get(&w.id).copied() {
+            if let Some(f) = frames.get(view) {
+                holes::route_view(analysis, w, f.toward());
+            }
             chosen.push(frames.contains_key(view).then_some(view));
             end_on.push(Vec::new());
             continue;
@@ -1675,6 +1678,9 @@ fn route<'a>(
         }
         if let Some(v) = view {
             route_sites(analysis, w, v);
+            if let Some(f) = frames.get(v) {
+                holes::route_view(analysis, w, f.toward());
+            }
         }
         if let Some(v) = view
             && v != w.views[0]
@@ -3547,6 +3553,11 @@ fn plan_inventory_ordered(
                 });
             }
             _ => kept.push((w, entry.is_none(), view, along)),
+        }
+    }
+    for (w, _, view, _) in &mut kept {
+        if let Some(f) = view.and_then(|v| frames.get(v)) {
+            problems.extend(holes::route_view(analysis, w, f.toward()));
         }
     }
     plates::consolidate(analysis, &mut kept, &mut omitted);

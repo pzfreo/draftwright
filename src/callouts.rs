@@ -30,6 +30,9 @@ pub(crate) fn style(spec: &crate::model::Spec, owner: &str) -> Style {
 pub const BREAK: &str = "\n";
 /// Discretionary wraps may be repacked after precision, tolerance or authored wording changes.
 const SOFT_BREAK: &str = "\u{2028}";
+pub(crate) fn is_soft_break(term: &str) -> bool {
+    term == SOFT_BREAK
+}
 pub(crate) fn is_break(term: &str) -> bool {
     term == BREAK || term == SOFT_BREAK
 }
@@ -119,7 +122,7 @@ fn wrap_measured(terms: &[String], width: &dyn Fn(&[String]) -> f64) -> Vec<Stri
             out.push(SOFT_BREAK.into());
         };
         for token in forced {
-            let words: Vec<_> = if token.contains('\n') {
+            let words: Vec<_> = if token.contains('\n') || token == FAR_SIDE {
                 vec![token.as_str()]
             } else {
                 token.split_whitespace().collect()
@@ -173,6 +176,22 @@ mod tests {
             lines
                 .iter()
                 .any(|l| l.ends_with(&["↧".into(), "10".into()]))
+        );
+    }
+
+    #[test]
+    fn a_wrapped_far_side_stays_together() {
+        let terms: Vec<String> = ["⌀40", "THRU", "⌴", "⌀120", "↧", "8", "FAR SIDE"]
+            .map(String::from)
+            .to_vec();
+        let wrapped = super::wrap_measured(&terms, &|t| 10.0 * t.len() as f64);
+        let lines = super::lines(&wrapped);
+        assert!(lines.len() > 1, "{wrapped:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.last().map(String::as_str) == Some("FAR SIDE")),
+            "{wrapped:?}"
         );
     }
 }

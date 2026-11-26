@@ -100,6 +100,11 @@ impl Frame {
         self.s
     }
 
+    /// The view's direction toward the viewer, unit world vector.
+    pub(super) fn toward(&self) -> P3 {
+        self.view.toward
+    }
+
     pub(super) fn page(&self, p: P3) -> P2 {
         let q = self.view.map(p);
         let q = self.broken.as_ref().map_or(q, |b| b.map(q));

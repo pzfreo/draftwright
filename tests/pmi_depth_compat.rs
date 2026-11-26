@@ -570,7 +570,7 @@ fn a_fitted_source_thread_keeps_its_authored_drill_depth() {
         let label = d.label.split_whitespace().collect::<Vec<_>>().join(" ");
         assert_eq!(
             label,
-            format!("M2-6H ↧ 2.5 ⌀1.6 H11 ↧ {value:.2} ±0.20 ⌵ ⌀3.2 × 90°")
+            format!("M2-6H ↧ 2.5 ⌀1.6 H11 ↧ {value:.2} ±0.20 ⌵ ⌀3.2 × 90° FAR SIDE")
         );
         assert!(
             d.measurements

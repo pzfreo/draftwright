@@ -2884,10 +2884,21 @@ fn select_with(
             {
                 continue;
             }
+            let far_c = d
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "far_mouth_chamfer.size")
+                .then(|| d.terms.iter().rposition(|t| t == crate::callouts::FAR_SIDE))
+                .flatten();
             let terms = d
                 .terms
                 .iter()
-                .filter(|t| !crate::callouts::is_break(t))
+                .enumerate()
+                .filter(|(i, t)| {
+                    !crate::callouts::is_break(t)
+                        && (*t != crate::callouts::FAR_SIDE || Some(*i) == far_c)
+                })
+                .map(|(_, t)| t)
                 .skip(usize::from(
                     d.terms.first().is_some_and(|t| t.ends_with('×')),
                 ))

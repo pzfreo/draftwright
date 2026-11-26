@@ -266,6 +266,130 @@ pub(crate) fn toward_viewer(d: P3) -> P3 {
     toward(oblique_axes(d)[0])
 }
 
+fn dot3(a: P3, b: P3) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// `Ok(true)` for a far-side recess, `Ok(false)` for plain/side-on/`BOTH SIDES`, `Err(why)` when undecided.
+fn recess_side(h: &Hole, toward: P3) -> Result<bool, &'static str> {
+    let n = dot3(toward, toward).sqrt();
+    if !h.has_recess() || h.both || n == 0.0 {
+        return Ok(false);
+    }
+    let cos = dot3(h.direction, toward).abs() / n;
+    if cos < 1e-3 {
+        return Ok(false);
+    }
+    if cos <= 0.999 {
+        return Err("its axis is tilted to the view");
+    }
+    if h.both_ends {
+        return Err("recesses lie at both ends");
+    }
+    let inward = if h.countersink.is_some() {
+        let cd = h.csink_direction().ok_or("no recorded seat direction")?;
+        if dot3(cd, h.direction).abs() <= 0.999 {
+            return Err("its countersink axis does not match the bore");
+        }
+        cd
+    } else {
+        h.direction
+    };
+    Ok(dot3(inward, toward) > 0.0)
+}
+
+/// Index in *terms* (soft breaks stripped) directly after the last recess segment.
+fn recess_end(terms: &[String]) -> Option<usize> {
+    let is_rec = |t: &String| matches!(t.as_str(), "⌴" | SPOTFACE | "⌵");
+    let mut i = terms.iter().rposition(is_rec)? + 1;
+    for step in [false, true] {
+        if !step && terms.get(i).is_some_and(|t| t.starts_with(['⌀', 'ø', 'Ø'])) {
+            i += 1;
+        } else if step && terms.get(i).is_some_and(|t| t == "↧" || t == "×") && i + 1 < terms.len()
+        {
+            i += 2;
+        }
+        while terms.get(i).is_some_and(|t| t.starts_with(['±', '+', '-'])) {
+            i += 1;
+        }
+    }
+    Some(i)
+}
+
+fn recess_undecided(analysis: &Analysis, w: &Want, h: &holes::Hole, why: &str) -> Problem {
+    let owner =
+        w.id.strip_prefix("d:")
+            .and_then(|s| s.split_once('/'))
+            .map_or(h.feature.id.as_str(), |(id, _)| id);
+    let cb = h.counterbore.is_some() || !h.outer_steps.is_empty();
+    let recess = match (cb, h.spotface.is_some(), h.countersink.is_some()) {
+        (true, false, false) => "counterbore",
+        (false, true, false) => "spotface",
+        (false, false, true) => "countersink",
+        _ => "recess",
+    };
+    let bores = w
+        .measurements
+        .iter()
+        .filter(|m| m.parameter == "bore.diameter");
+    let subjects = std::iter::once(w.id.clone())
+        .chain(bores.map(|m| m.feature.clone()))
+        .collect();
+    Problem {
+        id: format!("p:hole_recess_side_undecided:{owner}"),
+        code: "hole_recess_side_undecided".into(),
+        severity: "warning".into(),
+        message: format!(
+            "{}'s {recess} entry side relative to the view could not be decided ({why}); the callout states the {recess} without FAR SIDE.",
+            crate::wording::capital(&crate::wording::feature_id(analysis, owner)),
+        ),
+        subjects,
+        ..Default::default()
+    }
+}
+
+/// Apply the far-recess `FAR SIDE` rule to routed hole callout *w* for view direction *toward*.
+pub(super) fn route_view(analysis: &Analysis, w: &mut Want, toward: P3) -> Option<Problem> {
+    use crate::callouts;
+    if !matches!(w.shape, Shape::Callout { .. }) {
+        return None;
+    }
+    let mut agreed: Option<bool> = None;
+    for bore in w
+        .measurements
+        .iter()
+        .filter(|m| m.parameter == "bore.diameter")
+    {
+        let f = analysis.features.iter().find(|f| f.id == bore.feature)?;
+        let mut h = hole(holes::Hole::read_in(analysis, f)).ok()?;
+        h.both = both_mouths(analysis, &h);
+        let far = match recess_side(&h, toward) {
+            Ok(far) if agreed.is_none_or(|a| a == far) => far,
+            Ok(_) => {
+                return Some(recess_undecided(
+                    analysis,
+                    w,
+                    &h,
+                    "its members open on different sides",
+                ));
+            }
+            Err(why) => return Some(recess_undecided(analysis, w, &h, why)),
+        };
+        agreed = Some(far);
+    }
+    if agreed == Some(true) {
+        let keep = |t: &&String| !callouts::is_soft_break(t);
+        let mut terms: Vec<_> = w.terms.iter().filter(keep).cloned().collect();
+        if let Some(at) = recess_end(&terms)
+            && terms.get(at).map(String::as_str) != Some(callouts::FAR_SIDE)
+        {
+            terms.insert(at, callouts::FAR_SIDE.into());
+            w.terms = callouts::wrap(&terms);
+        }
+    }
+    None
+}
+
 /// The direction toward the viewer of the view along world axis *k*.
 pub(super) fn toward(k: usize) -> P3 {
     super::TOWARD
@@ -1599,5 +1723,95 @@ mod tests {
             let [a, b] = tips.map(|t| t.point(t.start));
             assert!((0..3).all(|j| (a[j] + b[j] - 2.0 * c[j]).abs() < 1e-9));
         }
+    }
+
+    #[test]
+    fn route_view_checks_every_member_of_a_grouped_callout() {
+        let hole_feat = |id: &str, csink_axis: Option<[f64; 3]>| {
+            let mut csink = serde_json::json!({
+                "major_diameter": 12.0,
+                "included_angle": 90.0,
+                "drill_diameter": 6.0,
+                "depth": 3.0,
+                "location": [0.0, 0.0, 0.0],
+            });
+            if let Some(ax) = csink_axis {
+                csink["axis"] = serde_json::json!(ax);
+            }
+            serde_json::from_value(serde_json::json!({
+                "id": id,
+                "kind": "hole",
+                "faces": [0],
+                "parameters": {
+                    "axis": [0.0, 0.0, 1.0],
+                    "location": [0.0, 0.0, 0.0],
+                    "diameter": 6.0,
+                    "depth": 10.0,
+                    "bottom": "through",
+                    "cbore": null,
+                    "spotface": null,
+                    "csink": csink,
+                },
+                "fingerprint": {
+                    "version": "test",
+                    "family": "holes",
+                    "subtype": "HoleRecord",
+                    "sizes": {},
+                    "position": [0.0, 0.0, 0.0],
+                    "neighbourhood": []
+                }
+            }))
+            .unwrap()
+        };
+        let make_analysis = |second_axis: Option<[f64; 3]>| -> Analysis {
+            let mut a: Analysis = serde_json::from_value(serde_json::json!({
+                "schema": "draftwright.analysis/8",
+                "binding": { "source_sha256": "", "part": "test", "face_count": 2, "loader": "test" },
+                "envelope": [[0.0, 0.0, 0.0], [10.0, 10.0, 10.0]],
+                "features": [],
+                "iso_bounds": [0.0, 0.0, 0.0, 0.0],
+            }))
+            .unwrap();
+            a.features
+                .push(hole_feat("f:hole:1", Some([0.0, 0.0, 1.0])));
+            a.features.push(hole_feat("f:hole:2", second_axis));
+            a
+        };
+        let make_want = || Want {
+            units: Default::default(),
+            id: want_id("f:hole:1", "bore.diameter"),
+            views: vec!["plan"],
+            value: 6.0,
+            terms: ["2×", "⌀6", "THRU", "⌵", "⌀12", "×", "90°"]
+                .map(String::from)
+                .to_vec(),
+            measurements: ["f:hole:1", "f:hole:2"]
+                .map(|f| Measurement {
+                    feature: f.into(),
+                    parameter: "bore.diameter".into(),
+                    value: 6.0,
+                })
+                .to_vec(),
+            basis: String::new(),
+            shape: Shape::Callout {
+                sites: vec![],
+                arcs: vec![],
+            },
+            turning: None,
+        };
+        // Members disagree (one far, one near) -> plain + warning.
+        let mut w = make_want();
+        let p = route_view(
+            &make_analysis(Some([0.0, 0.0, -1.0])),
+            &mut w,
+            [0.0, 0.0, 1.0],
+        );
+        assert!(p.is_some_and(|p| p.code == "hole_recess_side_undecided"));
+        assert!(!w.terms.iter().any(|t| t == crate::callouts::FAR_SIDE));
+        // Second member in doubt (missing seat axis) -> plain + warning.
+        let mut w = make_want();
+        let p = route_view(&make_analysis(None), &mut w, [0.0, 0.0, 1.0]);
+        assert!(p.is_some_and(|p| p.code == "hole_recess_side_undecided"));
+        assert!(!w.terms.iter().any(|t| t == crate::callouts::FAR_SIDE));
     }
 }

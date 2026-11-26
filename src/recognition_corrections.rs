@@ -1248,7 +1248,7 @@ fn pattern(
             .iter()
             .find(|f| &f.id == m && f.kind == "hole")
             .ok_or_else(|| fail("every member must resolve to a nonsuppressed hole"))?;
-        reads.push(holes::Hole::read(f, &holes::frame(a)).map_err(|why| fail(&why))?);
+        reads.push(holes::Hole::read_in(a, f).map_err(|why| fail(&why))?);
         faces.extend(&f.faces);
     }
     let first = &reads[0];

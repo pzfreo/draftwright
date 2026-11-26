@@ -1583,13 +1583,27 @@ basis, placed, reference?, determined_by?}`:
   of the callout is stated from: a hole with a recess (`⌴`, a spotface, a countersink) from
   quiddity's opening, where the recess is; a plain through hole from the end its view looks at
   (the plan view sees the top face), whichever end quiddity calls the opening; a blind hole has
-  one mouth. The other end's chamfer says `FAR SIDE` after it, and the same chamfer (size,
+  one mouth. A recess (counterbore, outer steps, spotface, countersink) states `FAR SIDE` once,
+  directly after the recess terms and before its own mouth chamfer (`⌴ ⌀10 ↧ 2 FAR SIDE C0.25`),
+  decided from that recess's own direction only: when it has a recorded opening or seat direction
+  (`csink.axis` for a countersink), the hole axis is parallel or antiparallel to the callout's
+  view direction (`|cos| > 0.999`), the recess opens on the face away from the viewer, and the
+  hole feature's own records do not carry recesses at both ends (`BOTH SIDES` unchanged; other
+  features along the axis are never consulted). A hole seen side-on (perpendicular to the view)
+  stays plain. Every member of a grouped callout is checked: when any member's side is in doubt
+  (missing seat direction, a tilted axis neither parallel nor perpendicular to the view, or
+  recesses recorded at both ends of that feature without `BOTH SIDES`) or members disagree, the
+  callout states the recess plain and raises one `hole_recess_side_undecided` warning. Holes
+  whose recesses open on opposite faces, or differ in being cut at both ends, are not grouped.
+  Each mouth chamfer stays classified against the recess rather than the view (a flip changes
+  only which end faces the viewer); a far-end chamfer's existing `FAR SIDE` stays after its
+  chamfer, and the same chamfer (size,
   angle and the diameter it breaks) at both ends says `BOTH SIDES`: a counterbore's `C0.25` and
   the far bore's `C0.25` are two chamfers (`⌴ ⌀10 ↧ 2 C0.25 C0.25 FAR SIDE`). The size (and the
   angle, off 45°) is a requirement lint checks (`mouth_chamfer.size`, `mouth_chamfer.angle`, and
   `far_mouth_chamfer.*`). Holes alike but for a chamfer, or for the physical face it breaks,
   are not counted together. A hole table's size cell states the chamfer with the rest of the
-  callout, and the callout whose hole a frame or datum symbol is led to where the view draws it
+  callout without recess `FAR SIDE`, and the callout whose hole a frame or datum symbol is led to where the view draws it
   hidden stays beside its row. A ⌀2 bore with a 0.5 × 45° edge stays a ⌀3 × 90° countersink
   (`⌵ ⌀3 × 90°`): geometry cannot tell intent, and quiddity keeps that boundary. A closed
   rectangular pocket with floor rounds on all four walls (quiddity reports FTC-08's long slot so

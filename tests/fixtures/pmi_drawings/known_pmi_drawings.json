@@ -3697,7 +3697,7 @@
      "boxed": false,
      "kind": "dimension",
      "rides_on": "bore.diameter",
-     "text": "4× ⌀7.137 +0.1524/-0.0254 THRU ⌴ ⌀11.11 ↧ 7.62",
+     "text": "4× ⌀7.137 +0.1524/-0.0254 THRU ⌴ ⌀11.11 ↧ 7.62 FAR SIDE",
      "view": "front"
     }
    ]

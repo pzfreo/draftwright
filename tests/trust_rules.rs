@@ -355,10 +355,12 @@ fn no_document_infers_manufacturing_intent() {
     // a radius's, a diameter's and an equal-leg chamfer's prefix, a polygonal boss's (`HEX`,
     // `N-SIDED`, `A/F`), a blind slot's words, a groove's (`WIDE`), and a pocket's and a circular
     // seat's (`DEEP`, `LONG`, `ARC`), and a turned step's outside diameter where a coaxial
-    // bore prints the same size (`OD`), and the letters inside the spotface symbol (`⌴SF`,
-    // maintainer decision 2026-10-08).
-    const WORDS: [&str; 29] = [
+    // bore prints the same size (`OD`), the letters inside the spotface symbol (`⌴SF`,
+    // maintainer decision 2026-10-08), and a far-side recess/chamfer qualifier (`FAR SIDE`).
+    const WORDS: [&str; 31] = [
         "THRU",
+        "FAR",
+        "SIDE",
         "EQ",
         "SP",
         "ON",
