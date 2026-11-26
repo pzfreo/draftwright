@@ -86,6 +86,10 @@ pub const BOTH_SIDES: &str = "BOTH SIDES";
 /// The qualifier of a mouth chamfer on the far end of a through hole, the end its callout's
 /// reference does not look at ([`Hole::chamfers`]).
 pub const FAR_SIDE: &str = "FAR SIDE";
+/// The datum note on an authored blind depth measured from a counterbore or step floor.
+pub const FROM_CBORE_FLOOR: &str = "FROM CBORE FLOOR";
+/// The datum note on an authored blind depth measured from a spotface floor.
+pub const FROM_SF_FLOOR: &str = "FROM SF FLOOR";
 
 /// A countersink: its major diameter, and its included angle (degrees) when quiddity gives one.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -6,6 +6,19 @@ use crate::{
 
 type Kept<'a> = (Want, bool, Option<&'a str>, Vec<&'static str>);
 
+pub(super) fn enclose(terms: &mut [String]) {
+    if let Some(first) = terms.iter_mut().find(|t| !crate::callouts::is_break(t)) {
+        first.insert(0, '(');
+    }
+    if let Some(last) = terms
+        .iter_mut()
+        .rev()
+        .find(|t| !crate::callouts::is_break(t))
+    {
+        last.push(')');
+    }
+}
+
 pub(super) fn apply(
     spec: &Spec,
     kept: &mut [Kept],
@@ -38,8 +51,8 @@ pub(super) fn apply(
         if entry.text.is_none() && entry.style.is_none() {
             continue;
         }
-        let old = w.terms.join(" ");
-        let reference = old.starts_with('(') && old.ends_with(')');
+        w.terms.retain(|t| !crate::callouts::is_soft_break(t));
+        let reference = super::is_parenthesised_reference(&w.terms);
         if entry.style == Some(Style::Reference) && super::is_basic(&w.measurements) {
             return Err(Invalid {
                 path: None,
@@ -51,9 +64,21 @@ pub(super) fn apply(
                 choices: vec!["basic".into()],
             });
         }
-        // Keep the reference enclosure outside all authored wording.
+        // Keep the reference enclosure outside all authored wording,
+        // preserving term boundaries so callout notes and forced breaks survive wrapping.
         if reference {
-            w.terms = vec![old[1..old.len() - 1].into()];
+            if let Some(first) = w.terms.iter_mut().find(|t| !crate::callouts::is_break(t)) {
+                first.remove(0);
+            }
+            if let Some(last) = w
+                .terms
+                .iter_mut()
+                .rev()
+                .find(|t| !crate::callouts::is_break(t))
+            {
+                last.pop();
+            }
+            w.terms.retain(|t| !t.is_empty());
         }
         if let Some(text) = &entry.text {
             w.terms = text.terms(&w.id, &w.terms)?;
@@ -61,7 +86,7 @@ pub(super) fn apply(
             w.basis += "; label wording from_spec: text; generated measured terms retained";
         }
         if entry.style == Some(Style::Reference) || (reference && entry.style.is_none()) {
-            w.terms = vec![format!("({})", w.terms.join(" "))];
+            enclose(&mut w.terms);
         }
         if let Some(style) = entry.style {
             let field = match style {

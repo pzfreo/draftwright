@@ -675,6 +675,25 @@ impl Callout {
                 let word: String = chars[start..i].iter().collect();
                 match word.as_str() {
                     "THRU" => thru = true,
+                    "FROM" => {
+                        let mut p = i;
+                        let mut next = || {
+                            while chars.get(p).is_some_and(|ch| ch.is_whitespace()) {
+                                p += 1;
+                            }
+                            let s = p;
+                            while chars.get(p).is_some_and(|ch| ch.is_alphanumeric()) {
+                                p += 1;
+                            }
+                            (p > s).then(|| chars[s..p].iter().collect::<String>())
+                        };
+                        if let (Some(a), Some(b)) = (next(), next())
+                            && [holes::FROM_CBORE_FLOOR, holes::FROM_SF_FLOOR]
+                                .contains(&format!("FROM {a} {b}").as_str())
+                        {
+                            i = p;
+                        }
+                    }
                     // `⌴SF` (or `⌴ SF`): the `⌴` just opened is the spotface symbol's.
                     "SF" => match out.segments.last_mut() {
                         Some(s) if *s == Segment::new(Opened::Recess) => {
@@ -1855,5 +1874,34 @@ mod tests {
             plain.term("outer_steps.0.diameter", true, 1).map(|t| t.0),
             Some(20.0)
         );
+    }
+
+    #[test]
+    fn floor_datum_notes_do_not_disturb_callout_parsing() {
+        let cbore = Callout::read("4× ⌀3 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 2");
+        assert_eq!(cbore.count, Some(4));
+        assert_eq!(cbore.term("bore.diameter", true, 0), Some((3.0, 0)));
+        assert_eq!(cbore.term("bore.depth", true, 0), Some((6.0, 2)));
+        assert_eq!(cbore.term("counterbore.diameter", true, 0), Some((5.0, 0)));
+        assert_eq!(cbore.term("counterbore.depth", true, 0), Some((2.0, 0)));
+        assert!(cbore.loose.is_empty());
+
+        let sf = Callout::read("4× ⌀3 ↧ 6.00 ±0.20\nFROM SF FLOOR ⌴SF ⌀5 ↧ 2");
+        assert_eq!(sf.term("bore.depth", false, 0), Some((6.0, 2)));
+        assert_eq!(sf.term("spotface.diameter", false, 0), Some((5.0, 0)));
+        assert_eq!(sf.term("spotface.depth", false, 0), Some((2.0, 0)));
+        assert_eq!(sf.segments.len(), 2);
+
+        let stepped = Callout::read("⌀3 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 1 ⌴ ⌀6 ↧ 1");
+        assert_eq!(stepped.term("bore.depth", true, 1), Some((6.0, 2)));
+        assert_eq!(
+            stepped.term("counterbore.diameter", true, 1),
+            Some((5.0, 0))
+        );
+        assert_eq!(
+            stepped.term("outer_steps.0.diameter", true, 1),
+            Some((6.0, 0))
+        );
+        assert_eq!(stepped.term("outer_steps.0.depth", true, 1), Some((1.0, 0)));
     }
 }

@@ -38,7 +38,7 @@ pub(crate) fn is_break(term: &str) -> bool {
 }
 
 pub const WIDTH: f64 = 48.0;
-pub use crate::bridge::holes::{BOTH_SIDES, FAR_SIDE};
+pub use crate::bridge::holes::{BOTH_SIDES, FAR_SIDE, FROM_CBORE_FLOOR, FROM_SF_FLOOR};
 /// The same font-derived baseline advance used by ordinary multiline font text.
 pub fn line_spacing() -> f64 {
     crate::dims::font().line_spacing(crate::dims::TEXT)
@@ -107,7 +107,11 @@ fn wrap_measured(terms: &[String], width: &dyn Fn(&[String]) -> f64) -> Vec<Stri
             out.push(BREAK.into());
         }
         let (forced, tail) = match forced.split_last() {
-            Some((last, body)) if last == BOTH_SIDES && !body.is_empty() => (body, Some(last)),
+            Some((last, body))
+                if last.strip_suffix(')').unwrap_or(last) == BOTH_SIDES && !body.is_empty() =>
+            {
+                (body, Some(last))
+            }
             _ => (*forced, None),
         };
         // As in Python, short labels keep their original token cells and spacing.
@@ -122,7 +126,11 @@ fn wrap_measured(terms: &[String], width: &dyn Fn(&[String]) -> f64) -> Vec<Stri
             out.push(SOFT_BREAK.into());
         };
         for token in forced {
-            let words: Vec<_> = if token.contains('\n') || token == FAR_SIDE {
+            let words: Vec<_> = if token.contains('\n')
+                || matches!(
+                    token.trim_matches(['(', ')']),
+                    FAR_SIDE | FROM_CBORE_FLOOR | FROM_SF_FLOOR
+                ) {
                 vec![token.as_str()]
             } else {
                 token.split_whitespace().collect()
@@ -193,5 +201,22 @@ mod tests {
                 .any(|l| l.last().map(String::as_str) == Some("FAR SIDE")),
             "{wrapped:?}"
         );
+    }
+
+    #[test]
+    fn floor_datum_notes_wrap_as_units() {
+        for note in [super::FROM_CBORE_FLOOR, super::FROM_SF_FLOOR] {
+            let terms: Vec<String> = ["4×", "⌀3", "↧", "6.00", "±0.20", note, "⌴", "⌀5", "↧", "2"]
+                .map(String::from)
+                .to_vec();
+            let wrapped = super::wrap(&terms);
+            let lines = super::lines(&wrapped);
+            assert!(lines.len() > 1, "{wrapped:?}");
+            assert!(
+                lines.iter().any(|l| l.iter().any(|t| t == note)),
+                "note split across lines: {wrapped:?}"
+            );
+            assert_eq!(super::wrap(&wrapped), wrapped);
+        }
     }
 }
