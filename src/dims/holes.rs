@@ -351,7 +351,8 @@ fn recess_undecided(analysis: &Analysis, w: &Want, h: &holes::Hole, why: &str) -
 /// Apply the far-recess `FAR SIDE` rule to routed hole callout *w* for view direction *toward*.
 pub(super) fn route_view(analysis: &Analysis, w: &mut Want, toward: P3) -> Option<Problem> {
     use crate::callouts;
-    if !matches!(w.shape, Shape::Callout { .. }) {
+    // The private placement comparison predates FAR SIDE and disables wrapping; keep its corridors intact.
+    if crate::nominal::comparison() || !matches!(w.shape, Shape::Callout { .. }) {
         return None;
     }
     let mut agreed: Option<bool> = None;
