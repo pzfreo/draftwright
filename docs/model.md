@@ -1576,8 +1576,13 @@ basis, placed, reference?, determined_by?}`:
   2.0 deep under a 0.25 chamfer) and are claims lint checks, and the hole table matches the callout. Its entry includes
   the mouth chamfer and, for an unthreaded blind bore, an opening countersink beyond the cylinder.
   An authored depth attaches at the innermost counterbore floor, or the spotface floor when there
-  is no counterbore, or otherwise at the recorded opening adjusted for its mouth chamfer. When it replaces the bore term, the planner and lint
-  compare it with the bore length plus the mouth chamfer. A blind bore whose recorded depth has a magnitude below
+  is no counterbore, or otherwise at the recorded opening adjusted for its mouth chamfer. When it
+  replaces the bore term, the planner and lint compare it with the bore length plus the mouth
+  chamfer; when the matched datum is a counterbore or step floor, the callout and hole table's
+  size cell add `FROM CBORE FLOOR` right after the authored depth and its tolerance, before the
+  `⌴` terms (`⌀3 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 2`), or `FROM SF FLOOR` when it is a
+  spotface floor, keeping each note together when wrapping. Surface-datum depths print without a
+  floor note. A blind bore whose recorded depth has a magnitude below
   `1e-6 mm` prints `DEPTH UNDEFINED` in its callout or table row and retains its diameter and
   location. Which end a chamfer is on is judged from the end the rest
   of the callout is stated from: a hole with a recess (`⌴`, a spotface, a countersink) from

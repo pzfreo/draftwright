@@ -3603,7 +3603,7 @@ fn plan_inventory_ordered(
                 && !pmi_policy::source_dimension(analysis, w)
                 && !w.terms.join(" ").starts_with('(')
             {
-                w.terms = vec![format!("({})", crate::callouts::label(&w.terms))];
+                wording::enclose(&mut w.terms);
                 w.basis += "; reference: an engine dimension not stated by the applied PMI";
             }
         }

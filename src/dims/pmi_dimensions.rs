@@ -468,7 +468,12 @@ fn inclined_hole_callout(
 
 /// A depth belongs to one complete callout only when its authored endpoint topology
 /// proves every blind bore, including the circular shoulder of a drill point.
-fn hole_depth_callout(a: &Analysis, wants: &[Want], r: &Record) -> Option<usize> {
+/// Returns the matched callout and any floor-datum note its depth starts from.
+fn hole_depth_callout(
+    a: &Analysis,
+    wants: &[Want],
+    r: &Record,
+) -> Option<(usize, Option<&'static str>)> {
     let spans = &r.geometry.as_ref()?.hole_depths;
     if spans.is_empty() {
         return None;
@@ -482,6 +487,7 @@ fn hole_depth_callout(a: &Analysis, wants: &[Want], r: &Record) -> Option<usize>
             continue;
         }
         let mut covered = BTreeSet::new();
+        let mut note = None;
         let all = holes.iter().all(|(id, _, _)| {
             let Some(f) = a.features.iter().find(|f| f.id == *id) else {
                 return false;
@@ -495,21 +501,38 @@ fn hole_depth_callout(a: &Analysis, wants: &[Want], r: &Record) -> Option<usize>
             // A counterbore's drilling starts on its innermost floor. Recognition's
             // location remains at the outer opening, but its bore depth is the drill's
             // own length, which is the span an authored depth names here.
-            let (entry, floor) = if let Some(recess) = h.counterbore.or(h.spotface) {
-                let Some(offsets) = std::iter::once(recess)
-                    .chain(h.outer_steps.iter().copied())
-                    .map(|r| r.depth)
-                    .collect::<Option<Vec<_>>>()
+            let recesses: Vec<_> = h
+                .spotface
+                .iter()
+                .chain(&h.outer_steps)
+                .chain(&h.counterbore)
+                .copied()
+                .collect();
+            let (entry, floor, datum) = if !recesses.is_empty() {
+                let Some(offsets) = recesses.iter().map(|r| r.depth).collect::<Option<Vec<_>>>()
                 else {
                     return false;
                 };
                 let offset: f64 = offsets.iter().sum();
                 let entry = [0, 1, 2].map(|k| h.at[k] + offset * h.direction[k]);
                 let Some(drill) = h.depth else { return false };
-                (entry, [0, 1, 2].map(|k| entry[k] + drill * h.direction[k]))
+                let datum = if h.counterbore.is_some() || !h.outer_steps.is_empty() {
+                    crate::callouts::FROM_CBORE_FLOOR
+                } else {
+                    crate::callouts::FROM_SF_FLOOR
+                };
+                (
+                    entry,
+                    [0, 1, 2].map(|k| entry[k] + drill * h.direction[k]),
+                    Some(datum),
+                )
             } else {
                 let entry = [0, 1, 2].map(|k| h.at[k] - h.entry * h.direction[k]);
-                (entry, [0, 1, 2].map(|k| entry[k] + depth * h.direction[k]))
+                (
+                    entry,
+                    [0, 1, 2].map(|k| entry[k] + depth * h.direction[k]),
+                    None,
+                )
             };
             let mut matched = false;
             for (j, span) in spans.iter().enumerate() {
@@ -519,12 +542,13 @@ fn hole_depth_callout(a: &Analysis, wants: &[Want], r: &Record) -> Option<usize>
                 {
                     covered.insert(j);
                     matched = true;
+                    note = datum;
                 }
             }
             matched
         });
         if all && covered.len() == spans.len() {
-            found.push(i);
+            found.push((i, note));
         }
     }
     (found.len() == 1).then(|| found[0])
@@ -532,7 +556,7 @@ fn hole_depth_callout(a: &Analysis, wants: &[Want], r: &Record) -> Option<usize>
 
 /// Replace just the bore's first depth clause with its authored text, so diameter fits
 /// and recess depths retain their own quantities.
-fn print_depth(w: &mut Want, r: &Record, value: f64) {
+fn print_depth(w: &mut Want, r: &Record, value: f64, note: Option<&'static str>) {
     let at = w
         .terms
         .iter()
@@ -541,7 +565,11 @@ fn print_depth(w: &mut Want, r: &Record, value: f64) {
         + 1;
     // The label has already crossed the drawing-unit boundary, just as for standalone
     // dimensions. Keep its authored zeroes, tolerance spelling and qualifier intact.
-    w.terms.splice(at..=at, terms(&r.label));
+    let mut depth = terms(&r.label);
+    if let Some(note) = note {
+        depth.push(note.into());
+    }
+    w.terms.splice(at..=at, depth);
     for m in &mut w.measurements {
         if m.parameter == "bore.depth" {
             m.value = value;
@@ -790,8 +818,8 @@ enum Outcome {
     Standalone(Want),
     /// Stated by a callout: its holes, and the band it puts on it.
     Hole(usize, BTreeSet<usize>, Option<Req>),
-    /// Authored blind depth on an existing hole callout.
-    Depth(usize),
+    /// Authored blind depth on an existing hole callout, with any floor-datum note.
+    Depth(usize, Option<&'static str>),
     /// Stated by another item as it is.
     Stated(usize, &'static str),
     /// Stated by a turned step's or boss's diameter, which takes its band.
@@ -1004,16 +1032,16 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
 
     // Depth is another quantity of the same hole callout. Apply it before diameter bands,
     // whose undo notes must retain this independent authored depth and its tolerance.
-    let mut depths: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let mut depths: BTreeMap<usize, (Option<&'static str>, Vec<usize>)> = BTreeMap::new();
     for (j, o) in outcomes.iter().enumerate() {
-        if let Outcome::Depth(i) = o {
-            depths.entry(*i).or_default().push(j);
+        if let Outcome::Depth(i, note) = o {
+            depths.entry(*i).or_insert((*note, Vec::new())).1.push(j);
         }
     }
     let mut depth_sources = BTreeSet::new();
     let mut depth_mismatches = Vec::new();
     let frame = crate::bridge::holes::frame(cx.analysis);
-    for (i, js) in depths {
+    for (i, (note, js)) in depths {
         let first = records[js[0]];
         let value = first.value.expect("depth has a nominal");
         let band = requirement(first, value);
@@ -1058,7 +1086,7 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
         if let Some(label) = &first.authored_depth_label {
             authored.label.clone_from(label);
         }
-        print_depth(w, &authored, value);
+        print_depth(w, &authored, value, note);
     }
 
     // A callout states a band only when every hole it calls out has the same one: one with
@@ -1453,12 +1481,12 @@ fn outcome(
         && r.kind == "linear"
         && r.type_code == Some(2)
         && r.value.is_some_and(|v| v.is_finite() && v > 0.)
-        && let Some(i) = hole_depth_callout(a, wants, r)
+        && let Some((i, note)) = hole_depth_callout(a, wants, r)
     {
         if !g.axis_point_reasons.is_empty() {
             return Outcome::Refused(not_lowered(g.axis_point_reasons.join("; ")));
         }
-        return Outcome::Depth(i);
+        return Outcome::Depth(i, note);
     }
     if !g.reasons.is_empty() {
         return Outcome::Refused(not_lowered(g.reasons.join("; ")));

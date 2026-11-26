@@ -242,6 +242,11 @@ fn case_table(setting: Setting) {
                 let conflict = owns && name == "conflict";
                 let mismatch =
                     owns && matches!(name, "0.0004" | "0.006" | "0.02" | "wrong" | "exact_8.2875");
+                let floor_note = match mouth {
+                    Mouth::Counterbore => Some("FROM CBORE FLOOR"),
+                    Mouth::Spotface => Some("FROM SF FLOOR"),
+                    Mouth::Plain | Mouth::Chamfer => None,
+                };
                 if scheduled {
                     let rows: Vec<_> = plan
                         .hole_tables
@@ -251,10 +256,17 @@ fn case_table(setting: Setting) {
                         .collect();
                     assert_eq!(rows.len(), 4, "{case}");
                     if owns && !conflict {
+                        let expected = match floor_note {
+                            Some(note) => format!("↧ {label} {note} ⌴"),
+                            None => format!("↧ {label}"),
+                        };
                         assert!(
-                            rows.iter()
-                                .all(|r| r.cells[1].contains(&format!("↧ {label}"))),
-                            "{case}"
+                            rows.iter().all(|r| {
+                                r.cells[1].contains(&expected)
+                                    && (floor_note.is_some() || !r.cells[1].contains("FROM "))
+                            }),
+                            "{case}: {:?}",
+                            rows.iter().map(|r| &r.cells[1]).collect::<Vec<_>>()
                         );
                     }
                 } else {
@@ -263,15 +275,30 @@ fn case_table(setting: Setting) {
                         assert!(d.placed.is_some(), "{case}");
                         if owns {
                             assert_eq!(d.kind, "callout", "{case}");
-                            assert!(
-                                d.label.contains(&format!("↧ {label}")),
-                                "{case}: {}",
-                                d.label
-                            );
+                            let flat = d.label.split_whitespace().collect::<Vec<_>>().join(" ");
+                            match floor_note {
+                                Some(note) => {
+                                    assert!(
+                                        flat.contains(&format!("↧ {label} {note} ⌴"))
+                                            && d.label.contains(note),
+                                        "{case}: {}",
+                                        d.label
+                                    );
+                                }
+                                None => {
+                                    assert!(
+                                        d.label.contains(&format!("↧ {label}"))
+                                            && !d.label.contains("FROM "),
+                                        "{case}: {}",
+                                        d.label
+                                    );
+                                }
+                            }
                         } else if name == "specify_conveyed" {
                             assert_eq!(d.kind, "callout", "{case}");
                             assert!(
-                                d.label.contains(&format!("↧ {native_depth}")),
+                                d.label.contains(&format!("↧ {native_depth}"))
+                                    && !d.label.contains("FROM "),
                                 "{case}: {}",
                                 d.label
                             );
@@ -475,12 +502,21 @@ fn authored_floor_depth_survives_the_hole_schedule() {
         };
         let plan = model::plan_escalated(&a, &spec).unwrap();
         let drawing = model::render(part, &a, &plan, font).unwrap();
+        let expected_cell = match kind {
+            "counterbore" | "stepped" | "chamfered_counterbore" => {
+                format!("↧ {label} FROM CBORE FLOOR ⌴")
+            }
+            "spotface" => format!("↧ {label} FROM SF FLOOR ⌴SF"),
+            "countersink" => format!("↧ {label} ⌵"),
+            _ => unreachable!(),
+        };
         let rows: Vec<_> = lint::marks(&drawing)
             .into_iter()
             .filter(|m| {
                 m.name.starts_with("hole_schedule_")
                     && m.name.ends_with("/size")
-                    && m.text.contains(&format!("↧ {label}"))
+                    && m.text.contains(&expected_cell)
+                    && (kind != "countersink" || !m.text.contains("FROM "))
             })
             .collect();
         assert_eq!(rows.len(), 4, "{kind}: {:#?}", plan.hole_tables);
@@ -592,6 +628,278 @@ fn a_fitted_source_thread_keeps_its_authored_drill_depth() {
                     && i.requirements.iter().any(|r| r.parameter == "bore.depth")),
             mismatch,
             "{findings:?}"
+        );
+    }
+}
+
+fn enclosure_with_floor_depth(kind: &str) -> Analysis {
+    let mut a = fixture().1.clone();
+    match kind {
+        "spotface" => Mouth::Spotface.prepare(&mut a),
+        "counterbore" | "stepped" => Mouth::Counterbore.prepare(&mut a),
+        _ => unreachable!(),
+    }
+    if kind == "stepped" {
+        for hole in a
+            .features
+            .iter_mut()
+            .filter(|f| f.kind == "hole" && f.parameters["diameter"] == json!(3.))
+        {
+            hole.parameters["cbore"]["depth"] = json!(1.);
+            hole.parameters
+                .insert("outer_steps".into(), json!([{"diameter":6., "depth":1.}]));
+        }
+    }
+    let Some(Reading::Read(report)) = &mut a.pmi else {
+        unreachable!()
+    };
+    let r = report
+        .records
+        .iter_mut()
+        .find(|r| r.part21_id == 2620)
+        .unwrap();
+    r.value = Some(6.);
+    r.upper_tol = Some(0.2);
+    r.lower_tol = Some(-0.2);
+    r.label = "6.00 ±0.20".into();
+    r.authored_depth_label = Some(r.label.clone());
+    for span in &mut r.geometry.as_mut().unwrap().hole_depths {
+        span.ends[0][2] = 13.;
+    }
+    a
+}
+
+#[test]
+fn authored_spotface_floor_depth_prints_from_sf_floor() {
+    let (part, _, font) = fixture();
+    let a = enclosure_with_floor_depth("spotface");
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let d = plan
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.label.contains("4× ⌀3"))
+        .unwrap();
+    let flat = d.label.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert_eq!(flat, "4× ⌀3 H11 ↧ 6.00 ±0.20 FROM SF FLOOR ⌴SF ⌀5 ↧ 2");
+    assert!(d.label.contains("FROM SF FLOOR"), "{}", d.label);
+    let drawing = model::render(part, &a, &plan, font).unwrap();
+    let findings = lint::lint(&a, &drawing);
+    assert!(
+        findings
+            .iter()
+            .all(|f| !f.code.starts_with("hole_requirement_") && f.code != "pmi_not_rendered"),
+        "{findings:?}"
+    );
+}
+
+#[test]
+fn authored_stepped_counterbore_floor_depth_prints_from_cbore_floor() {
+    let (part, _, font) = fixture();
+    let a = enclosure_with_floor_depth("stepped");
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let d = plan
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.label.contains("4× ⌀3"))
+        .unwrap();
+    let flat = d.label.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert_eq!(
+        flat,
+        "4× ⌀3 H11 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 1 ⌴ ⌀6 ↧ 1"
+    );
+    assert!(d.label.contains("FROM CBORE FLOOR"), "{}", d.label);
+    let drawing = model::render(part, &a, &plan, font).unwrap();
+    let findings = lint::lint(&a, &drawing);
+    assert!(
+        findings
+            .iter()
+            .all(|f| !f.code.starts_with("hole_requirement_") && f.code != "pmi_not_rendered"),
+        "{findings:?}"
+    );
+}
+
+#[test]
+fn authored_floor_depth_table_cell_prints_the_same_note() {
+    let (part, _, font) = fixture();
+    let spec = Spec {
+        hole_table: Setting::Always,
+        ..Spec::default()
+    };
+    for (kind, expected) in [
+        (
+            "counterbore",
+            "⌀3 H11 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 2",
+        ),
+        ("spotface", "⌀3 H11 ↧ 6.00 ±0.20 FROM SF FLOOR ⌴SF ⌀5 ↧ 2"),
+        (
+            "stepped",
+            "⌀3 H11 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 1 ⌴ ⌀6 ↧ 1",
+        ),
+    ] {
+        let a = enclosure_with_floor_depth(kind);
+        let plan = model::plan_escalated(&a, &spec).unwrap();
+        let rows: Vec<_> = plan
+            .hole_tables
+            .iter()
+            .flat_map(|t| &t.rows)
+            .filter(|r| r.cells[1].starts_with("⌀3 "))
+            .collect();
+        assert_eq!(rows.len(), 4, "{kind}");
+        for r in &rows {
+            assert_eq!(r.cells[1], expected, "{kind}");
+        }
+        let drawing = model::render(part, &a, &plan, font).unwrap();
+        let findings = lint::lint(&a, &drawing);
+        assert!(
+            findings
+                .iter()
+                .all(|f| !f.code.starts_with("hole_requirement_") && f.code != "pmi_not_rendered"),
+            "{kind}: {findings:?}"
+        );
+    }
+}
+
+#[test]
+fn authored_depth_under_spotfaced_counterbore_attaches_with_from_cbore_floor() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/blind_recess_depths/spotface.step.gz");
+    let (part, mut a) = model::analyse_native(&path).unwrap();
+    let hole = holes::read(&a)[0].1.clone().unwrap();
+    let entry = [0, 1, 2].map(|k| hole.at[k] + 5. * hole.direction[k]);
+    let floor = [0, 1, 2].map(|k| entry[k] + 15. * hole.direction[k]);
+    let Some(Reading::Read(template)) = &fixture().1.pmi else {
+        unreachable!()
+    };
+    let mut report = template.clone();
+    report.records.retain(|r| r.part21_id == 2620);
+    let r = &mut report.records[0];
+    let source = r.source_id.clone();
+    r.value = Some(15.);
+    r.upper_tol = Some(0.2);
+    r.lower_tol = Some(-0.2);
+    r.label = "15.00 ±0.20".into();
+    r.authored_depth_label = Some(r.label.clone());
+    r.faces = hole.feature.faces.clone();
+    let g = r.geometry.as_mut().unwrap();
+    g.axis = Some("Z".into());
+    g.stations = vec![entry, floor];
+    g.sites = vec![entry, floor];
+    g.hole_depths = vec![draftwright::pmi_lowering::HoleDepth {
+        cylinder: draftwright::pmi_lowering::Cylinder {
+            origin: [entry[0], entry[1], 0.],
+            direction: [0., 0., 1.],
+            radius: hole.diameter / 2.,
+            interval: [entry[2].min(floor[2]), entry[2].max(floor[2])],
+            internal: true,
+        },
+        ends: [entry, floor],
+    }];
+    a.pmi = Some(Reading::Read(report));
+
+    let expected = "⌀6 ↧ 15.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀12 ↧ 4.25 ⌴SF ⌀18 ↧ 0.75";
+    let font = &fixture().2;
+
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let authored: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.basis.contains(&source))
+        .collect();
+    assert_eq!(authored.len(), 1, "{authored:?}");
+    assert_eq!(authored[0].kind, "callout", "{authored:?}");
+    let flat = authored[0]
+        .label
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(flat, expected);
+    assert!(
+        authored[0].label.contains("FROM CBORE FLOOR"),
+        "{}",
+        authored[0].label
+    );
+    let drawing = model::render(&part, &a, &plan, font).unwrap();
+    let findings = lint::lint(&a, &drawing);
+    assert!(
+        findings
+            .iter()
+            .all(|f| !f.code.starts_with("hole_requirement_") && f.code != "pmi_not_rendered"),
+        "{findings:?}"
+    );
+
+    let spec = Spec {
+        hole_table: Setting::Always,
+        ..Spec::default()
+    };
+    let plan = model::plan_escalated(&a, &spec).unwrap();
+    assert!(
+        plan.dimensions
+            .iter()
+            .all(|d| !d.basis.contains(&source) || d.kind == "callout"),
+        "{:#?}",
+        plan.dimensions
+    );
+    let rows: Vec<_> = plan
+        .hole_tables
+        .iter()
+        .flat_map(|t| &t.rows)
+        .filter(|r| r.cells[1].starts_with("⌀6 "))
+        .collect();
+    assert_eq!(rows.len(), 1, "{:#?}", plan.hole_tables);
+    assert_eq!(rows[0].cells[1], expected);
+    let drawing = model::render(&part, &a, &plan, font).unwrap();
+    let findings = lint::lint(&a, &drawing);
+    assert!(
+        findings
+            .iter()
+            .all(|f| !f.code.starts_with("hole_requirement_") && f.code != "pmi_not_rendered"),
+        "{findings:?}"
+    );
+}
+
+#[test]
+fn reference_style_callout_keeps_floor_note_whole_and_within_width() {
+    let font = &fixture().2;
+    for (kind, note) in [
+        ("counterbore", "FROM CBORE FLOOR"),
+        ("stepped", "FROM CBORE FLOOR"),
+        ("spotface", "FROM SF FLOOR"),
+    ] {
+        let a = enclosure_with_floor_depth(kind);
+        let base = model::plan(&a, &Spec::default()).unwrap();
+        let id = base
+            .dimensions
+            .iter()
+            .find(|d| d.kind == "callout" && d.label.contains("4× ⌀3"))
+            .unwrap()
+            .id
+            .clone();
+        let spec: Spec =
+            serde_json::from_value(json!({"dimensions": {&id: {"style": "reference"}}})).unwrap();
+        let plan = model::plan(&a, &spec).unwrap();
+        let d = plan.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert!(d.reference, "{kind}: {}", d.label);
+        assert!(
+            d.label.starts_with('(') && d.label.ends_with(')'),
+            "{kind}: {}",
+            d.label
+        );
+        assert!(d.label.contains(note), "{kind}: {}", d.label);
+        let placed = d.placed.as_ref().unwrap();
+        let box_width = placed.label_box[2] - placed.label_box[0];
+        assert!(
+            box_width <= draftwright::callouts::WIDTH,
+            "{kind}: label_box width {box_width:.2} > {}: {}",
+            draftwright::callouts::WIDTH,
+            d.label
+        );
+        let ink = draftwright::dims::label_ink(&d.terms, font);
+        let ink_width = ink.max[0] - ink.min[0];
+        assert!(
+            ink_width <= draftwright::callouts::WIDTH,
+            "{kind}: ink width {ink_width:.2} > {}: {:?}",
+            draftwright::callouts::WIDTH,
+            d.terms
         );
     }
 }
