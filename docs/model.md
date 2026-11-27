@@ -3607,7 +3607,7 @@ to the slot's longitudinal centre or low end.
 
 ### Specify PMI authorship
 
-Specify's [PMI provenance contract](https://github.com/pzfreo/specify-core-rust/blob/main/docs/pmi-provenance.md)
+Specify's [PMI provenance contract](https://github.com/pzfreo/specify-pmi/blob/main/docs/pmi-provenance.md)
 uses the exact token `specify-core:written:v1`: `THREAD` description (slot 1),
 `TURNED_KNURL` name (slot 0), or an inverse `DESCRIPTION_ATTRIBUTE` on a requirement's
 own `PROPERTY_DEFINITION_REPRESENTATION` (a dimension's own `SHAPE_DIMENSION_REPRESENTATION`). Draftwright reads these from the raw STEP

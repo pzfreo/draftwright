@@ -3,7 +3,7 @@
 //! - a dimension's ID never names its view, so moving a dimension to another view, omitting a
 //!   view, and changing the sheet or the scale keep every surviving item's ID;
 //! - a PMI item's ID is its record's semantic identity, so the same intent written again by
-//!   specify-core-rust (new Part 21 numbers) keeps every PMI item's ID;
+//!   specify-pmi (new Part 21 numbers) keeps every PMI item's ID;
 //! - a `draftwright.spec/1` spec migrates and plans as the 0.1.0-alpha.1 build planned it, and
 //!   an ambiguous key is refused with its candidates.
 //!
@@ -311,7 +311,7 @@ fn identities(a: &Analysis) -> BTreeMap<String, String> {
     }
 }
 
-/// The same intent written again through specify-core-rust (its `write`, in Replace mode, onto
+/// The same intent written again through specify-pmi (its `write`, in Replace mode, onto
 /// the file it wrote, on the mounting plate: `tests/fixtures/identity/README.md`) gives every record new Part 21
 /// numbers, and every PMI item the same ID: the identities, and every PMI item's ID and what it
 /// states in the plan.

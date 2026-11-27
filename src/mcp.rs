@@ -41,7 +41,7 @@ macro_rules! skill_head {
     () => {
         "Before drawing, read draftwright://skill/draftwright-step with resources/read: the workflow, ids, limits and the final report.\n\
 Must follow: (1) know the drawing's purpose (manufacture, inspection, review, ...): from the brief, else ask; unattended with none given, draw geometry only with material, tolerance and finish UNSPECIFIED. State it in the report.\n\
-(2) Add only the requirements that purpose needs, never invent them: ask, or leave them UNSPECIFIED and say so. Requirements are AP242 PMI written with specify-core; the Spec holds layout and judgement only.\n\
+(2) Add only the requirements that purpose needs, never invent them: ask, or leave them UNSPECIFIED and say so. Requirements are AP242 PMI written with specify-pmi; the Spec holds layout and judgement only.\n\
 (3) Never override a dimension's value; text may add only a prefix or suffix.\n\
 (4) Write Specify defaults only when the person has seen and approved them.\n\
 (5) Look at every sheet (view_sheet, or open the PNG/SVG you rendered); the problem list has blind spots.\n\

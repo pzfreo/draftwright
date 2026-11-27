@@ -79,7 +79,7 @@ pub struct Binding {
     pub part_index: Option<usize>,
 }
 
-/// One distinct part of a STEP file, as `draftwright parts` lists it (specify-core's
+/// One distinct part of a STEP file, as `draftwright parts` lists it (specify-pmi's
 /// `{part, name, faces, instances}`, with the product's id): what a caller chooses a part of an
 /// assembly by. The index is the identity; the name and product id are reported beside it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

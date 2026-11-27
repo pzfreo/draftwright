@@ -221,7 +221,7 @@ python3 tools/check_quiddity_pin.py
 ```
 
 The script reads both `haecceity` and `quiddity` tag/rev pins from this `Cargo.toml` and
-fetches `pzfreo/specify-core-rust`'s manifest at its most recently published GitHub release,
+fetches `pzfreo/specify-pmi`'s manifest at its most recently published GitHub release,
 including prereleases. It compares resolved commits so a tag and its full commit rev match,
 prints the original pins, and checks that both dependencies agree within each package.
 It uses `gh api` when installed (including its existing login), otherwise the GitHub REST

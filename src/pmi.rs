@@ -195,7 +195,7 @@ pub struct Record {
     pub geometry: Option<Geometry>,
 }
 
-/// Specify's exact per-requirement STEP authorship token (specify-core-rust #22).
+/// Specify's exact per-requirement STEP authorship token (specify-pmi #22).
 /// Retained in the existing source diagnostic, so Analysis roundtrips without schema changes.
 const SPECIFY_WRITTEN: &str = "Specify-written PMI (specify-core:written:v1).";
 const SPECIFY_MARKER: &str = "specify-core:written:v1";
@@ -1852,7 +1852,7 @@ impl PartReader<'_> {
     }
 
     // AP242 turned_knurl as a structured knurl: its pattern, its major diameter as the maximum
-    // diameter after knurling and its diametral pitch, the circular pitch specify-core writes,
+    // diameter after knurling and its diametral pitch, the circular pitch specify-pmi writes,
     // as draftwright's linear pitch, but only where its number of teeth confirms that reading
     // (π·major diameter / pitch within one tooth of it); otherwise the record is not lowered.
     fn semantic_knurls(&self, used: &mut Used, confirm_pitch: bool) -> Vec<Record> {
