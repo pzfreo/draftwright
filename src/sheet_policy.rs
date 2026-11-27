@@ -1093,6 +1093,9 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
     let key = serde_json::to_vec(&(spec, crate::planning::policy_key(analysis)))
         .expect("sheet selection inputs serialize");
     crate::planning::memo(analysis, "selected-paper", key, || {
+        if !spec.views.sections.is_empty() {
+            return select_requested(analysis, spec);
+        }
         let plan = select_uncached(analysis, spec)?;
         if (spec.sheet.size.is_none() || spec.sheet.scale.is_none())
             && let Some(unbroken) = crate::broken::without(spec)
@@ -1115,6 +1118,88 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
         }
         Ok(plan)
     })
+}
+
+/// Requested sections keep the paper and scale the drawing has without them (the caller's
+/// `sheet/size` and `sheet/scale` still win) and take the free room the packer finds. When they
+/// do not fit, the next larger paper is tried at the same scale; on the largest, or on fixed
+/// paper, the last request is left out, with a finding.
+fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    let mut refusals = Vec::new();
+    let drawable: Vec<usize> = crate::sections::resolve(analysis, spec, &mut refusals)?
+        .into_iter()
+        .map(|(i, _)| i)
+        .collect();
+    let mut bare = spec.clone();
+    bare.views.sections.clear();
+    for name in spec.views.sections.iter().filter_map(|r| r.view_name()) {
+        bare.views.remove(name);
+    }
+    let base = select(analysis, &bare)?;
+    let pages = spec.pages();
+    let sizes: Vec<&str> = if spec.sheet.size.is_some() {
+        vec![base.sheet.size.as_str()]
+    } else {
+        let first = pages.iter().position(|p| p.0 == base.sheet.size);
+        pages[first.unwrap_or(0)..].iter().map(|p| p.0).collect()
+    };
+    // Leave out the last drawable request, then the one before it, until the rest fit.
+    for kept in (0..=drawable.len()).rev() {
+        let keep = drawable.get(kept).copied().unwrap_or(spec.views.sections.len());
+        for size in &sizes {
+            let mut forced = spec.clone();
+            forced.views.sections.truncate(keep);
+            forced.sheet.size = Some((*size).into());
+            forced.sheet.scale = Some(base.sheet.scale.clone());
+            let mut plan = select_uncached(analysis, &forced)?;
+            if kept > 0 && crate::sections::unplaced(&plan) {
+                continue;
+            }
+            plan = model::finish_presentation(analysis, &forced, plan)?;
+            model::finish_selected(analysis, &mut plan);
+            plan.spec.sheet.size = spec.sheet.size.clone();
+            plan.spec.sheet.scale = spec.sheet.scale.clone();
+            plan.spec.views.sections = spec.views.sections.clone();
+            plan.sheet.default = base.sheet.default;
+            plan.sheet.basis = format!(
+                "{} at {} is the paper and scale the drawing has without the requested sections; {}",
+                base.sheet.size, base.sheet.scale, plan.sheet.basis
+            );
+            for (i, r) in spec.views.sections.iter().enumerate().skip(keep) {
+                let reason = if drawable.contains(&i) {
+                    format!(
+                        "it does not fit {} at {}, {}",
+                        sizes.last().copied().unwrap_or_default(),
+                        base.sheet.scale,
+                        if spec.sheet.size.is_some() {
+                            "the paper the spec fixes"
+                        } else {
+                            "the largest paper"
+                        }
+                    )
+                } else if let Some(p) = refusals.iter().find(|p| p.id.ends_with(&format!("/{i}"))) {
+                    plan.problems.push(p.clone());
+                    continue;
+                } else {
+                    continue;
+                };
+                plan.problems.push(model::Problem {
+                    id: format!("p:section_not_shown:sections/{i}"),
+                    code: "section_not_shown".into(),
+                    severity: "warning".into(),
+                    message: format!(
+                        "Rejected views/sections/{i}: section {} through {} is retained but not drawn: {reason}.",
+                        r.id, r.through
+                    ),
+                    subjects: vec![r.through.clone()],
+                    ..Default::default()
+                });
+            }
+            plan.status = crate::completeness::status(&plan.problems);
+            return Ok(plan);
+        }
+    }
+    unreachable!("the drawing without the requested sections always fits its own pair")
 }
 
 fn select_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {

@@ -2,12 +2,12 @@
 use super::{Measurement, Shape, Want, want_id};
 use crate::model::{Analysis, Spec};
 
-pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) {
+pub(super) fn apply(a: &Analysis, s: &Spec, i: usize, wants: &mut Vec<Want>) {
     let fmt = |v| crate::dims::fmt_in(v, s.units);
-    let Some(p) = crate::sections::pocket(a, s) else {
+    let r = &s.views.sections[i];
+    let Some(p) = crate::sections::pocket(a, r) else {
         return;
     };
-    let r = &s.views.sections[0];
     let Some(name) = r.view_name() else {
         return;
     };
@@ -17,14 +17,14 @@ pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) {
     };
     w.views = vec![name];
     // The floor crosses the section plane and supplies a real leader attachment.
-    let Some(floor) = crate::sections::floor(a, s) else {
+    let Some(floor) = crate::sections::floor(a, r) else {
         return;
     };
     w.shape = Shape::Callout {
         sites: vec![(floor, 0.)],
         arcs: Vec::new(),
     };
-    w.basis += "; applied views/sections/0: measured pocket callout attached to the floor in the longitudinal section";
+    w.basis += &format!("; applied views/sections/{i}: measured pocket callout attached to the floor in the longitudinal section");
     // The usual depth form keeps its leader on the floor. A floating linear
     // dimension can otherwise have its witnesses shortened to unrelated stock.
     if !w
@@ -58,7 +58,7 @@ pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) {
                 value: p.depth,
             })
             .to_vec(),
-        basis: "applied views/sections/0: depth callout led to the keyway floor".into(),
+        basis: format!("applied views/sections/{i}: depth callout led to the keyway floor"),
         shape: Shape::Callout {
             sites: vec![(floor, 0.)],
             arcs: Vec::new(),

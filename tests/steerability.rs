@@ -1002,6 +1002,9 @@ fn steer_304_keyway_section() {
     let _baseline = planned(SHAFT, &s);
     let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
     draftwright::mcp::validate(&schema, &s).expect("the unmodified Spec is valid");
+    // The spec's A4 is fixed paper; a requested cut that does not fit it is left out, so the
+    // paper is left to the drawing's own choice and the cut takes the next size.
+    s["sheet"].as_object_mut().unwrap().remove("size");
     s["views"]["sections"] = json!([{"id":"A", "through":"f:section_recess:f6"}]);
     let mut c = Checks::default();
     let p = match serde_json::from_value::<Spec>(s.clone()) {
@@ -2662,6 +2665,8 @@ fn spec_depth_presentation_keeps_measured_terms() {
 #[test]
 fn named_section_public_schema_and_geometry() {
     let mut s = input("inline-301");
+    // Fixed paper drops a cut that does not fit it; the cut takes the next size instead.
+    s["sheet"].as_object_mut().unwrap().remove("size");
     s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:f6"}]);
     let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
     draftwright::mcp::validate(&schema, &s).unwrap();
