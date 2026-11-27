@@ -705,7 +705,7 @@ fn authored_stepped_counterbore_floor_depth_prints_from_cbore_floor() {
     let flat = d.label.split_whitespace().collect::<Vec<_>>().join(" ");
     assert_eq!(
         flat,
-        "4× ⌀3 H11 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 1 ⌴ ⌀6 ↧ 1"
+        "4× ⌀3 H11 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 2 ⌴ ⌀6 ↧ 1"
     );
     assert!(d.label.contains("FROM CBORE FLOOR"), "{}", d.label);
     let drawing = model::render(part, &a, &plan, font).unwrap();
@@ -733,7 +733,7 @@ fn authored_floor_depth_table_cell_prints_the_same_note() {
         ("spotface", "⌀3 H11 ↧ 6.00 ±0.20 FROM SF FLOOR ⌴SF ⌀5 ↧ 2"),
         (
             "stepped",
-            "⌀3 H11 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 1 ⌴ ⌀6 ↧ 1",
+            "⌀3 H11 ↧ 6.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀5 ↧ 2 ⌴ ⌀6 ↧ 1",
         ),
     ] {
         let a = enclosure_with_floor_depth(kind);
@@ -796,7 +796,7 @@ fn authored_depth_under_spotfaced_counterbore_attaches_with_from_cbore_floor() {
     }];
     a.pmi = Some(Reading::Read(report));
 
-    let expected = "⌀6 ↧ 15.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀12 ↧ 4.25 ⌴SF ⌀18 ↧ 0.75";
+    let expected = "⌀6 ↧ 15.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀12 ↧ 5 ⌴SF ⌀18 ↧ 0.75";
     let font = &fixture().2;
 
     let plan = model::plan(&a, &Spec::default()).unwrap();

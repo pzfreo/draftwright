@@ -90,6 +90,18 @@ pub struct HoleSizes {
 }
 
 impl HoleSizes {
+    /// The depth lint requires a counterbore-class step to state: its own height plus those of
+    /// the *n* outer steps outside it and the spotface's, since each is stated from the face (the mouth). Lint's own
+    /// arithmetic on the Analysis's records.
+    fn depth_from_face(&self, r: &Recess, n: usize) -> Option<f64> {
+        let outside: Option<f64> = self.outer_steps[..n]
+            .iter()
+            .chain(&self.spotface)
+            .map(|o| o.depth)
+            .sum();
+        Some(r.from_mouth()? + outside?)
+    }
+
     fn of(h: &Hole) -> HoleSizes {
         let (near_chamfer, far_chamfer, both_chamfers) = h.chamfers();
         HoleSizes {
@@ -121,12 +133,18 @@ impl HoleGroup {
             out.push(("bore.depth".into(), s.depth.filter(|&d| d != 0.0)));
         }
         let recess = |r: Option<Recess>| r.map(|r| (r.diameter, r.from_mouth()));
-        let mut sizes = vec![("counterbore".to_string(), recess(s.counterbore))];
+        let step = |r: &Recess, n: usize| Some((r.diameter, s.depth_from_face(r, n)));
+        let mut sizes = vec![(
+            "counterbore".to_string(),
+            s.counterbore
+                .as_ref()
+                .and_then(|r| step(r, s.outer_steps.len())),
+        )];
         sizes.extend(
             s.outer_steps
                 .iter()
                 .enumerate()
-                .map(|(i, r)| (format!("outer_steps.{i}"), recess(Some(*r)))),
+                .map(|(i, r)| (format!("outer_steps.{i}"), step(r, i))),
         );
         sizes.push(("spotface".into(), recess(s.spotface)));
         for (role, sizes) in sizes {
@@ -173,8 +191,13 @@ impl HoleGroup {
         } else {
             format!(" ↧ {}", f(s.depth))
         };
-        for r in s.counterbore.iter().chain(s.outer_steps.iter().rev()) {
-            out += &format!(" ⌴ ⌀{} ↧ {}", fmt(r.diameter), f(r.from_mouth()));
+        for (r, n) in s
+            .counterbore
+            .iter()
+            .map(|r| (r, s.outer_steps.len()))
+            .chain(s.outer_steps.iter().enumerate().rev().map(|(i, r)| (r, i)))
+        {
+            out += &format!(" ⌴ ⌀{} ↧ {}", fmt(r.diameter), f(s.depth_from_face(r, n)));
         }
         if let Some(r) = s.spotface {
             out += &format!(" ⌴SF ⌀{} ↧ {}", fmt(r.diameter), f(r.from_mouth()));

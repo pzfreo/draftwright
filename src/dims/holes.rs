@@ -88,20 +88,42 @@ impl Hole<'_> {
     ///
     /// The counterbore-class steps outside the counterbore (quiddity's `outer_steps`,
     /// quiddity-rust#118) follow it, each its own `⌴ ⌀d ↧ depth` segment, innermost first, so the
-    /// callout reads from the bore outward with every diameter growing, and each depth is the
-    /// step's own mouth-to-floor span as quiddity measures it. Their role is
-    /// `outer_steps.{i}`, *i* quiddity's index (outermost first). draftwright has no outer
-    /// steps: rust-correct, since otherwise a machined step is left unstated.
+    /// callout reads from the bore outward with every diameter growing. quiddity records each
+    /// step's own height; every counterbore-class step states its depth from the face (the
+    /// mouth), the sum of its own height, those of the steps outside it and the spotface's (the
+    /// spotface lies at the mouth; maintainer decision, 2026-11-25): `⌀6 THRU ⌴ ⌀12 ↧ 5 ⌴ ⌀20 ↧ 2` for a
+    /// ⌀12 floor 3 below a ⌀20 step 2 deep. The
+    /// spotface itself keeps its own depth. Their role is `outer_steps.{i}`, *i* quiddity's index
+    /// (outermost first). draftwright has no outer steps: rust-correct, since otherwise a
+    /// machined step is left unstated.
     fn recesses(&self) -> Vec<(String, &'static str, holes::Recess)> {
+        // The depth of the step with *n* outer steps outside it, from the face.
+        let from_face = |r: &holes::Recess, n: usize| {
+            let outside: Option<f64> = self.outer_steps[..n]
+                .iter()
+                .chain(&self.spotface)
+                .map(|o| o.depth)
+                .sum();
+            holes::Recess {
+                depth: r.depth.zip(outside).map(|(d, o)| d + o),
+                ..*r
+            }
+        };
         self.counterbore
-            .map(|r| ("counterbore".to_string(), "⌴", r))
+            .map(|r| {
+                (
+                    "counterbore".to_string(),
+                    "⌴",
+                    from_face(&r, self.outer_steps.len()),
+                )
+            })
             .into_iter()
             .chain(
                 self.outer_steps
                     .iter()
                     .enumerate()
                     .rev()
-                    .map(|(i, r)| (format!("outer_steps.{i}"), "⌴", *r)),
+                    .map(|(i, r)| (format!("outer_steps.{i}"), "⌴", from_face(r, i))),
             )
             .chain(self.spotface.map(|r| ("spotface".to_string(), SPOTFACE, r)))
             .collect()
