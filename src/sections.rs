@@ -149,8 +149,7 @@ pub const NAMES: [&str; 8] = [
 
 /// The named pocket's length and depth must be visible in the front camera. Width
 /// is stated as a WIDE callout, never as a false in-plane linear measurement.
-pub(crate) fn pocket(a: &Analysis, s: &Spec) -> Option<crate::lint::pockets::Placed> {
-    let request = s.views.sections.first()?;
+pub(crate) fn pocket(a: &Analysis, request: &SectionSpec) -> Option<crate::lint::pockets::Placed> {
     crate::lint::pockets::placed(a)
         .into_iter()
         .find(|(f, _)| f.id == request.through)?
@@ -176,8 +175,7 @@ pub(crate) fn pocket(a: &Analysis, s: &Spec) -> Option<crate::lint::pockets::Pla
         })
 }
 
-pub(crate) fn floor(a: &Analysis, s: &Spec) -> Option<[f64; 3]> {
-    let r = s.views.sections.first()?;
+pub(crate) fn floor(a: &Analysis, r: &SectionSpec) -> Option<[f64; 3]> {
     let f = a.features.iter().find(|f| f.id == r.through)?;
     let crate::lint::section_recesses::Grammar::Pocket(local) =
         crate::lint::section_recesses::grammar(f).ok()?
@@ -195,11 +193,20 @@ pub(crate) fn floor(a: &Analysis, s: &Spec) -> Option<[f64; 3]> {
 /// A source-specific attachment check, independent of the placer's shortening
 /// choices. Generic route checks inspect callouts/collisions, not witness ownership.
 pub(crate) fn attachment_problems(a: &Analysis, plan: &crate::model::Plan) -> Vec<Problem> {
-    let (Some(p), Some(floor), Some(r)) = (
-        pocket(a, &plan.spec),
-        floor(a, &plan.spec),
-        plan.spec.views.sections.first(),
-    ) else {
+    plan.spec
+        .views
+        .sections
+        .iter()
+        .flat_map(|r| attachment_problems_of(a, plan, r))
+        .collect()
+}
+
+fn attachment_problems_of(
+    a: &Analysis,
+    plan: &crate::model::Plan,
+    r: &SectionSpec,
+) -> Vec<Problem> {
+    let (Some(p), Some(floor)) = (pocket(a, r), floor(a, r)) else {
         return Vec::new();
     };
     let Some(v) = plan
@@ -263,11 +270,21 @@ pub(crate) fn attachment_problems(a: &Analysis, plan: &crate::model::Plan) -> Ve
         .collect()
 }
 
+/// Why a requested cut that fits no paper the pair allows is left out.
+pub(crate) const NO_PLACE: &str = "the layout made no place for it on the sheet";
+
+/// A requested cut the layout found no room for.
+pub(crate) fn unplaced(plan: &crate::model::Plan) -> bool {
+    plan.problems
+        .iter()
+        .any(|p| p.code == "section_not_shown" && p.message.ends_with(&format!("{NO_PLACE}.")))
+}
+
 pub(crate) fn resolve(
     a: &Analysis,
     s: &Spec,
     problems: &mut Vec<Problem>,
-) -> Result<Option<crate::demand::Section>, Invalid> {
+) -> Result<Vec<(usize, crate::demand::Section)>, Invalid> {
     let mut seen = std::collections::BTreeSet::new();
     for (i, r) in s.views.sections.iter().enumerate() {
         if r.view_name().is_none() || !seen.insert(&r.id) {
@@ -284,28 +301,30 @@ pub(crate) fn resolve(
             .at("views/sections", &i.to_string()));
         }
     }
-    let Some(r) = s.views.sections.first() else {
-        return Ok(None);
-    };
-    let y = pocket(a, s).map(|p| p.centre[1]).or_else(|| {
-        crate::bridge::holes::read(a)
-            .into_iter()
-            .filter_map(|(_, h)| h.ok())
-            .find(|h| h.feature.id == r.through && h.principal.is_some_and(|(k, _)| k == 2))
-            .map(|h| h.at[1])
-    });
-    for (i, request) in s.views.sections.iter().enumerate() {
-        if i > 0 || y.is_none() {
-            problems.push(Problem {
+    let mut drawable = Vec::new();
+    for (i, r) in s.views.sections.iter().enumerate() {
+        let y = pocket(a, r).map(|p| p.centre[1]).or_else(|| {
+            crate::bridge::holes::read(a)
+                .into_iter()
+                .filter_map(|(_, h)| h.ok())
+                .find(|h| h.feature.id == r.through && h.principal.is_some_and(|(k, _)| k == 2))
+                .map(|h| h.at[1])
+        });
+        match y {
+            Some(cut_y) => drawable.push((
+                i,
+                crate::demand::Section {
+                    cut_y,
+                    holes: 1,
+                    internal_detail: false,
+                },
+            )),
+            None => problems.push(Problem {
                 id: format!("p:section_not_shown:sections/{i}"), code: "section_not_shown".into(), severity: "warning".into(),
-                message: format!("Rejected views/sections/{i}: section {} through {} is retained but not drawn: {}.", request.id, request.through, if i > 0 { "only one explicit section can currently be packed" } else { "no front-facing cutting plane can be named from this feature; supported geometry is a z-axis hole or a z-depth pocket running along x" }),
-                subjects: vec![request.through.clone()], ..Default::default()
-            });
+                message: format!("Rejected views/sections/{i}: section {} through {} is retained but not drawn: no front-facing cutting plane can be named from this feature; supported geometry is a z-axis hole or a z-depth pocket running along x.", r.id, r.through),
+                subjects: vec![r.through.clone()], ..Default::default()
+            }),
         }
     }
-    Ok(y.map(|cut_y| crate::demand::Section {
-        cut_y,
-        holes: 1,
-        internal_detail: false,
-    }))
+    Ok(drawable)
 }

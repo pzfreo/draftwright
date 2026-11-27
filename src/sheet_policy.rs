@@ -1093,6 +1093,9 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
     let key = serde_json::to_vec(&(spec, crate::planning::policy_key(analysis)))
         .expect("sheet selection inputs serialize");
     crate::planning::memo(analysis, "selected-paper", key, || {
+        if !spec.views.sections.is_empty() {
+            return select_requested(analysis, spec);
+        }
         let plan = select_uncached(analysis, spec)?;
         if (spec.sheet.size.is_none() || spec.sheet.scale.is_none())
             && let Some(unbroken) = crate::broken::without(spec)
@@ -1115,6 +1118,153 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
         }
         Ok(plan)
     })
+}
+
+/// What adding requested cuts cost the drawing that it had: an extra sheet, a hole table or a
+/// caption or required items. Where a cutting-plane line crosses labels is not counted: more
+/// paper at the same scale does not change it, so it stays a finding.
+fn cost(plan: &Plan, base: &Plan) -> Option<String> {
+    if plan.sheets.len() > base.sheets.len() {
+        return Some("an extra sheet".into());
+    }
+    if plan.hole_tables.len() < base.hole_tables.len() {
+        return Some("its hole table".into());
+    }
+    // Larger paper takes the isometric as large as it likes; on the same paper the cuts must not
+    // shrink it (and so lose its scale caption).
+    let iso = |p: &Plan| p.views.iter().find(|v| v.id == "v:iso").map(|v| v.scale);
+    if plan.sheet.size == base.sheet.size
+        && iso(plan).zip(iso(base)).is_some_and(|(a, b)| a < b - 1e-9)
+    {
+        return Some("a caption".into());
+    }
+    (model::findings(plan).dropped > model::findings(base).dropped).then(|| "required items".into())
+}
+
+/// Requested sections keep the paper and scale the drawing has without them (the caller's
+/// `sheet/size` and `sheet/scale` still win) and take the free room the packer finds. When they
+/// do not fit, the next larger paper is tried at the same scale; on the largest, or on fixed
+/// paper, the last request is left out, with a finding.
+fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    let mut refusals = Vec::new();
+    let drawable: Vec<usize> = crate::sections::resolve(analysis, spec, &mut refusals)?
+        .into_iter()
+        .map(|(i, _)| i)
+        .collect();
+    let mut bare = spec.clone();
+    bare.views.sections.clear();
+    for name in spec.views.sections.iter().filter_map(|r| r.view_name()) {
+        bare.views.remove(name);
+    }
+    let base = select(analysis, &bare)?;
+    let pages = spec.pages();
+    let sizes: Vec<&str> = if spec.sheet.size.is_some() {
+        vec![base.sheet.size.as_str()]
+    } else {
+        let first = pages.iter().position(|p| p.0 == base.sheet.size);
+        pages[first.unwrap_or(0)..].iter().map(|p| p.0).collect()
+    };
+    let mut costly: Option<(String, String)> = None;
+    // Leave out the last drawable request, then the one before it, until the rest fit.
+    for kept in (0..=drawable.len()).rev() {
+        let keep = drawable
+            .get(kept)
+            .copied()
+            .unwrap_or(spec.views.sections.len());
+        for size in &sizes {
+            let mut forced = spec.clone();
+            forced.views.sections.truncate(keep);
+            forced.sheet.size = Some((*size).into());
+            forced.sheet.scale = Some(base.sheet.scale.clone());
+            // The drawing without the requests has these sheets and this spacing; keep them.
+            forced.sheets.get_or_insert_with(Default::default).max =
+                Some(1 + base.sheets.len() as u32);
+            if forced.sheet.dimension_spacing.is_none() {
+                forced.sheet.dimension_spacing = Some(base.sheet.dimension_spacing);
+            }
+            // With every request left out the drawing is the one without them, as selected.
+            let mut plan = if kept == 0 {
+                let mut plan = base.clone();
+                // Requests refused before the first one that was left out are still said.
+                plan.problems.extend(
+                    refusals
+                        .iter()
+                        .filter(|p| {
+                            p.id.rsplit('/')
+                                .next()
+                                .and_then(|i| i.parse::<usize>().ok())
+                                .is_some_and(|i| i < keep)
+                        })
+                        .cloned(),
+                );
+                plan
+            } else {
+                let plan = select_uncached(analysis, &forced)?;
+                if crate::sections::unplaced(&plan) {
+                    continue;
+                }
+                let mut plan = model::finish_presentation(analysis, &forced, plan)?;
+                model::finish_selected(analysis, &mut plan);
+                if let Some(what) = cost(&plan, &base) {
+                    costly = Some((size.to_string(), what));
+                    continue;
+                }
+                plan
+            };
+            plan.spec.sheet.size = spec.sheet.size.clone();
+            plan.spec.sheet.scale = spec.sheet.scale.clone();
+            plan.spec.views.sections = spec.views.sections.clone();
+            plan.sheet.default = base.sheet.default;
+            plan.sheet.basis = format!(
+                "{} at {} is the paper and scale the drawing has without the requested sections; {}",
+                base.sheet.size, base.sheet.scale, plan.sheet.basis
+            );
+            for (i, r) in spec.views.sections.iter().enumerate().skip(keep) {
+                let reason = if drawable.contains(&i) {
+                    let paper = if spec.sheet.size.is_some() {
+                        "the paper the spec fixes"
+                    } else {
+                        "the largest paper"
+                    };
+                    match &costly {
+                        Some((size, what)) => format!(
+                            "on {size} at {}, {paper}, it costs the drawing {what} that it has without the request",
+                            base.sheet.scale
+                        ),
+                        None => format!(
+                            "it does not fit {} at {}, {paper}",
+                            sizes.last().copied().unwrap_or_default(),
+                            base.sheet.scale
+                        ),
+                    }
+                } else if let Some(p) = refusals.iter().find(|p| p.id.ends_with(&format!("/{i}"))) {
+                    plan.problems.push(p.clone());
+                    continue;
+                } else {
+                    continue;
+                };
+                plan.problems.push(model::Problem {
+                    id: format!("p:section_not_shown:sections/{i}"),
+                    code: "section_not_shown".into(),
+                    severity: "warning".into(),
+                    message: format!(
+                        "Rejected views/sections/{i}: section {} through {} is retained but not drawn: {reason}.",
+                        r.id, r.through
+                    ),
+                    subjects: vec![r.through.clone()],
+                    fix: if spec.sheet.size.is_some() {
+                        vec![crate::items::Op::remove("sheet/size")]
+                    } else {
+                        Vec::new()
+                    },
+                    ..Default::default()
+                });
+            }
+            plan.status = crate::completeness::status(&plan.problems);
+            return Ok(plan);
+        }
+    }
+    unreachable!("the drawing without the requested sections always fits its own pair")
 }
 
 fn select_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {

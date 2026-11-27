@@ -693,6 +693,20 @@ pub fn converge_steps(
     (pick(&strips), strips, n)
 }
 
+/// The box a requested section reserves in free space: the front view's extent with the pads
+/// of the section row. Returns its size and the view's centre from its lower left corner.
+pub fn cut_block(size: [f64; 3], scale: f64) -> ([f64; 2], [f64; 2]) {
+    let block = Block {
+        top: dim_pad(),
+        right: dim_pad(),
+        bottom: dim_pad() + FONT_SIZE + 4.0,
+        left: 2.0 * SECTION_GAP,
+        ..Block::bare((size[0] * scale / 2.0).max(12.0), size[2] * scale / 2.0)
+    };
+    let [x0, y0, x1, y1] = block.footprint(0.0, 0.0);
+    ([x1 - x0, y1 - y0], [-x0, -y0])
+}
+
 /// What depends on the scale: angular dimensions' footprints about their view's centre, and the
 /// derived (detail) views' boxes.
 #[derive(Clone, Debug, Default, PartialEq)]

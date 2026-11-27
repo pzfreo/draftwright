@@ -7646,16 +7646,13 @@ fn plan_with_presentation(
     }
     crate::dims::check_known(analysis, spec)?;
     let mut demand = crate::demand::read(analysis);
-    let named_section = if spec.views.sections.is_empty() {
-        None
+    let named_sections = if spec.views.sections.is_empty() {
+        Vec::new()
     } else {
         crate::sections::resolve(analysis, spec, &mut problems)?
     };
-    let named_request = named_section
-        .as_ref()
-        .and_then(|_| spec.views.sections.first());
-    if let Some(named) = named_section {
-        demand.section = Some(named);
+    if let Some((_, named)) = named_sections.first() {
+        demand.section = Some(named.clone());
     }
     if spec.views.get(SECTION).is_some_and(|v| !v.omit) && demand.section.is_none() {
         demand.section = crate::demand::explicit_section(
@@ -7863,31 +7860,33 @@ fn plan_with_presentation(
             ));
     }
     let [lo, hi] = analysis.envelope;
-    // Sections are marked on the plan; explicit cuts reserve a separate labelled frame.
-    let section_label = named_request
-        .map(|r| r.id.clone())
-        .unwrap_or_else(|| crate::detail::automatic_section_label(spec));
+    // Sections are marked on the plan. Requested cuts take the room the drawing has, below.
+    let section_label = crate::detail::automatic_section_label(spec);
     let section_name = crate::sections::view_name(&section_label).unwrap_or(SECTION);
     let section = demand.section.clone().filter(|_| {
-        shown(section_name) && principals.plan && (principals.front || principals.side)
+        named_sections.is_empty()
+            && shown(section_name)
+            && principals.plan
+            && (principals.front || principals.side)
     });
     // A section left out is said, with why and what would bring it back (draftwright records
     // every section decision: ISSUE-1190-b); one the author omits needs no saying.
-    let section_not_shown = |why: String, fix: Vec<crate::items::Op>| Problem {
-        inclined_axis_gap: false,
-        crossing_kinds: Vec::new(),
-        ink_is_leader: None,
-        id: format!("p:section_not_shown:v:{section_name}"),
-        code: "section_not_shown".into(),
-        severity: "warning".into(),
-        message: format!("Section {section_label}\u{2013}{section_label} is not drawn: {why}."),
-        subjects: Vec::new(),
-        refs: vec![format!("v:{section_name}")],
-        fixes: Vec::new(),
-        fix,
-    };
-    match &demand.section {
-        Some(_) if section.is_none() && shown(section_name) => problems.push(if !principals.plan {
+    let section_not_shown =
+        |label: &str, name: &str, why: String, fix: Vec<crate::items::Op>| Problem {
+            inclined_axis_gap: false,
+            crossing_kinds: Vec::new(),
+            ink_is_leader: None,
+            id: format!("p:section_not_shown:v:{name}"),
+            code: "section_not_shown".into(),
+            severity: "warning".into(),
+            message: format!("Section {label}\u{2013}{label} is not drawn: {why}."),
+            subjects: Vec::new(),
+            refs: vec![format!("v:{name}")],
+            fixes: Vec::new(),
+            fix,
+        };
+    let unplaceable = |label: &str, name: &str| {
+        if !principals.plan {
             let (how, fix) = if omitted("plan") {
                 (
                     "the spec omits it; remove views/plan/omit to show it",
@@ -7900,6 +7899,8 @@ fn plan_with_presentation(
                 )
             };
             section_not_shown(
+                label,
+                name,
                 format!(
                     "a z-axis hole with a counterbore, spotface or bottom needs it, but its cutting plane is marked on the plan view, and {how}"
                 ),
@@ -7907,17 +7908,40 @@ fn plan_with_presentation(
             )
         } else {
             section_not_shown(
+                label,
+                name,
                 "it sits in the row of the front and side views, and the spec omits both; remove views/front/omit or views/side/omit to show it".into(),
                 vec![crate::items::Op::remove("views/front/omit")],
             )
-        }),
+        }
+    };
+    // Each requested cut is drawn where the packer finds it room, below.
+    let mut cuts = Vec::new();
+    for (i, cut) in &named_sections {
+        let r = &spec.views.sections[*i];
+        let name = r.view_name().unwrap_or(SECTION);
+        if !shown(name) {
+            problems.push(section_not_shown(
+                &r.id,
+                name,
+                format!("rejected views/sections/{i}: views/{name}/omit displaces the requested section; the request and remaining drawing are retained"),
+                vec![crate::items::Op::remove(format!("views/{name}/omit"))],
+            ));
+        } else if !principals.plan || !(principals.front || principals.side) {
+            problems.push(unplaceable(&r.id, name));
+        } else {
+            cuts.push((*i, name, cut.clone()));
+        }
+    }
+    match &demand.section {
+        Some(_) if named_sections.is_empty() && section.is_none() && shown(section_name) => {
+            problems.push(unplaceable(&section_label, section_name))
+        }
         None if spec.views.get(SECTION).is_some_and(|v| !v.omit) => problems.push(section_not_shown(
+            &section_label,
+            section_name,
             "rejected views/section_aa: no front-facing cutting plane can be named from the recognised geometry (a z-axis hole or internal detail is needed); the request and the remaining drawing are retained".into(),
             vec![crate::items::Op::remove(format!("views/{SECTION}"))],
-        )),
-        Some(_) if section.is_none() && named_request.is_some() => problems.push(section_not_shown(
-            format!("rejected views/sections/0: views/{section_name}/omit displaces the requested section; the request and remaining drawing are retained"),
-            vec![crate::items::Op::remove(format!("views/{section_name}/omit"))],
         )),
         _ => {}
     }
@@ -7938,8 +7962,7 @@ fn plan_with_presentation(
     request.candidate_arrangement = candidate_arrangement;
     request.first_angle = first_angle;
     request.sections = usize::from(section.is_some());
-    request.separate_section =
-        named_request.is_some() || spec.views.get(SECTION).is_some_and(|v| !v.omit);
+    request.separate_section = spec.views.get(SECTION).is_some_and(|v| !v.omit);
     // GD&T corridors depend on the aligned projection row. Keep their established
     // packing; a section-only lift must not change its readable scale or frame routes.
     // Items left of the front and plan column face no section, so they leave it free.
@@ -8408,31 +8431,77 @@ fn plan_with_presentation(
             }
         }
     }
+    // The automatic section has its row beside the side view.
+    let mut slots = Vec::new();
     if let (Some(cut), Some(area)) = (&section, g.section_boxes.first()) {
-        let label = section_label.clone();
-        views.push(PlannedView {
+        slots.push((
+            section_label.clone(),
+            section_name,
+            *area,
+            g.section,
+            cut,
+            None,
+        ));
+    } else if section.is_some() {
+        problems.push(section_not_shown(
+            &section_label,
+            section_name,
+            "the layout made no place for it on the sheet".into(),
+            Vec::new(),
+        ));
+    }
+    let planned_cut = |label: String,
+                       name: &str,
+                       area: layout::Rect,
+                       at: [f64; 2],
+                       cut: &crate::demand::Section,
+                       request_index: Option<usize>| {
+        PlannedView {
             detail: None,
             auxiliary: None,
-            sheet: 1, scale_note: None, xref: None,
-            id: format!("v:{section_name}"),
+            sheet: 1,
+            scale_note: None,
+            xref: None,
+            id: format!("v:{name}"),
             direction: [0.0, -1.0, 0.0],
             up: [0.0, 0.0, 1.0],
-            at: g.section,
+            at,
             scale: pick.scale,
-            area: *area,
-            default: !spec.views.contains_key(SECTION) && named_request.is_none(),
-            basis: if let Some(r) = named_request { format!("applied views/sections/0 through {}: longitudinal plane y = {}, seen from the front; displaced automatic section selection", r.through, fmt_ratio(cut.cut_y)) } else { format!(
-                "draftwright's section rule: {}; the plane y = {} cuts the densest row ({} physical details on it), seen from the front and placed right of the side view",
-                if spec.views.get(SECTION).is_some_and(|v| !v.omit) { "applied views/section_aa: explicit section through recognised geometry; displaced the automatic decision whether to show a section" } else if cut.internal_detail { "at least three unlike internal details need a readable section" } else { "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view" },
-                fmt_ratio(cut.cut_y),
-                cut.holes
-            ) },
+            area,
+            default: !spec.views.contains_key(SECTION) && request_index.is_none(),
+            basis: if let Some(i) = request_index {
+                format!(
+                    "applied views/sections/{i} through {}: longitudinal plane y = {}, seen from the front, in the room the drawing has at its scale and paper without the request",
+                    spec.views.sections[i].through,
+                    fmt_ratio(cut.cut_y)
+                )
+            } else {
+                format!(
+                    "draftwright's section rule: {}; the plane y = {} cuts the densest row ({} physical details on it), seen from the front and placed right of the side view",
+                    if spec.views.get(SECTION).is_some_and(|v| !v.omit) {
+                        "applied views/section_aa: explicit section through recognised geometry; displaced the automatic decision whether to show a section"
+                    } else if cut.internal_detail {
+                        "at least three unlike internal details need a readable section"
+                    } else {
+                        "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view"
+                    },
+                    fmt_ratio(cut.cut_y),
+                    cut.holes
+                )
+            },
             state: ItemState::Shown,
             line_work: Vec::new(),
-                line_pose: None,
-            line_style: Default::default(), from_spec: if named_request.is_some() { vec!["views/sections/0".into()] } else if spec.views.contains_key(SECTION) { vec![format!("views/{SECTION}")] } else { Vec::new() },
+            line_pose: None,
+            line_style: Default::default(),
+            from_spec: if let Some(i) = request_index {
+                vec![format!("views/sections/{i}")]
+            } else if spec.views.contains_key(SECTION) {
+                vec![format!("views/{SECTION}")]
+            } else {
+                Vec::new()
+            },
             half_section: None,
-                broken: None,
+            broken: None,
             cut: Some(Cut {
                 xref: None,
                 label,
@@ -8440,12 +8509,10 @@ fn plan_with_presentation(
                 normal: [0.0, 1.0, 0.0],
                 marked_in: "v:plan".into(),
             }),
-        });
-    } else if section.is_some() {
-        problems.push(section_not_shown(
-            "the layout made no place for it on the sheet".into(),
-            Vec::new(),
-        ));
+        }
+    };
+    for (label, name, area, at, cut, request_index) in slots {
+        views.push(planned_cut(label, name, area, at, cut, request_index));
     }
     for (name, mut detail) in crate::detail::requests(analysis, spec, pick.scale) {
         let source = views.iter().find(|v| v.id == detail.source_view);
@@ -8557,6 +8624,61 @@ fn plan_with_presentation(
             views[i].at[0] += delta[0];
             views[i].at[1] += delta[1];
             views[i].basis += "; translated inside the drawing area at its existing scale";
+        }
+    }
+    // Requested cuts go into what the views, the isometric as drawn and the title block leave
+    // free, or are said not to fit.
+    if !cuts.is_empty() {
+        let (size, centre) = layout::cut_block(request.size, pick.scale);
+        let [w, h] = pick.page;
+        let drawable = [
+            request.margins.left,
+            request.margins.bottom,
+            w - request.margins.right,
+            h - request.margins.top,
+        ];
+        let mut obstacles: Vec<layout::Rect> = views
+            .iter()
+            .map(|v| {
+                if v.id == "v:iso" {
+                    let b = analysis.drawing_iso_bounds();
+                    [
+                        v.at[0] + v.scale * b[0],
+                        v.at[1] + v.scale * b[1],
+                        v.at[0] + v.scale * b[2],
+                        v.at[1] + v.scale * b[3],
+                    ]
+                } else {
+                    v.area
+                }
+            })
+            .collect();
+        obstacles.push(g.title_block);
+        for (i, name, cut) in &cuts {
+            let label = &spec.views.sections[*i].id;
+            let r = layout::largest_empty_rect(drawable, &obstacles, size);
+            if r[2] - r[0] >= size[0]
+                && r[3] - r[1] >= size[1]
+                && !obstacles.iter().any(|o| rect_overlap(r, *o))
+            {
+                let c = [(r[0] + r[2]) / 2., (r[1] + r[3]) / 2.];
+                let area = [
+                    c[0] - size[0] / 2.,
+                    c[1] - size[1] / 2.,
+                    c[0] + size[0] / 2.,
+                    c[1] + size[1] / 2.,
+                ];
+                obstacles.push(area);
+                let at = [area[0] + centre[0], area[1] + centre[1]];
+                views.push(planned_cut(label.clone(), name, area, at, cut, Some(*i)));
+            } else {
+                problems.push(section_not_shown(
+                    label,
+                    name,
+                    crate::sections::NO_PLACE.into(),
+                    Vec::new(),
+                ));
+            }
         }
     }
     let mut title = spec.sheet.title.clone();
@@ -14378,7 +14500,11 @@ fn cutting_furniture(plan: &Plan, cut: &Cut, out: &mut Furniture) {
         .views
         .iter()
         .find(|w| w.id == cut.marked_in)
-        .and_then(|v| v.line_work.iter().find(|w| w.kind == "cutting_plane"))
+        .and_then(|v| {
+            v.line_work
+                .iter()
+                .find(|w| w.id == format!("ink:{}:cut:{}", v.id, cut.label))
+        })
         && let Curve::Line(a, b) = w.curves[0]
     {
         let (ink, letters) = cutting_plane(a[0], b[0], a[1]);

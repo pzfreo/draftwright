@@ -3294,12 +3294,14 @@ fn plan_inventory_ordered(
 ) -> Result<(Planned, Vec<PlannedDimension>), Invalid> {
     let fmt = |v| crate::dims::fmt_in(v, spec.units);
     let (mut wants, mut problems, notes) = pmi_policy::wants(analysis, spec);
-    if !spec.views.sections.is_empty()
-        && views
+    for i in 0..spec.views.sections.len() {
+        let path = format!("views/sections/{i}");
+        if views
             .iter()
-            .any(|v| v.cut.is_some() && v.from_spec.iter().any(|f| f == "views/sections/0"))
-    {
-        sections::apply(analysis, spec, &mut wants);
+            .any(|v| v.cut.is_some() && v.from_spec.contains(&path))
+        {
+            sections::apply(analysis, spec, i, &mut wants);
+        }
     }
     callouts::apply(analysis, spec, &mut wants);
     let (scheme_covered, scheme_problems) = schemes::apply(analysis, spec, &mut wants)?;
@@ -4680,8 +4682,10 @@ fn plan_inventory_ordered(
     let mut missing: BTreeMap<Undrawn, Vec<String>> = BTreeMap::new();
     let mut out = Vec::new();
     for ((mut w, default, chosen, along), mut from_spec) in kept.into_iter().zip(given) {
-        if !spec.views.sections.is_empty() && w.basis.contains("applied views/sections/0") {
-            from_spec.push("views/sections/0".into());
+        for i in 0..spec.views.sections.len() {
+            if w.basis.contains(&format!("applied views/sections/{i}:")) {
+                from_spec.push(format!("views/sections/{i}"));
+            }
         }
         if !spec.dimension_schemes.is_empty()
             && let Some(path) = schemes::from_spec(&w)

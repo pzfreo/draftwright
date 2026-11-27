@@ -195,3 +195,210 @@ fn section_a_a_is_planned_placed_and_drawn() {
     let omitted = model::plan(&analysis, &spec).unwrap();
     assert_eq!(ids(&omitted), ["v:front", "v:plan", "v:side", "v:iso"]);
 }
+
+/// `views/sections`: several requested cuts, drawn at the paper and scale the drawing has without
+/// them, on the next larger paper when they need it, and left out (last first) with a finding when
+/// they fit nowhere the pair allows.
+fn native(name: &str) -> (draftwright::haecceity::Part, model::Analysis) {
+    model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts")
+            .join(format!("{name}.step")),
+    )
+    .unwrap()
+}
+
+fn requested_plan(
+    analysis: &model::Analysis,
+    sheet: serde_json::Value,
+    through: &[&str],
+) -> model::Plan {
+    let sections: Vec<serde_json::Value> = through
+        .iter()
+        .zip("ABCDEFGH".chars())
+        .map(|(f, id)| serde_json::json!({"id": id.to_string(), "through": f}))
+        .collect();
+    let spec: Spec = serde_json::from_value(
+        serde_json::json!({"sheet": sheet, "views": {"sections": sections}}),
+    )
+    .unwrap();
+    model::plan_recovered(analysis, &spec).unwrap()
+}
+
+fn cuts(plan: &model::Plan) -> Vec<&model::PlannedView> {
+    plan.views.iter().filter(|v| v.cut.is_some()).collect()
+}
+
+fn not_shown(plan: &model::Plan) -> Vec<&str> {
+    plan.problems
+        .iter()
+        .filter(|p| p.code == "section_not_shown")
+        .map(|p| p.message.as_str())
+        .collect()
+}
+
+const SCATTERED: [&str; 4] = ["f:hole:f6", "f:hole:f9", "f:hole:f10", "f:hole:f8"];
+
+#[test]
+fn two_three_and_four_requests_are_each_drawn_at_the_scale_without_them() {
+    let (part, analysis) = native("scattered_holes");
+    let bare = model::plan_recovered(&analysis, &Spec::default()).unwrap();
+    let font =
+        Font::open(&Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts/IBMPlexMono-Regular.ttf"))
+            .unwrap();
+    for n in 2..=4 {
+        let p = requested_plan(&analysis, serde_json::json!({}), &SCATTERED[..n]);
+        // The scale is the drawing's own; the paper steps up only when the cuts need it, and
+        // the drawing keeps its hole table and caption.
+        assert_eq!(
+            p.sheet.scale_factor, bare.sheet.scale_factor,
+            "{n} requests"
+        );
+        assert_eq!(p.hole_tables.len(), bare.hole_tables.len());
+        assert_eq!(p.captions.len(), bare.captions.len());
+        let drawn = cuts(&p);
+        assert_eq!(drawn.len(), n);
+        for (v, letter) in drawn.iter().zip("ABCD".chars()) {
+            let cut = v.cut.as_ref().unwrap();
+            assert_eq!(cut.label, letter.to_string());
+            assert_eq!(cut.marked_in, "v:plan");
+            assert!(v.from_spec.iter().any(|f| f.starts_with("views/sections/")));
+            assert!(
+                p.views
+                    .iter()
+                    .filter(|w| w.id != v.id)
+                    .all(|w| !(w.area[0] < v.area[2]
+                        && v.area[0] < w.area[2]
+                        && w.area[1] < v.area[3]
+                        && v.area[1] < w.area[3])),
+                "{} overlaps another view",
+                v.id
+            );
+        }
+        // The plan carries one cutting-plane line per cut.
+        let plan_view = p.views.iter().find(|v| v.id == "v:plan").unwrap();
+        let lines = plan_view
+            .line_work
+            .iter()
+            .filter(|w| w.kind == "cutting_plane")
+            .count();
+        assert_eq!(lines, n);
+        assert!(not_shown(&p).is_empty());
+        // Each cut is captioned and both ends of its plane are lettered on the plan.
+        let drawing = model::render(&part, &analysis, &p, &font).unwrap();
+        let [w, h] = p.sheet.page;
+        let texts: Vec<&str> = drawing
+            .text
+            .iter()
+            .filter(|t| t.at[0] > 10. && t.at[1] > 10. && t.at[0] < w - 10. && t.at[1] < h - 10.)
+            .map(|t| t.text.as_str())
+            .collect();
+        for letter in "ABCD".chars().take(n) {
+            let caption = format!("SECTION {letter}\u{2013}{letter}");
+            assert!(texts.contains(&caption.as_str()), "{caption}: {texts:?}");
+            // Both ends of its plane, on its own line and not on another cut's.
+            let line = plan_view
+                .line_work
+                .iter()
+                .find(|w| w.id == format!("ink:v:plan:cut:{letter}"))
+                .unwrap();
+            let draftwright::output::Curve::Line(a, _) = line.curves[0] else {
+                panic!("a cutting plane is a line");
+            };
+            let ends: Vec<_> = drawing
+                .text
+                .iter()
+                .filter(|t| t.text == letter.to_string() && t.at[0] > 10. && t.at[0] < w - 10.)
+                .collect();
+            assert_eq!(ends.len(), 2, "{letter}");
+            for t in ends {
+                assert!(
+                    (t.at[1] - a[1]).abs() < 8.,
+                    "{letter} at {:?} is off its plane y = {}",
+                    t.at,
+                    a[1]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn cuts_that_need_it_take_the_next_paper_at_the_same_scale() {
+    let (_, analysis) = native("plate");
+    let bare = model::plan_recovered(&analysis, &Spec::default()).unwrap();
+    let p = requested_plan(
+        &analysis,
+        serde_json::json!({}),
+        &["f:hole:f6", "f:hole:f8"],
+    );
+    assert_eq!(bare.sheet.size, "A4");
+    assert_eq!(p.sheet.size, "A3");
+    assert_eq!(p.sheet.scale_factor, bare.sheet.scale_factor);
+    let planes: Vec<f64> = cuts(&p)
+        .iter()
+        .map(|v| v.cut.as_ref().unwrap().origin[1])
+        .collect();
+    assert_eq!(planes.len(), 2);
+    assert!(
+        (planes[0] - planes[1]).abs() > 1.0,
+        "two different rows: {planes:?}"
+    );
+    assert!(not_shown(&p).is_empty());
+}
+
+#[test]
+fn a_cut_that_fits_no_paper_is_left_out_last_first_with_a_finding() {
+    let (_, analysis) = native("scattered_holes");
+    // At 2:1 the largest paper holds three of the four cuts.
+    let p = requested_plan(&analysis, serde_json::json!({"scale": "2:1"}), &SCATTERED);
+    assert_eq!(p.sheet.size, "A0");
+    let labels: Vec<_> = cuts(&p)
+        .iter()
+        .map(|v| v.cut.as_ref().unwrap().label.clone())
+        .collect();
+    assert_eq!(labels, ["A", "B", "C"]);
+    let said = not_shown(&p);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("section D through f:hole:f8") && said[0].contains("A0 at 2:1"),
+        "{}",
+        said[0]
+    );
+    // The Spec keeps every request.
+    assert_eq!(p.spec.views.sections.len(), 4);
+}
+
+#[test]
+fn fixed_paper_stays_and_drops_the_last_cuts() {
+    let (_, analysis) = native("scattered_holes");
+    let p = requested_plan(
+        &analysis,
+        serde_json::json!({"size": "A3", "scale": "1:5"}),
+        &SCATTERED,
+    );
+    assert_eq!(
+        (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+        ("A3", "1:5")
+    );
+    assert_eq!(cuts(&p).len(), 2);
+    let findings: Vec<_> = p
+        .problems
+        .iter()
+        .filter(|q| q.code == "section_not_shown")
+        .collect();
+    assert_eq!(findings.len(), 2);
+    for (q, through) in findings
+        .iter()
+        .zip(["C through f:hole:f10", "D through f:hole:f8"])
+    {
+        assert!(
+            q.message.contains(&format!("section {through}"))
+                && q.message.contains("the paper the spec fixes"),
+            "{}",
+            q.message
+        );
+        // The finding offers the way back: free the paper.
+        assert_eq!(q.fix.len(), 1);
+    }
+}
