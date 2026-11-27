@@ -432,6 +432,11 @@ pub(super) fn route_view(analysis: &Analysis, w: &mut Want, toward: P3) -> Optio
             }
             // Decided from the hole, not the terms: a view routed earlier has dropped it already.
             dropped = last.filter(|h| h.chamfers().1.is_some());
+            if dropped.is_some() {
+                // The hole table keeps a FAR SIDE for a far chamfer; there is none to keep.
+                w.measurements
+                    .retain(|m| !m.parameter.starts_with("far_mouth_chamfer."));
+            }
             if terms.get(at).map(String::as_str) != Some(callouts::FAR_SIDE) {
                 terms.insert(at, callouts::FAR_SIDE.into());
             }

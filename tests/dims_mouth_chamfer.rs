@@ -1147,3 +1147,52 @@ fn tilted_mixed_countersinks_are_not_grouped() {
         "unlike holes grouped: {callouts:?}"
     );
 }
+
+/// The table states no `FAR SIDE` for a far recess. A flipped far counterbore whose far-end chamfer
+/// is left out of its callout also loses that chamfer's measurements, which are what make the table
+/// keep a `FAR SIDE`; and a diameter styled `reference` does not make a size cell wrap so that the
+/// recess's `FAR SIDE` leaks in (`mouth_cbore_under.step`).
+#[test]
+fn hole_table_cells_never_carry_far_side() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_far_only.step");
+    let (_, mut a) = model::analyse_native(&path).unwrap();
+    rotate_x(&mut a, 180.0);
+    let plan = plan_of(&a);
+    let d = plan
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .unwrap();
+    assert!(
+        !d.measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("far_mouth_chamfer.")),
+        "{:?}",
+        d.measurements
+    );
+
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_under.step");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let id = plan_of(&a)
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(|d| d.id.clone())
+        .unwrap();
+    let spec: Spec = serde_json::from_value(serde_json::json!({
+        "hole_table": "always",
+        "dimensions": {id: {"style": "reference"}},
+    }))
+    .unwrap();
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let rows: Vec<_> = plan.hole_tables.iter().flat_map(|t| &t.rows).collect();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        !rows[0].cells[1].contains("FAR SIDE"),
+        "{:?}",
+        rows[0].cells
+    );
+    assert!(rows[0].cells[1].contains("C0.25"), "{:?}", rows[0].cells);
+}
