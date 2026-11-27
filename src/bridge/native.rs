@@ -1818,6 +1818,22 @@ pub fn left_in_frame(r: &quiddity::recognition::Record) -> bool {
     !PATTERN_LINKED.contains(&r.family.as_str()) && !unresolved(&r).is_empty()
 }
 
+/// Whether *r* is a fillet chain or group: records that group fillet faces.
+pub fn is_chain(r: &quiddity::recognition::Record) -> bool {
+    matches!(r.family.as_str(), "fillet_chains" | "fillet_groups")
+}
+
+/// Whether the chain or group *r* is read: every face it holds belongs to a fillet or blend of
+/// *features*, so it adds nothing to draw. One with a face no such feature owns (a corner
+/// patch with no fillet record) is not.
+pub fn chain_is_read(r: &quiddity::recognition::Record, features: &[Feature]) -> bool {
+    r.faces.iter().all(|f| {
+        features
+            .iter()
+            .any(|x| (x.kind == "fillet" || x.kind == "blend") && x.faces.contains(f))
+    })
+}
+
 /// Legacy recess readings represented by the unified projection, including its refusals.
 pub fn represented(family: &str) -> bool {
     READ.contains(&family)

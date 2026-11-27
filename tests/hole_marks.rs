@@ -346,18 +346,18 @@ fn a_bare_pin_holds_an_attached_datum() {
 fn frames_citing_undrawn_datums_are_said() {
     let a = nist("nist_stc_10_asme1_ap242-e2.stp.gz");
     let plan = cache::default_plan(&a, true);
-    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
-    assert_eq!(
-        plan.gdt.iter().filter(|g| g.source == "datum:#117").count(),
-        0
+    // quiddity 0.6.0 reads J's two faces as coplanar again (#452): J is drawn on its
+    // feature of size, as it was before the regression, and nothing refuses it.
+    let j = plan.gdt.iter().find(|g| g.source == "datum:#117").unwrap();
+    assert_eq!(j.faces, [39, 43]);
+    assert_eq!(j.state, draftwright::items::State::Shown);
+    assert!(j.basis.contains("median plane"));
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&j.source))
     );
-    let refused: Vec<_> = plan
-        .problems
-        .iter()
-        .filter(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "datum:#117"))
-        .collect();
-    assert_eq!(refused.len(), 1);
-    assert_eq!(refused[0].refs[1], "datum reference faces are not coplanar");
     // Opposite faces still define the source width; accepting the missing symbol
     // must not accept a missing or incorrectly measured size dimension.
     let planes = [&a.face_attachments[39], &a.face_attachments[43]];

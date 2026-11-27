@@ -8080,12 +8080,12 @@
      "kind": "datum_ref",
      "rides_on": null,
      "text": "F",
-     "view": "side"
+     "view": "front"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "draftwright's drawing: not drawn, refused (pmi_not_extracted, pmi_not_lowered); the port's: 'F' (datum ref, side view). As known_pmi_lowering.json (lowered, rust-correct): draftwright leaves it raw because it cannot find the datum's faces (\"datum feature #118 has no representation items; referenced geometry is unavailable; datum reference surface is unavailable\"; known_pmi.json lists the faces draftwright cannot find as rust-correct); the port resolves the faces, proves the attachment and draws the symbol."
+  "evidence": "draftwright's drawing: not drawn, refused (pmi_not_extracted, pmi_not_lowered); the port's: 'F' (datum ref, side view). As known_pmi_lowering.json (lowered, rust-correct): draftwright leaves it raw because it cannot find the datum's faces (\"datum feature #118 has no representation items; referenced geometry is unavailable; datum reference surface is unavailable\"; known_pmi.json lists the faces draftwright cannot find as rust-correct); the port resolves the faces, proves the attachment and draws the symbol. quiddity 0.6.0: F is placed in the front view, where the datum stack has room once J is drawn there (plan lists datum:#118 in v:front)."
  },
  {
   "file": "nist_stc_10_asme1_ap242-e2.stp",
@@ -10503,5 +10503,31 @@
   },
   "verdict": "rust-wrong",
   "evidence": "Datum remains drawn but the front attachment is worse than the previous side attachment. accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
+ },
+ {
+  "file": "nist_stc_10_asme1_ap242-e2.stp",
+  "record": "datum:0:1:4:5",
+  "port": "datum:#117",
+  "field": "drawing",
+  "python": {
+   "codes": [
+    "pmi_not_extracted",
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "datum_ref",
+     "rides_on": null,
+     "text": "J",
+     "view": "front"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Python refuses datum J (#117), whose reference faces it reads as not coplanar; Rust reads faces 39 and 43 as two parallel planes 15 mm apart and draws J as their median plane on the width in the front view. quiddity 0.6.0 restores the J symbol lost in #452: Rust draws datum:#117 in the front view."
  }
 ]

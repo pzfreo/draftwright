@@ -12667,5 +12667,17 @@
   "source": "datum:#18293",
   "verdict": "rust-correct",
   "evidence": "The source median-plane datum J now has a drawn symbol, with nine separate datum symbols; the source requirement is retained rather than refused. frame laid out as CAD's TOLERANCE (Paul 2026-11-12)"
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_stc_10_asme1_ap242-e2.stp",
+  "python": {
+   "id": "datum:0:1:4:5",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "datum:#117",
+  "verdict": "rust-correct",
+  "evidence": "Python's recognition refuses datum J (#117): its reference faces are not coplanar. Rust reads faces 39 and 43 as the two parallel planes 15 mm apart (opposite normals, both normal to x), lowers J as their median plane and draws it on the 15 ±0.2 width. quiddity 0.6.0 restores the J symbol lost in #452; draftwright's plan lists datum:#117 as shown, with faces [39, 43], and no pmi_not_lowered problem names it."
  }
 ]

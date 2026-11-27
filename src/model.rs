@@ -2462,16 +2462,10 @@ pub fn recognise_document(
     features.extend(read.features);
     // As the bridge orders them: by kind, then faces (each kind's IDs are ranked so already).
     features.sort_by(|a, b| (&a.kind, &a.faces).cmp(&(&b.kind, &b.faces)));
-    // A fillet chain or group only groups faces: read as fillets or blends, it is read.
-    let blended: BTreeSet<usize> = features
-        .iter()
-        .filter(|f| f.kind == "fillet" || f.kind == "blend")
-        .flat_map(|f| f.faces.iter().copied())
-        .collect();
     let mut counts = BTreeMap::<&str, usize>::new();
     for r in doc.records.iter().filter(|r| {
-        if matches!(r.family.as_str(), "fillet_chains" | "fillet_groups") {
-            return !r.faces.iter().all(|f| blended.contains(f));
+        if native::is_chain(r) {
+            return !native::chain_is_read(r, &features);
         }
         !native::represented(&r.family) || native::left_in_frame(r)
     }) {

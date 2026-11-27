@@ -115,9 +115,7 @@
         "geometric_tolerance:#98",
         "geometric_tolerance:#99"
       ],
-      "accepted_missing_sources": [
-        "datum:#117"
-      ],
+      "accepted_missing_sources": [],
       "additional_sources": []
     },
     "assembly_plate_pin.step": {
