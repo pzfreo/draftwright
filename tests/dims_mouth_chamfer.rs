@@ -848,21 +848,17 @@ fn both_end_countersink_stays_plain_with_warning() {
 }
 
 /// Rotating a counterbored hole with chamfers 180° about X flips only which end faces the viewer:
-/// the recess qualifier comes from the recess's own direction only, chamfers stay classified
-/// against the recess, and no false warning fires.
+/// the recess qualifier comes from the recess's own direction only. A far-end bore chamfer would
+/// also read `FAR SIDE`, which seen from the far side is the viewer's own end, so it is left out
+/// with a warning; no other case warns.
 #[test]
 fn flipped_recess_with_chamfers_keeps_chamfers_relative_to_recess() {
     for (name, expected) in [
-        (
-            "mouth_cbore_far_only.step",
-            "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25 FAR SIDE",
-        ),
-        (
-            "mouth_cbore_far.step",
-            "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25 C0.25 FAR SIDE",
-        ),
+        ("mouth_cbore_far_only.step", "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE"),
+        ("mouth_cbore_far.step", "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25"),
         ("mouth_cbore_under.step", "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25"),
     ] {
+        let leaves_out = name != "mouth_cbore_under.step";
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/parts")
             .join(name);
@@ -870,12 +866,14 @@ fn flipped_recess_with_chamfers_keeps_chamfers_relative_to_recess() {
         rotate_x(&mut a, 180.0);
         let plan = plan_of(&a);
         assert_eq!(callout(&plan).1, expected, "{name}");
+        let warned = plan
+            .problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided" && p.severity == "warning");
+        assert_eq!(warned, leaves_out, "{name}: {:?}", plan.problems);
         assert!(
-            !plan
-                .problems
-                .iter()
-                .any(|p| p.code == "hole_recess_side_undecided"),
-            "{name}: unexpected warning {:?}",
+            !plan.problems.iter().any(|p| p.severity == "error"),
+            "{name}: {:?}",
             plan.problems
         );
     }
