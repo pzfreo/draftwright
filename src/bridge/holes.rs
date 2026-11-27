@@ -383,9 +383,15 @@ impl<'a> Hole<'a> {
                         .flatten()
                         .filter_map(|v| span(v.as_u64()? as usize))
                         .collect();
+                    // An inclined bore's face boxes overlap whichever end they are at, so
+                    // two faces there cannot be told apart from one end: treated as both,
+                    // which keeps its drilling from being grouped with a single-ended one.
+                    let inclined = d.iter().all(|c| c.abs() < 0.999);
                     spans.len() >= 2
-                        && spans.iter().map(|s| s.1).fold(f64::INFINITY, f64::min)
-                            <= spans.iter().map(|s| s.0).fold(f64::NEG_INFINITY, f64::max) + 1e-3
+                        && (inclined
+                            || spans.iter().map(|s| s.1).fold(f64::INFINITY, f64::min)
+                                <= spans.iter().map(|s| s.0).fold(f64::NEG_INFINITY, f64::max)
+                                    + 1e-3)
                 }));
         Ok(h)
     }

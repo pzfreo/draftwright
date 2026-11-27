@@ -1127,3 +1127,25 @@ fn a_far_counterbore_row_keeps_the_recess_face() {
     assert!(accepted);
     assert!(wrong_rejected);
 }
+
+/// Unlike holes are never grouped, whatever the part's attitude: the mixed plate rotated 15° about X
+/// still states its single-ended and its both-ends countersunk bores separately.
+#[test]
+fn tilted_mixed_countersinks_are_not_grouped() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mixed_csink_plate.step");
+    let (_, mut a) = model::analyse_native(&path).unwrap();
+    rotate_x(&mut a, 15.0);
+    let plan = plan_of(&a);
+    let callouts: Vec<String> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(words_of)
+        .collect();
+    assert_eq!(callouts.len(), 2, "unlike holes grouped: {callouts:?}");
+    assert!(
+        callouts.iter().all(|c| !c.starts_with("2×")),
+        "unlike holes grouped: {callouts:?}"
+    );
+}
