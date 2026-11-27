@@ -1002,8 +1002,43 @@ fn steer_304_keyway_section() {
     let _baseline = planned(SHAFT, &s);
     let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
     draftwright::mcp::validate(&schema, &s).expect("the unmodified Spec is valid");
-    // The spec's A4 is fixed paper; a requested cut that does not fit it is left out, so the
-    // paper is left to the drawing's own choice and the cut takes the next size.
+    s["views"]["sections"] = json!([{"id":"A", "through":"f:section_recess:f6"}]);
+    let mut c = Checks::default();
+    let p = match serde_json::from_value::<Spec>(s.clone()) {
+        Ok(_) => Some(planned(SHAFT, &s)),
+        Err(error) => {
+            let path = draftwright::mcp::validate(&schema, &s).unwrap_err();
+            assert!(
+                path.starts_with("input/views/sections:"),
+                "unexpected field refused: {path}; {error}"
+            );
+            eprintln!("REFUSAL views/sections: {error}; {path}");
+            c.want("named_section", false);
+            None
+        }
+    };
+    if let Some(p) = p {
+        // Fixed A4 cannot hold the cut: it is left out with a finding, never drawn off the sheet.
+        c.want("cut_left_out", p.plan.views.iter().all(|v| v.cut.is_none()));
+        c.want(
+            "finding",
+            p.plan.problems.iter().any(|q| {
+                q.code == "section_not_shown"
+                    && q.fix
+                        .iter()
+                        .any(|f| format!("{f:?}").contains("sheet/size"))
+            }),
+        );
+    }
+    c.finish(304);
+}
+
+#[test]
+fn steer_304_keyway_section_on_free_paper() {
+    let mut s = input("inline-301");
+    let _baseline = planned(SHAFT, &s);
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    draftwright::mcp::validate(&schema, &s).expect("the unmodified Spec is valid");
     s["sheet"].as_object_mut().unwrap().remove("size");
     s["views"]["sections"] = json!([{"id":"A", "through":"f:section_recess:f6"}]);
     let mut c = Checks::default();
@@ -2665,7 +2700,36 @@ fn spec_depth_presentation_keeps_measured_terms() {
 #[test]
 fn named_section_public_schema_and_geometry() {
     let mut s = input("inline-301");
-    // Fixed paper drops a cut that does not fit it; the cut takes the next size instead.
+    s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:f6"}]);
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    draftwright::mcp::validate(&schema, &s).unwrap();
+    let inputs: Value =
+        serde_json::from_str(include_str!("../schemas/mcp-validation.json")).unwrap();
+    for tool in ["inspect_part", "render", "get_spec"] {
+        draftwright::mcp::validate(&inputs[tool], &json!({"part_ref":"part", "spec":s})).unwrap();
+    }
+    // On the spec's fixed A4 the cut does not fit: it is left out, and the finding says how to
+    // get it back. Main drew it off the sheet.
+    let p = planned(SHAFT, &s);
+    assert!(p.plan.views.iter().all(|v| v.cut.is_none()));
+    let said = p
+        .plan
+        .problems
+        .iter()
+        .find(|q| q.code == "section_not_shown" && q.message.contains("section B through"))
+        .expect("the dropped cut is said");
+    assert!(
+        said.message.contains("the paper the spec fixes"),
+        "{}",
+        said.message
+    );
+    assert_eq!(said.fix.len(), 1);
+}
+
+#[test]
+fn named_section_geometry_on_free_paper() {
+    let mut s = input("inline-301");
+    // The spec's A4 is fixed paper; the cut does not fit it (see the A4 case above), so free it.
     s["sheet"].as_object_mut().unwrap().remove("size");
     s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:f6"}]);
     let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();

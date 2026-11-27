@@ -237,7 +237,10 @@ pub(crate) fn section_text_obstacles(
             && let Some(marker) = views
                 .iter()
                 .find(|m| m.id == cut.marked_in && m.sheet == sheet.number)
-            && let Some(work) = marker.line_work.iter().find(|w| w.kind == "cutting_plane")
+            && let Some(work) = marker
+                .line_work
+                .iter()
+                .find(|w| w.id == format!("ink:{}:cut:{}", marker.id, cut.label))
             && let Some(crate::output::Curve::Line(a, b)) = work.curves.first()
         {
             let (ink, letters) = crate::section::cutting_plane(a[0], b[0], a[1]);

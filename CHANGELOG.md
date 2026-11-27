@@ -9,7 +9,8 @@ All notable changes to draftwright are recorded here, in the style of
 - `views/sections` draws every requested section, not just the first, each with its
   cutting-plane line, arrows and letter. The drawing keeps the paper and scale it has without the
   request and the cuts take its free space; if they do not fit, the next larger paper is used at the
-  same scale. On the largest paper, or on paper the Spec fixes, the last request is left out with a
+  same scale; a size whose cuts would cost the drawing its hole table, caption or required items, or
+  put labels under a cutting-plane line, does not count as fitting. On the largest paper, or on paper the Spec fixes, the last request is left out with a
   `section_not_shown` finding that names it. Before, only the first was drawn and the rest were
   refused. A single request that did not fit its fixed paper used to run off the sheet; it is now left
   out with the finding. Drawings with no section request are unchanged.

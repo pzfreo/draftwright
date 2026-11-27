@@ -324,8 +324,10 @@ The drawing keeps the paper and scale it has without any request, and the packer
 cuts in the free space at that scale. If they do not fit, the next larger paper is tried at
 the same scale; if they still do not fit on the largest paper, the last request is left out,
 then the one before it, each with a `section_not_shown` finding that names it and says why.
-Paper the Spec fixes (`sheet/size`) stays: a cut that does not fit it is left out in the same
-way. A Spec scale is kept. There is no search over paper and scale. The plan records each cut
+A paper size counts as fitting only if the drawing keeps what it has without the cuts: its hole
+table, its captions, its required items and its sheets, and no label falls under a cutting-plane
+line. Paper the Spec fixes (`sheet/size`) stays: a cut that does not fit it is left out in the
+same way, and its finding offers removing `sheet/size`. A Spec scale is kept. There is no search over paper and scale. The plan records each cut
 and its applied Spec path. A pocket section carries its measured width and
 length as a callout (width lies perpendicular to this plane), and a floor-attached depth
 from floor to mouth. On a cylindrical mouth this is the maximum depth from its

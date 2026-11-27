@@ -1120,6 +1120,27 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
     })
 }
 
+/// What adding requested cuts cost the drawing that it had: an extra sheet, a hole table or a
+/// caption, required items, or labels under a cutting-plane line.
+fn cost(plan: &Plan, base: &Plan) -> Option<String> {
+    let count = |p: &Plan, code: &str| p.problems.iter().filter(|q| q.code == code).count();
+    if plan.sheets.len() > base.sheets.len() {
+        return Some("an extra sheet".into());
+    }
+    if plan.hole_tables.len() < base.hole_tables.len() {
+        return Some("its hole table".into());
+    }
+    if plan.captions.len() < base.captions.len() {
+        return Some("a caption".into());
+    }
+    if model::findings(plan).dropped > model::findings(base).dropped {
+        return Some("required items".into());
+    }
+    (count(plan, "label_section_furniture_overlap")
+        > count(base, "label_section_furniture_overlap"))
+    .then(|| "labels crossed by a cutting-plane line".into())
+}
+
 /// Requested sections keep the paper and scale the drawing has without them (the caller's
 /// `sheet/size` and `sheet/scale` still win) and take the free room the packer finds. When they
 /// do not fit, the next larger paper is tried at the same scale; on the largest, or on fixed
@@ -1143,6 +1164,7 @@ fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
         let first = pages.iter().position(|p| p.0 == base.sheet.size);
         pages[first.unwrap_or(0)..].iter().map(|p| p.0).collect()
     };
+    let mut costly: Option<(String, String)> = None;
     // Leave out the last drawable request, then the one before it, until the rest fit.
     for kept in (0..=drawable.len()).rev() {
         let keep = drawable
@@ -1154,12 +1176,24 @@ fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             forced.views.sections.truncate(keep);
             forced.sheet.size = Some((*size).into());
             forced.sheet.scale = Some(base.sheet.scale.clone());
+            // The drawing without the requests has these sheets and this spacing; keep them.
+            forced.sheets.get_or_insert_with(Default::default).max =
+                Some(1 + base.sheets.len() as u32);
+            if forced.sheet.dimension_spacing.is_none() {
+                forced.sheet.dimension_spacing = Some(base.sheet.dimension_spacing);
+            }
             let mut plan = select_uncached(analysis, &forced)?;
             if kept > 0 && crate::sections::unplaced(&plan) {
                 continue;
             }
             plan = model::finish_presentation(analysis, &forced, plan)?;
             model::finish_selected(analysis, &mut plan);
+            if kept > 0
+                && let Some(what) = cost(&plan, &base)
+            {
+                costly = Some((size.to_string(), what));
+                continue;
+            }
             plan.spec.sheet.size = spec.sheet.size.clone();
             plan.spec.sheet.scale = spec.sheet.scale.clone();
             plan.spec.views.sections = spec.views.sections.clone();
@@ -1170,16 +1204,22 @@ fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             );
             for (i, r) in spec.views.sections.iter().enumerate().skip(keep) {
                 let reason = if drawable.contains(&i) {
-                    format!(
-                        "it does not fit {} at {}, {}",
-                        sizes.last().copied().unwrap_or_default(),
-                        base.sheet.scale,
-                        if spec.sheet.size.is_some() {
-                            "the paper the spec fixes"
-                        } else {
-                            "the largest paper"
-                        }
-                    )
+                    let paper = if spec.sheet.size.is_some() {
+                        "the paper the spec fixes"
+                    } else {
+                        "the largest paper"
+                    };
+                    match &costly {
+                        Some((size, what)) => format!(
+                            "on {size} at {}, {paper}, it costs the drawing {what} that it has without the request",
+                            base.sheet.scale
+                        ),
+                        None => format!(
+                            "it does not fit {} at {}, {paper}",
+                            sizes.last().copied().unwrap_or_default(),
+                            base.sheet.scale
+                        ),
+                    }
                 } else if let Some(p) = refusals.iter().find(|p| p.id.ends_with(&format!("/{i}"))) {
                     plan.problems.push(p.clone());
                     continue;
@@ -1195,6 +1235,11 @@ fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                         r.id, r.through
                     ),
                     subjects: vec![r.through.clone()],
+                    fix: if spec.sheet.size.is_some() {
+                        vec![crate::items::Op::remove("sheet/size")]
+                    } else {
+                        Vec::new()
+                    },
                     ..Default::default()
                 });
             }

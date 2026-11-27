@@ -369,7 +369,9 @@ fn available(analysis: &Analysis, spec: &Spec, name: &str, long: bool) -> bool {
     match name {
         "iso" => shown(spec, name) && analysis.drawing_iso_bounds() != [0.; 4],
         "section_aa" => {
-            shown(spec, name)
+            // A requested section is a drawn view of its own, not the automatic one to move.
+            spec.views.sections.is_empty()
+                && shown(spec, name)
                 && shown(spec, "plan")
                 && (shown(spec, "front") || shown(spec, "side"))
                 && crate::demand::read(analysis).section.is_some()
@@ -2633,7 +2635,7 @@ fn cross_references(analysis: &Analysis, plan: &mut Plan) {
             let letters = parent
                 .line_work
                 .iter()
-                .find(|w| w.kind == "cutting_plane")
+                .find(|w| w.id == format!("ink:{}:cut:{}", parent.id, cut.label))
                 .and_then(|w| w.curves.first())
                 .map(|c| {
                     let b = c.bbox();
@@ -2748,7 +2750,7 @@ fn reference_position(
             && let Some(curve) = parent
                 .line_work
                 .iter()
-                .find(|w| w.kind == "cutting_plane")
+                .find(|w| w.id == format!("ink:{}:cut:{}", parent.id, cut.label))
                 .and_then(|w| w.curves.first())
         {
             let b = curve.bbox();

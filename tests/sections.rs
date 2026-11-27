@@ -248,11 +248,14 @@ fn two_three_and_four_requests_are_each_drawn_at_the_scale_without_them() {
             .unwrap();
     for n in 2..=4 {
         let p = requested_plan(&analysis, serde_json::json!({}), &SCATTERED[..n]);
+        // The scale is the drawing's own; the paper steps up only when the cuts need it, and
+        // the drawing keeps its hole table and caption.
         assert_eq!(
-            (&p.sheet.size, p.sheet.scale_factor),
-            (&bare.sheet.size, bare.sheet.scale_factor),
-            "{n} requests keep the drawing's paper and scale"
+            p.sheet.scale_factor, bare.sheet.scale_factor,
+            "{n} requests"
         );
+        assert_eq!(p.hole_tables.len(), bare.hole_tables.len());
+        assert_eq!(p.captions.len(), bare.captions.len());
         let drawn = cuts(&p);
         assert_eq!(drawn.len(), n);
         for (v, letter) in drawn.iter().zip("ABCD".chars()) {
@@ -293,11 +296,29 @@ fn two_three_and_four_requests_are_each_drawn_at_the_scale_without_them() {
         for letter in "ABCD".chars().take(n) {
             let caption = format!("SECTION {letter}\u{2013}{letter}");
             assert!(texts.contains(&caption.as_str()), "{caption}: {texts:?}");
-            assert_eq!(
-                texts.iter().filter(|t| **t == letter.to_string()).count(),
-                2,
-                "{letter}"
-            );
+            // Both ends of its plane, on its own line and not on another cut's.
+            let line = plan_view
+                .line_work
+                .iter()
+                .find(|w| w.id == format!("ink:v:plan:cut:{letter}"))
+                .unwrap();
+            let draftwright::output::Curve::Line(a, _) = line.curves[0] else {
+                panic!("a cutting plane is a line");
+            };
+            let ends: Vec<_> = drawing
+                .text
+                .iter()
+                .filter(|t| t.text == letter.to_string() && t.at[0] > 10. && t.at[0] < w - 10.)
+                .collect();
+            assert_eq!(ends.len(), 2, "{letter}");
+            for t in ends {
+                assert!(
+                    (t.at[1] - a[1]).abs() < 8.,
+                    "{letter} at {:?} is off its plane y = {}",
+                    t.at,
+                    a[1]
+                );
+            }
         }
     }
 }
@@ -314,19 +335,23 @@ fn cuts_that_need_it_take_the_next_paper_at_the_same_scale() {
     assert_eq!(bare.sheet.size, "A4");
     assert_eq!(p.sheet.size, "A3");
     assert_eq!(p.sheet.scale_factor, bare.sheet.scale_factor);
-    assert_eq!(cuts(&p).len(), 2);
+    let planes: Vec<f64> = cuts(&p)
+        .iter()
+        .map(|v| v.cut.as_ref().unwrap().origin[1])
+        .collect();
+    assert_eq!(planes.len(), 2);
+    assert!(
+        (planes[0] - planes[1]).abs() > 1.0,
+        "two different rows: {planes:?}"
+    );
     assert!(not_shown(&p).is_empty());
 }
 
 #[test]
 fn a_cut_that_fits_no_paper_is_left_out_last_first_with_a_finding() {
-    let (_, analysis) = native("plate");
-    // At 10:1 the largest paper holds two of the three cuts.
-    let p = requested_plan(
-        &analysis,
-        serde_json::json!({"scale": "10:1"}),
-        &["f:hole:f6", "f:hole:f8", "f:hole:f7"],
-    );
+    let (_, analysis) = native("scattered_holes");
+    // At 2:1 the largest paper holds two of the four cuts.
+    let p = requested_plan(&analysis, serde_json::json!({"scale": "2:1"}), &SCATTERED);
     assert_eq!(p.sheet.size, "A0");
     let labels: Vec<_> = cuts(&p)
         .iter()
@@ -334,36 +359,50 @@ fn a_cut_that_fits_no_paper_is_left_out_last_first_with_a_finding() {
         .collect();
     assert_eq!(labels, ["A", "B"]);
     let said = not_shown(&p);
-    assert_eq!(said.len(), 1, "{said:?}");
-    assert!(
-        said[0].contains("section C through f:hole:f7")
-            && said[0].contains("does not fit A0 at 10:1, the largest paper"),
-        "{}",
-        said[0]
-    );
+    assert_eq!(said.len(), 2, "{said:?}");
+    for (m, through) in said
+        .iter()
+        .zip(["C through f:hole:f10", "D through f:hole:f8"])
+    {
+        assert!(
+            m.contains(&format!("section {through}")) && m.contains("A0 at 2:1"),
+            "{m}"
+        );
+    }
     // The Spec keeps every request.
-    assert_eq!(p.spec.views.sections.len(), 3);
+    assert_eq!(p.spec.views.sections.len(), 4);
 }
 
 #[test]
-fn fixed_paper_stays_and_drops_the_last_cut() {
+fn fixed_paper_stays_and_drops_the_last_cuts() {
     let (_, analysis) = native("scattered_holes");
     let p = requested_plan(
         &analysis,
-        serde_json::json!({"size": "A3", "scale": "1:2"}),
+        serde_json::json!({"size": "A3", "scale": "1:5"}),
         &SCATTERED,
     );
     assert_eq!(
         (p.sheet.size.as_str(), p.sheet.scale.as_str()),
-        ("A3", "1:2")
+        ("A3", "1:5")
     );
-    assert_eq!(cuts(&p).len(), 3);
-    let said = not_shown(&p);
-    assert_eq!(said.len(), 1, "{said:?}");
-    assert!(
-        said[0].contains("section D through f:hole:f8")
-            && said[0].contains("the paper the spec fixes"),
-        "{}",
-        said[0]
-    );
+    assert_eq!(cuts(&p).len(), 2);
+    let findings: Vec<_> = p
+        .problems
+        .iter()
+        .filter(|q| q.code == "section_not_shown")
+        .collect();
+    assert_eq!(findings.len(), 2);
+    for (q, through) in findings
+        .iter()
+        .zip(["C through f:hole:f10", "D through f:hole:f8"])
+    {
+        assert!(
+            q.message.contains(&format!("section {through}"))
+                && q.message.contains("the paper the spec fixes"),
+            "{}",
+            q.message
+        );
+        // The finding offers the way back: free the paper.
+        assert_eq!(q.fix.len(), 1);
+    }
 }
