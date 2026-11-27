@@ -15,15 +15,16 @@ fn scratch(name: &str) -> PathBuf {
     dir.join(name)
 }
 
-/// The ring, unpacked.
-fn ring() -> String {
+/// The ring, unpacked to a file of the caller's own: tests run in parallel, and one rewriting a
+/// shared copy while another plans it reads a half-written file.
+fn ring(name: &str) -> String {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/parts/retaining-ring-din471-m10.step.gz");
     let mut bytes = Vec::new();
     flate2::read::GzDecoder::new(std::fs::File::open(fixture).unwrap())
         .read_to_end(&mut bytes)
         .unwrap();
-    let path = scratch("retaining-ring-din471-m10.step");
+    let path = scratch(&format!("{name}.step"));
     std::fs::write(&path, bytes).unwrap();
     path.display().to_string()
 }
@@ -50,7 +51,7 @@ fn value(plan: &Value, id: &str) -> f64 {
 
 #[test]
 fn a_part_slightly_off_the_axes_is_drawn_square_in_its_own_frame() {
-    let step = ring();
+    let step = ring("ring_square");
     let a = run(&["analyse", &step]);
     let angle = a["squared"]["angle"].as_f64().unwrap();
     assert!((1.0..1.2).contains(&angle), "{}", a["squared"]);
@@ -136,7 +137,7 @@ fn serve_in(cache: &Path, lines: &[Value]) -> Vec<Value> {
 
 #[test]
 fn a_squared_part_is_squared_again_when_read_from_the_caches() {
-    let step = ring();
+    let step = ring("ring_cached");
     // The plan cache's Analysis, read on a hit with the part re-read from the file: drawn as
     // when it was made, square, not tilted.
     let cache = scratch("ring_plan_cache");
