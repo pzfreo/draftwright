@@ -1110,7 +1110,7 @@ fn a_far_countersink_row_names_the_seat_face() {
     let cell = |f: &str| cells.iter().find(|c| c.0 == f).unwrap().1.clone();
     assert_eq!(cell("f:hole:f17"), "0 / +Z");
     assert_eq!(cell("f:hole:f18"), "0 / +Z");
-    assert_eq!(cell("f:hole:f12"), "27.5 / −Z");
+    assert_eq!(cell("f:hole:f12"), "30 / −Z");
     assert!(accepted);
     assert!(wrong_rejected);
 }

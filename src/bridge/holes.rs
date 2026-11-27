@@ -390,10 +390,10 @@ impl<'a> Hole<'a> {
         Ok(h)
     }
 
-    /// A countersink contributes when the unthreaded blind bore starts at its minor rim and its
+    /// A countersink contributes when the unthreaded bore starts at its minor rim and its
     /// axis points into the bore. Recognition rounds the cone geometry to four places.
     fn opening_sink_depth(&self) -> Option<f64> {
-        if self.through || self.threaded || self.countersink.is_none() {
+        if self.threaded || self.countersink.is_none() {
             return None;
         }
         let parameters = &self.feature.parameters;

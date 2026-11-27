@@ -6,6 +6,10 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- A through hole countersunk at its opening gets the same entry cell as a blind one: the face it is
+  machined from, not the cone's bottom. A ⌀5 hole with a 2.5 deep seat in a 30 thick plate reads
+  `30 / −Z`, not `27.5 / −Z`. Lint requires the same.
+
 - A hole table's entry cell names the face a far-end countersink is machined from. A ⌀6 through bore
   drilled from a recess floor and countersunk from the bottom face read `10 / −Z`, the bore's recorded
   opening; it now reads `0 / +Z`, the seat's face and direction, and lint requires the same. Seats at the
