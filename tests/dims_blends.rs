@@ -918,10 +918,24 @@ fn radius_centre_table_credits_every_occurrence_and_rejects_wrong_locators(file:
         draftwright::text::Font::new(include_bytes!("../fonts/IBMPlexMono-Regular.ttf").to_vec())
             .unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
+    // A default note's printed radius states every radius that rounds to it (R0.2 states R0.17),
+    // so the row that must matter is one no default states: the table's largest radius, which
+    // is what the default's credit depends on. Each row is one annotation ending in its radius.
+    let row_radius = |n: &draftwright::output::Annotation| {
+        let run = *n.runs.last().unwrap();
+        drawing.text[run]
+            .text
+            .trim_start_matches('R')
+            .parse::<f64>()
+            .unwrap()
+    };
     let index = drawing
         .annotations
         .iter()
-        .position(|n| n.name.starts_with("t:radius-centres/"))
+        .enumerate()
+        .filter(|(_, n)| n.name.starts_with("t:radius-centres/"))
+        .max_by(|(_, a), (_, b)| row_radius(a).total_cmp(&row_radius(b)))
+        .map(|(i, _)| i)
         .unwrap();
     let default_count = p
         .notes
