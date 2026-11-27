@@ -20119,7 +20119,7 @@
         "d:envelope/od.diameter": {
           "tolerance": "\u00b10.0001"
         },
-        "d:f:blend:f7/blend.radius": {
+        "d:f:fillet:f7/fillet.radius": {
           "tolerance": "\u00b10.0013"
         },
         "d:f:flat:f11/flat.length": {
@@ -20184,7 +20184,7 @@
     },
     {
       "dimensions": {
-        "d:f:blend:f7/blend.radius": {
+        "d:f:fillet:f7/fillet.radius": {
           "omit": true
         }
       },

@@ -617,7 +617,7 @@ fn the_ports_own_callouts_touch_their_targets() {
             .collect();
         assert!(target.is_empty(), "{name}: {target:#?}");
         holes += claims(&drawing, "bore.diameter");
-        blends += claims(&drawing, "blend.radius");
+        blends += claims(&drawing, "blend.radius") + claims(&drawing, "fillet.radius");
         let planned: BTreeSet<&str> = plan
             .problems
             .iter()
@@ -1515,7 +1515,9 @@ fn flat_cut_bands_chamfers_and_fillets_lead_to_their_own_faces() {
         ),
         (
             "nist/nist_ftc_10_asme1_rb.stp",
-            &["d:f:fillet:f40/fillet.radius"][..],
+            // quiddity 0.6.0 reads the R1 rounds as one run of 72 (was 58 and 14 blends)
+            // under f38.
+            &["d:f:fillet:f38/fillet.radius"][..],
         ),
         ("cadgenbench_inputs/cgb202.step.gz", &[][..]),
     ] {

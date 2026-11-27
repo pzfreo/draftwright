@@ -352,6 +352,7 @@ fn frames_citing_undrawn_datums_are_said() {
     assert_eq!(j.faces, [39, 43]);
     assert_eq!(j.state, draftwright::items::State::Shown);
     assert!(j.basis.contains("median plane"));
+    let j_id = j.id.clone();
     assert!(
         !plan
             .problems
@@ -435,7 +436,27 @@ fn frames_citing_undrawn_datums_are_said() {
         })
     }));
 
-    // The missing-reference check is non-vacuous: the accepted default already lacks J.
+    // The missing-reference check stays non-vacuous: with J drawn no frame lacks a datum, so
+    // leave J out (`annotations/<id>/omit`) and the frames that cite it must say so.
+    let drawn_j: Vec<&str> = plan
+        .gdt
+        .iter()
+        .filter(|g| g.kind == "datum_feature" && g.state == draftwright::items::State::Shown)
+        .map(|g| g.cells[0].as_str())
+        .collect();
+    assert!(drawn_j.contains(&"J"));
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "frame_datum_not_drawn")
+    );
+    let mut spec = Spec::default();
+    spec.annotations.insert(
+        j_id,
+        serde_json::from_value(serde_json::json!({"omit": true})).unwrap(),
+    );
+    let plan = model::plan_recovered(&a, &spec).unwrap();
     let drawn: Vec<&str> = plan
         .gdt
         .iter()

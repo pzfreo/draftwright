@@ -132,27 +132,35 @@ fn few_blends_share_a_radius_callout_and_lose_credit_when_hidden() {
     let radius = p
         .dimensions
         .iter()
-        .find(|d| d.measurements.iter().any(|m| m.parameter == "blend.radius"))
-        .expect("blend radius callout");
+        .find(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.parameter == "fillet.radius")
+        })
+        .expect("fillet radius callout");
     assert_eq!(radius.label, "2× R0.25");
     assert_eq!(radius.measurements.len(), 2);
-    for f in a.features.iter().filter(|f| f.kind == "blend") {
-        let sites = &a.blend_sites[&f.id];
-        assert!(!sites.is_empty());
-        for &site in sites {
-            assert!(
-                f.faces.iter().any(|&face| {
-                    let surface = &part.faces[face].surface;
-                    let Some((u, v)) = surface.parameters(site, None) else {
-                        return false;
-                    };
-                    let projected = surface.value(u, v);
-                    part.domain(face).is_some_and(|d| d.contains(u, v))
-                        && (0..3).all(|k| (site[k] - projected[k]).abs() < 1e-6)
-                }),
-                "{}'s leader evidence is outside its defining surface",
-                f.id
-            );
+    // quiddity 0.6.0 reports these two R0.25 turned rounds (faces 7 and 14) as fillets, not
+    // blends (#297); their leader evidence is the fillet's trimmed arcs.
+    for f in a.features.iter().filter(|f| f.kind == "fillet") {
+        let arcs = &a.radius_arcs[&f.id];
+        assert!(!arcs.is_empty());
+        for arc in arcs {
+            for &site in &arc.tips {
+                assert!(
+                    f.faces.iter().any(|&face| {
+                        let surface = &part.faces[face].surface;
+                        let Some((u, v)) = surface.parameters(site, None) else {
+                            return false;
+                        };
+                        let projected = surface.value(u, v);
+                        part.domain(face).is_some_and(|d| d.contains(u, v))
+                            && (0..3).all(|k| (site[k] - projected[k]).abs() < 1e-6)
+                    }),
+                    "{}'s leader evidence is outside its defining surface",
+                    f.id
+                );
+            }
         }
     }
     assert_eq!(missing(&a, &p, &part), 0);
@@ -881,7 +889,9 @@ fn radius_centre_table_credits_every_occurrence_and_rejects_wrong_locators(file:
     }
     let table = doc["radius_table"].as_object().unwrap();
     let rows = table["rows"].as_array().unwrap();
-    assert!(rows.len() >= 4);
+    // 0.5.4 listed four blends (R0.17, R0.344, R1.027, R1.321). quiddity 0.6.0 reports the R0.344
+    // round (f232) as a fillet at any radius (#297), stated by its own callout, so three remain.
+    assert_eq!(rows.len(), 3, "{file}");
     assert!(table["table"].get("placed").is_some());
     let table_features: Vec<_> = rows
         .iter()

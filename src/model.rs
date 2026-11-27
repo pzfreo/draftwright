@@ -2464,6 +2464,9 @@ pub fn recognise_document(
     features.sort_by(|a, b| (&a.kind, &a.faces).cmp(&(&b.kind, &b.faces)));
     let mut counts = BTreeMap::<&str, usize>::new();
     for r in doc.records.iter().filter(|r| {
+        if native::is_unmeasured_face(r) {
+            return false;
+        }
         if native::is_chain(r) {
             return !native::chain_is_read(r, &features);
         }

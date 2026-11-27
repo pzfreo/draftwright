@@ -798,6 +798,9 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
     let mut evidence = Vec::new();
     let mut refusals = Vec::new();
     for r in &doc.records {
+        if is_unmeasured_face(r) {
+            continue;
+        }
         let known = FAMILIES
             .iter()
             .find(|(f, _)| *f == r.family)
@@ -1816,6 +1819,13 @@ pub fn left_in_frame(r: &quiddity::recognition::Record) -> bool {
     let mut r = r.clone();
     resolve_origin(&mut r);
     !PATTERN_LINKED.contains(&r.family.as_str()) && !unresolved(&r).is_empty()
+}
+
+/// Whether *r* says quiddity could not measure a face (a degenerate one, as some converters
+/// write). The face is left out of recognition and stays unexplained (`face_accounting`), so
+/// the part is read without it and its face gets the ordinary unclaimed-geometry finding.
+pub fn is_unmeasured_face(r: &quiddity::recognition::Record) -> bool {
+    r.family == "unmeasured_face_refusals"
 }
 
 /// Whether *r* is a fillet chain or group: records that group fillet faces.
