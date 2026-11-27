@@ -2463,11 +2463,15 @@ pub fn recognise_document(
     // As the bridge orders them: by kind, then faces (each kind's IDs are ranked so already).
     features.sort_by(|a, b| (&a.kind, &a.faces).cmp(&(&b.kind, &b.faces)));
     let mut counts = BTreeMap::<&str, usize>::new();
-    for r in doc
-        .records
-        .iter()
-        .filter(|r| !native::represented(&r.family) || native::left_in_frame(r))
-    {
+    for r in doc.records.iter().filter(|r| {
+        if native::is_unmeasured_face(r) {
+            return false;
+        }
+        if native::is_chain(r) {
+            return !native::chain_is_read(r, &features);
+        }
+        !native::represented(&r.family) || native::left_in_frame(r)
+    }) {
         *counts.entry(r.family.as_str()).or_default() += 1;
     }
     let mut unrecognised: Vec<Unrecognised> = NOT_IN_NATIVE_DOCUMENT

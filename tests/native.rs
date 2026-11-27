@@ -2551,8 +2551,8 @@ fn a_record_measured_from_its_origin_reads_as_in_file_coordinates() {
 }
 
 /// threaded_connector_109 is turned about file z in a frame turned about it, so quiddity 0.2.0
-/// gives its turned steps and flat from that frame's origin: all are read, the flat's stock axis
-/// on z, and its turned profiles keyed by their own boxes.
+/// gives its turned steps from that frame's origin: all are read, and their turned profiles keyed
+/// by their own boxes.
 #[test]
 fn threaded_connector_109s_framed_records_are_read_in_file_coordinates() {
     let Some(dir) = corpus::dir() else {
@@ -2568,15 +2568,16 @@ fn threaded_connector_109s_framed_records_are_read_in_file_coordinates() {
         .filter(|r| r.parameters.contains_key("origin"))
         .collect();
     assert!(
-        framed.iter().any(|r| r.family == "turned_steps")
-            && framed.iter().any(|r| r.family == "flats"),
+        framed.iter().any(|r| r.family == "turned_steps"),
         "{:?}",
         framed.iter().map(|r| &r.id).collect::<Vec<_>>()
     );
     assert!(framed.iter().all(|r| !native::left_in_frame(r)));
     let n = native::read(&part, &doc).unwrap();
-    let flat = n.features.iter().find(|f| f.kind == "flat").unwrap();
-    assert_eq!(flat.parameters["axis_line"], serde_json::json!([0.0, 0.0]));
+    // quiddity 0.5.5 requires a flat to cut through the stock: face 139, a near-radial wall
+    // through the axis, is no flat (its old "across 52.571" was never an across-flats size).
+    assert!(doc.records.iter().all(|r| r.family != "flats"));
+    assert!(n.features.iter().all(|f| f.kind != "flat"));
     let turned: Vec<_> = n
         .features
         .iter()

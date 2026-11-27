@@ -5,7 +5,7 @@
     "face": 142,
     "surface": "bspline",
     "python": 0.002137022520164462,
-    "rust": 0.0022877730461528085,
+    "rust": 0.002287545969963923,
     "verdict": "equivalent",
     "evidence": "A B-spline sliver of a thread (two edges of 114.234 mm, 0.002 mm²): OpenCascade's converged area (eps 1e-10) is 0.002136975, its default 0.002137023. The file's pcurves bound it within 1.31e-6 mm of its edges (their tolerance 1.3e-6), so the file determines its area only to about 228.5 mm × 1.3e-6 = 3.0e-4 mm², twice the 1.5e-4 mm² between the two readings."
   },
@@ -15,7 +15,7 @@
     "face": 142,
     "surface": "bspline",
     "python": 0.002137022520164462,
-    "rust": 0.0022877730461528085,
+    "rust": 0.002287545969963923,
     "verdict": "equivalent",
     "evidence": "A B-spline sliver of a thread (two edges of 114.234 mm, 0.002 mm²): OpenCascade's converged area (eps 1e-10) is 0.002136975, its default 0.002137023. The file's pcurves bound it within 1.31e-6 mm of its edges (their tolerance 1.3e-6), so the file determines its area only to about 228.5 mm × 1.3e-6 = 3.0e-4 mm², twice the 1.5e-4 mm² between the two readings."
   },

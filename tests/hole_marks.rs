@@ -346,18 +346,19 @@ fn a_bare_pin_holds_an_attached_datum() {
 fn frames_citing_undrawn_datums_are_said() {
     let a = nist("nist_stc_10_asme1_ap242-e2.stp.gz");
     let plan = cache::default_plan(&a, true);
-    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
-    assert_eq!(
-        plan.gdt.iter().filter(|g| g.source == "datum:#117").count(),
-        0
+    // quiddity 0.6.0 reads J's two faces as coplanar again (#452): J is drawn on its
+    // feature of size, as it was before the regression, and nothing refuses it.
+    let j = plan.gdt.iter().find(|g| g.source == "datum:#117").unwrap();
+    assert_eq!(j.faces, [39, 43]);
+    assert_eq!(j.state, draftwright::items::State::Shown);
+    assert!(j.basis.contains("median plane"));
+    let j_id = j.id.clone();
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&j.source))
     );
-    let refused: Vec<_> = plan
-        .problems
-        .iter()
-        .filter(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "datum:#117"))
-        .collect();
-    assert_eq!(refused.len(), 1);
-    assert_eq!(refused[0].refs[1], "datum reference faces are not coplanar");
     // Opposite faces still define the source width; accepting the missing symbol
     // must not accept a missing or incorrectly measured size dimension.
     let planes = [&a.face_attachments[39], &a.face_attachments[43]];
@@ -435,7 +436,27 @@ fn frames_citing_undrawn_datums_are_said() {
         })
     }));
 
-    // The missing-reference check is non-vacuous: the accepted default already lacks J.
+    // The missing-reference check stays non-vacuous: with J drawn no frame lacks a datum, so
+    // leave J out (`annotations/<id>/omit`) and the frames that cite it must say so.
+    let drawn_j: Vec<&str> = plan
+        .gdt
+        .iter()
+        .filter(|g| g.kind == "datum_feature" && g.state == draftwright::items::State::Shown)
+        .map(|g| g.cells[0].as_str())
+        .collect();
+    assert!(drawn_j.contains(&"J"));
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "frame_datum_not_drawn")
+    );
+    let mut spec = Spec::default();
+    spec.annotations.insert(
+        j_id,
+        serde_json::from_value(serde_json::json!({"omit": true})).unwrap(),
+    );
+    let plan = model::plan_recovered(&a, &spec).unwrap();
     let drawn: Vec<&str> = plan
         .gdt
         .iter()

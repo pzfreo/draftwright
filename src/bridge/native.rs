@@ -120,6 +120,9 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
     ("grooves", &["Groove"]),
     ("annular_grooves", &["AnnularGroove"]),
     ("face_grooves", &["FaceGroove"]),
+    ("round_grooves", &["RoundGroove"]),
+    ("tapers", &["Taper"]),
+    ("v_grooves", &["VGroove"]),
     ("plates", &["Plate"]),
     ("turned_bodies", &["TurnedBody"]),
     ("round_bottom_blind_slots", &["RoundBottomBlindSlot"]),
@@ -157,6 +160,8 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
         "section_recesses",
         &["SectionRecess", "SectionRecessRefusal"],
     ),
+    ("fillet_chains", &["FilletChain"]),
+    ("fillet_groups", &["FilletGroup"]),
     (
         "section_recess_patterns",
         &["SectionRecessArray", "SectionRecessGrid"],
@@ -793,6 +798,9 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
     let mut evidence = Vec::new();
     let mut refusals = Vec::new();
     for r in &doc.records {
+        if is_unmeasured_face(r) {
+            continue;
+        }
         let known = FAMILIES
             .iter()
             .find(|(f, _)| *f == r.family)
@@ -1811,6 +1819,29 @@ pub fn left_in_frame(r: &quiddity::recognition::Record) -> bool {
     let mut r = r.clone();
     resolve_origin(&mut r);
     !PATTERN_LINKED.contains(&r.family.as_str()) && !unresolved(&r).is_empty()
+}
+
+/// Whether *r* says quiddity could not measure a face (a degenerate one, as some converters
+/// write). The face is left out of recognition and stays unexplained (`face_accounting`), so
+/// the part is read without it and its face gets the ordinary unclaimed-geometry finding.
+pub fn is_unmeasured_face(r: &quiddity::recognition::Record) -> bool {
+    r.family == "unmeasured_face_refusals"
+}
+
+/// Whether *r* is a fillet chain or group: records that group fillet faces.
+pub fn is_chain(r: &quiddity::recognition::Record) -> bool {
+    matches!(r.family.as_str(), "fillet_chains" | "fillet_groups")
+}
+
+/// Whether the chain or group *r* is read: every face it holds belongs to a fillet or blend of
+/// *features*, so it adds nothing to draw. One with a face no such feature owns (a corner
+/// patch with no fillet record) is not.
+pub fn chain_is_read(r: &quiddity::recognition::Record, features: &[Feature]) -> bool {
+    r.faces.iter().all(|f| {
+        features
+            .iter()
+            .any(|x| (x.kind == "fillet" || x.kind == "blend") && x.faces.contains(f))
+    })
 }
 
 /// Legacy recess readings represented by the unified projection, including its refusals.

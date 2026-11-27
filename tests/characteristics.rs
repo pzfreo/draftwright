@@ -161,7 +161,7 @@ fn fixture(name: &str) -> (Vec<u8>, usize) {
     let d = Document::parse(written.bytes.clone()).unwrap();
     let edition = haecceity::express::edition(&d.file_schema().unwrap()[0]).unwrap();
     let errors: Vec<_> = edition
-        .validate_document(d.graph())
+        .validate_document(&d)
         .into_iter()
         .filter(|v| v.id > doc.max_id())
         .collect();

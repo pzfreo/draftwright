@@ -461,7 +461,9 @@ fn unsupported_recesses_and_rounding_have_separate_impacts() {
     // review report the legitimate blank-face placement and existing 0.0005 mm
     // nominal rounding: advisory (12, 3) -> (14, 4). Neither notice is suppressed.
     // A dimension place override can steer the radius leader.
-    assert_review_summary("mfcadpp/1000.step", [(11, 4), (1, 1), (3, 2), (14, 4)]);
+    // quiddity 0.6.0 explains face 23 as step-level projection evidence, so the part's
+    // unclaimed_geometry notice is gone: advisory (14, 4) -> (13, 3).
+    assert_review_summary("mfcadpp/1000.step", [(11, 4), (1, 1), (3, 2), (13, 3)]);
 }
 #[test]
 fn informational_hole_bottom_and_recovery_remain_advisory() {

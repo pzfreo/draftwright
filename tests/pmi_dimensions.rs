@@ -3323,7 +3323,7 @@ fn enclosure_axis_point_step(shift: f64) -> Vec<u8> {
     let written = Document::parse(doc.apply(&edit).unwrap().bytes).unwrap();
     let mut edit = draftwright::haecceity::p21::Edit::default();
     let mut count = 0;
-    for (&id, entity) in &written.graph().entities {
+    for (id, entity) in written.iter() {
         if let RawEntity::Simple {
             name, attributes, ..
         } = entity
@@ -3503,7 +3503,7 @@ fn review_malformed_axis_point_keeps_an_ordinary_locations_main_ink() {
     let control = review_write_pmi(&raw, pmi);
     let doc = Document::parse(control.clone()).unwrap();
     let mut edit = Edit::default();
-    for (&id, entity) in &doc.graph().entities {
+    for (id, entity) in doc.iter() {
         if let RawEntity::Simple { name, .. } = entity
             && name == "DERIVED_SHAPE_ASPECT"
         {

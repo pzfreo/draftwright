@@ -327,11 +327,12 @@ fn corpus_parts_render_natively_naming_what_is_not_recognised() {
         let doc = quiddity::recognition::document(&recognition, part.faces.len());
         let mut expected = never_native();
         let mut counted = std::collections::BTreeMap::<String, usize>::new();
-        for r in doc
-            .records
-            .iter()
-            .filter(|r| !native::represented(&r.family))
-        {
+        let read = native::recognise(&part).unwrap();
+        let features: Vec<_> = read.holes.into_iter().chain(read.features).collect();
+        for r in doc.records.iter().filter(|r| {
+            !native::represented(&r.family)
+                && !(native::is_chain(r) && native::chain_is_read(r, &features))
+        }) {
             *counted.entry(r.family.clone()).or_default() += 1;
         }
         expected.retain(|f| !counted.contains_key(f));

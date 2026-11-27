@@ -47,13 +47,20 @@ fn accepted_cad_frame_layout(file: &str) {
         // All remaining dimension-stroke contacts stay exact and within main's limits.
         "nist_ftc_07_asme1_ap242-e2.stp" => ("ANSI C", "1:2", [4, 0, 3, 0, 0, 0], [0, 4, 0]),
         // 2026-11-14: repair preserving shared rows clears 11 crossings and 13 feature contacts.
-        "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [55, 12, 7, 0, 3, 0], [15, 16, 31]),
+        // 2026-11-27, Paul accepted with the quiddity 0.6.0 move ("Merge, then fix routing"): the
+        // merged 72× R1 fillet run moved the ⌖⌀0.8 H K L frame beside the ⟂ H frame (+2
+        // crossings) and its callout meets one more hidden edge. Routing fix to follow.
+        "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [57, 12, 8, 0, 3, 0], [15, 16, 31]),
         // 2026-11-14: bounded frame repair clears 7 crossings at the unchanged A0 1:1.
         "nist_stc_06_asme1_ap242-e3.stp" => ("A0", "1:1", [17, 0, 0, 0, 4, 1], [0, 6, 9]),
         // The attached cylindricity/position rows intentionally share an edge;
         // that pair no longer contributes a false label_crowded notice.
         // 2026-11-14: repair preserving shared rows clears 21 crossings and 19 feature contacts.
-        "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [33, 0, 6, 1, 1, 0], [1, 5, 26]),
+        // 2026-11-27, Paul accepted with the quiddity 0.6.0 move ("Merge, then fix routing"):
+        // datum J is drawn again (#452), and its symmetry and position frames cross the ⌀5.5
+        // hole leaders and each other (crossings 33 → 55, leader_through_feature 0 → 9).
+        // Routing fix to follow.
+        "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [55, 9, 5, 1, 2, 0], [8, 13, 33]),
         // Both inclined projections and the plate's basic dimensions fit at
         // the ordinary scale. A3 keeps the handwritten drawing's crowding at
         // main's three contacts and clears its bore leader crossing.

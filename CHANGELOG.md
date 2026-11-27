@@ -6,6 +6,15 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Built on quiddity and haecceity 0.6.0 (step-io 0.4.0, a new mesher). Recognition changes follow
+  quiddity's: small edge rounds (about R0.2–0.55) are now fillets, not blends, so their IDs change
+  (a saved Spec naming the old blend gets `dimension_edit_unapplied` naming it); a few faces
+  quiddity used to read as flats are read otherwise; a degenerate face quiddity cannot measure is
+  left unexplained instead of refusing the file. Tangent fillet chains and groups count as drawn
+  when their faces are read fillets or blends; otherwise they are listed under "Unrecognised
+  features". On NIST STC-10 datum J is drawn again, and its frames now cross hole leaders
+  (accepted for now; a routing fix follows).
+
 - A far recess's callout no longer prints `FAR SIDE` twice. Where the recess opens away from the
   viewer and the bore's other end is chamfered, that chamfer (`C0.25 FAR SIDE`) is the viewer's own
   end, so the callout states the recess's `FAR SIDE` and leaves the chamfer out, and

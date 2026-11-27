@@ -445,11 +445,12 @@ fn ftc10_coincident_projected_datums_do_not_touch() {
 
 #[test]
 fn stc10_coincident_projected_datums_do_not_touch() {
-    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
-    let plan = dense_datums_are_separate("nist_stc_10_asme1_ap242-e2.stp.gz", 8);
+    // The 15 ±0.2 width carries its median-plane datum J as well (#452, restored by
+    // quiddity 0.6.0).
+    let plan = dense_datums_are_separate("nist_stc_10_asme1_ap242-e2.stp.gz", 9);
     assert_eq!(
         plan.gdt.iter().filter(|g| g.source == "datum:#117").count(),
-        0
+        1
     );
     let frame = "pmi:geometric_tolerance.profile_surface:f65:ref=A,B,C";
     assert!(plan.gdt.iter().any(|g| g.id == frame && g.placed.is_some()));

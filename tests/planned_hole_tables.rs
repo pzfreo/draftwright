@@ -180,13 +180,54 @@ fn the_dense_acceptance_parts_have_no_hole_location_tower(name: &str) {
     }
 }
 
+/// The record Python quiddity and quiddity 0.5.4 gave the synthetic zero-length bore, on face 6
+/// of `zero-depth-bore.step.gz` (an 80 × 50 × 10 build123d plate with an off-centre blind ø8
+/// bore whose floor and cylinder end were moved up to the opening plane). Quiddity 0.6.0 leaves
+/// that degenerate face out of recognition (`unmeasured_face_refusals`), so this is the value
+/// an imported recognition record can carry.
+fn imported_zero_length_bore(analysis: &mut Analysis, depth: f64) {
+    analysis.features.push(
+        serde_json::from_value(serde_json::json!({
+            "faces": [6],
+            "fingerprint": {
+                "axis": [0.0, 0.0, 1.0],
+                "family": "holes",
+                "neighbourhood": ["cylinder>out:plane:concave", "cylinder>out:plane:convex"],
+                "position": [12.0, 7.0, 10.0],
+                "sizes": {"depth": depth, "diameter": 8.0},
+                "subtype": "HoleRecord",
+                "version": "draftwright-bridge/2"
+            },
+            "id": "f:hole:f6",
+            "kind": "hole",
+            "legacy_id": "f:hole:1",
+            "parameters": {
+                "axis": [0.0, 0.0, -1.0], "bottom": "flat", "cbore": null, "csink": null,
+                "depth": depth, "diameter": 8.0, "location": [12.0, 7.0, 10.0], "spotface": null
+            },
+            "presentation_order": 1
+        }))
+        .unwrap(),
+    );
+}
+
 #[test]
 fn a_zero_length_bore_keeps_its_diameter_and_location() {
-    // An 80 × 50 × 10 build123d plate with an off-centre blind ø8 bore. In the STEP,
-    // the bore floor and cylinder end were moved up to the opening plane.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let (part, analysis) =
+    let (part, mut analysis) =
         model::analyse_native(&root.join("tests/fixtures/parts/zero-depth-bore.step.gz")).unwrap();
+    // Native recognition does not invent the bore: its face is unmeasured, left unexplained,
+    // and the rest of the part is drawn with the ordinary unclaimed-geometry finding.
+    assert!(analysis.features.iter().all(|f| f.kind != "hole"));
+    assert!(analysis.unrecognised.is_empty());
+    let plan = cache::default_plan(&analysis, false);
+    let finding = plan
+        .problems
+        .iter()
+        .find(|p| p.code == "unclaimed_geometry")
+        .unwrap();
+    assert!(finding.subjects.contains(&"face:6".to_string()));
+    imported_zero_length_bore(&mut analysis, 0.0);
     let hole = analysis.features.iter().find(|f| f.kind == "hole").unwrap();
     assert_eq!(hole.parameters["depth"].as_f64(), Some(0.0));
     assert_eq!(hole.parameters["diameter"].as_f64(), Some(8.0));
@@ -199,8 +240,9 @@ fn a_bore_below_one_millionth_of_a_mm_has_undefined_depth() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let (part, mut analysis) =
         model::analyse_native(&root.join("tests/fixtures/parts/zero-depth-bore.step.gz")).unwrap();
-    // Native recognition rounds away this residue. Exercise the value an imported
-    // recognition record can carry by changing just the synthetic bore's depth.
+    // Exercise the value an imported recognition record can carry by changing just the
+    // synthetic bore's depth.
+    imported_zero_length_bore(&mut analysis, 0.0);
     let hole = analysis
         .features
         .iter_mut()
