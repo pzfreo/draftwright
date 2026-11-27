@@ -45,7 +45,8 @@ fn blind_callouts_sum_the_recognised_entry_depths() {
         ("chamfer", 19.2, "⌀6 ↧ 20 C0.8"),
         ("counterbore", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 5"),
         ("countersink", 17., "⌀6 ↧ 20 ⌵ ⌀12 × 90°"),
-        ("stepped", 12., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 5 ⌴ ⌀18 ↧ 3"),
+        // Each step states its depth from the face: the ⌀12 floor is 5 + 3 below it.
+        ("stepped", 12., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 8 ⌴ ⌀18 ↧ 3"),
         ("spotface", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 4.25 ⌴SF ⌀18 ↧ 0.75"),
         ("chamfered_counterbore", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 5 C0.5"),
         ("edge_chamfer_cb", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 5"),
@@ -65,6 +66,84 @@ fn blind_callouts_sum_the_recognised_entry_depths() {
                 .measurements
                 .iter()
                 .any(|m| { m.parameter == "bore.depth" && m.value == 20. })
+        );
+    }
+}
+
+/// Counterbore steps are stated from the face (maintainer decision, 2026-11-25), in the callout
+/// and the hole table's cell, and lint requires the same depths: the ⌀12 step's own 5 plus the
+/// 3 of the ⌀18 step outside it is 8, and a third step outside both adds to each inner one.
+#[test]
+fn stepped_counterbores_state_each_depth_from_the_face() {
+    let spec = Spec {
+        hole_table: draftwright::hole_table::Setting::Always,
+        ..Spec::default()
+    };
+    for (outer, label) in [
+        (
+            json!([{"diameter": 18., "depth": 3.}]),
+            "⌀6 ↧ 20 ⌴ ⌀12 ↧ 8 ⌴ ⌀18 ↧ 3",
+        ),
+        (
+            json!([{"diameter": 24., "depth": 2.}, {"diameter": 18., "depth": 3.}]),
+            "⌀6 ↧ 22 ⌴ ⌀12 ↧ 10 ⌴ ⌀18 ↧ 5 ⌴ ⌀24 ↧ 2",
+        ),
+    ] {
+        let (part, mut analysis) = fixture("stepped");
+        let hole = analysis
+            .features
+            .iter_mut()
+            .find(|f| f.kind == "hole")
+            .unwrap();
+        hole.parameters.insert("outer_steps".into(), outer);
+        let table = model::plan_recovered(&analysis, &spec).unwrap();
+        assert_eq!(words(&table.hole_tables[0].rows[0].cells[1]), label);
+        let plan = model::plan_recovered(&analysis, &Spec::default()).unwrap();
+        assert_eq!(words(&callout(&plan).label), label);
+        let mut drawing = model::render(&part, &analysis, &plan, &font()).unwrap();
+        let wrong = |a: &Analysis, d: &draftwright::output::Drawing| {
+            lint::lint(a, d)
+                .into_iter()
+                .filter(|i| {
+                    i.requirements
+                        .iter()
+                        .any(|r| r.parameter.ends_with(".depth"))
+                })
+                .map(|i| i.code)
+                .collect::<Vec<_>>()
+        };
+        assert!(wrong(&analysis, &drawing).is_empty(), "{label}");
+        // The counterbore's depth misprinted as its own height, not from the face.
+        let annotation = drawing
+            .annotations
+            .iter()
+            .find(|a| a.name == callout(&plan).id)
+            .unwrap();
+        let run = annotation
+            .runs
+            .iter()
+            .copied()
+            .find(|&r| {
+                drawing.text[r].text.contains("↧ 8") || drawing.text[r].text.contains("↧ 10")
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "{label}: {:?}",
+                    annotation
+                        .runs
+                        .iter()
+                        .map(|&r| drawing.text[r].text.clone())
+                        .collect::<Vec<_>>()
+                )
+            });
+        drawing.text[run].text = drawing.text[run]
+            .text
+            .replace("↧ 8", "↧ 5")
+            .replace("↧ 10", "↧ 5");
+        assert_eq!(
+            wrong(&analysis, &drawing),
+            ["hole_requirement_unverifiable"],
+            "{label}"
         );
     }
 }

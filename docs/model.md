@@ -1571,7 +1571,10 @@ basis, placed, reference?, determined_by?}`:
   chamfers' rule (first leg × section angle from its face). No table header restates it.
   An unthreaded blind bore adds the recorded axial lengths of its counterbore, outer steps,
   spotface, opening-side countersink, and mouth chamfer. A 15 mm bore under a 5 mm counterbore
-  prints `⌀6 ↧ 20 ⌴ ⌀12 ↧ 5`. A blind bore whose thread is accepted states its
+  prints `⌀6 ↧ 20 ⌴ ⌀12 ↧ 5`. quiddity records each counterbore-class step's own height; a
+  stepped counterbore states every step from the face, its own height plus those of the steps
+  outside it (a ⌀12 floor 3 below a ⌀20 step 2 deep prints `⌀6 THRU ⌴ ⌀12 ↧ 5 ⌴ ⌀20 ↧ 2`), and
+  lint adds them the same way. A spotface keeps its own depth. A blind bore whose thread is accepted states its
   own length plus the mouth chamfer. Recess depths include their mouth chamfer (`⌴ ⌀5 ↧ 2.25` is
   2.0 deep under a 0.25 chamfer) and are claims lint checks, and the hole table matches the callout. Its entry includes
   the mouth chamfer and, for an unthreaded blind bore, an opening countersink beyond the cylinder.
