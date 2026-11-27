@@ -1610,10 +1610,15 @@ basis, placed, reference?, determined_by?}`:
   (missing seat direction, a tilted axis neither parallel nor perpendicular to the view, or
   recesses recorded at both ends of that feature without `BOTH SIDES`) or members disagree, the
   callout states the recess plain and raises one `hole_recess_side_undecided` warning. Holes
-  whose recesses open on opposite faces, or differ in being cut at both ends, are not grouped.
+  whose recesses open on opposite faces, or differ in being cut at both ends, are not grouped;
+  on an inclined bore, whose face boxes cannot show which end a recess is at, a recess in two
+  faces counts as at both ends, so such a hole is never grouped with a single-ended one.
   Each mouth chamfer stays classified against the recess rather than the view (a flip changes
   only which end faces the viewer); a far-end chamfer's existing `FAR SIDE` stays after its
-  chamfer, and the same chamfer (size,
+  chamfer, except in a callout whose recess itself says `FAR SIDE`: there the far end is the
+  viewer's own and the two words would be taken for one end, so the chamfer is left out (and its
+  `far_mouth_chamfer.*` requirements with it) and `hole_recess_side_undecided` says so. The same
+  chamfer (size,
   angle and the diameter it breaks) at both ends says `BOTH SIDES`: a counterbore's `C0.25` and
   the far bore's `C0.25` are two chamfers (`⌴ ⌀10 ↧ 2 C0.25 C0.25 FAR SIDE`). The size (and the
   angle, off 45°) is a requirement lint checks (`mouth_chamfer.size`, `mouth_chamfer.angle`, and
