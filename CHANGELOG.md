@@ -6,6 +6,12 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- A far recess's callout no longer prints `FAR SIDE` twice. Where the recess opens away from the
+  viewer and the bore's other end is chamfered, that chamfer (`C0.25 FAR SIDE`) is the viewer's own
+  end, so the callout states the recess's `FAR SIDE` and leaves the chamfer out, and
+  `hole_recess_side_undecided` warns. Seen from the near side nothing changes. A recess in two
+  faces of an inclined bore no longer groups with a single-ended one (`2×` for unlike holes).
+
 - `views/sections` draws every requested section, not just the first, each with its
   cutting-plane line, arrows and letter. The drawing keeps the paper and scale it has without the
   request and the cuts take its free space; if they do not fit, the next larger paper is used at the

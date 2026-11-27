@@ -338,7 +338,16 @@ fn recess_end(terms: &[String]) -> Option<usize> {
     Some(i)
 }
 
-fn recess_undecided(analysis: &Analysis, w: &Want, h: &holes::Hole, why: &str) -> Problem {
+/// What an undecided callout does: it states the recess, without FAR SIDE.
+const STATES_PLAIN: &str = "states the {recess} without FAR SIDE";
+
+fn recess_undecided(
+    analysis: &Analysis,
+    w: &Want,
+    h: &holes::Hole,
+    why: &str,
+    outcome: &str,
+) -> Problem {
     let owner =
         w.id.strip_prefix("d:")
             .and_then(|s| s.split_once('/'))
@@ -362,8 +371,9 @@ fn recess_undecided(analysis: &Analysis, w: &Want, h: &holes::Hole, why: &str) -
         code: "hole_recess_side_undecided".into(),
         severity: "warning".into(),
         message: format!(
-            "{}'s {recess} entry side relative to the view could not be decided ({why}); the callout states the {recess} without FAR SIDE.",
+            "{}'s {recess} entry side relative to the view could not be decided ({why}); the callout {outcome}.",
             crate::wording::capital(&crate::wording::feature_id(analysis, owner)),
+            outcome = outcome.replace("{recess}", recess),
         ),
         subjects,
         ..Default::default()
@@ -378,6 +388,7 @@ pub(super) fn route_view(analysis: &Analysis, w: &mut Want, toward: P3) -> Optio
         return None;
     }
     let mut agreed: Option<bool> = None;
+    let mut last = None;
     for bore in w
         .measurements
         .iter()
@@ -394,20 +405,51 @@ pub(super) fn route_view(analysis: &Analysis, w: &mut Want, toward: P3) -> Optio
                     w,
                     &h,
                     "its members open on different sides",
+                    STATES_PLAIN,
                 ));
             }
-            Err(why) => return Some(recess_undecided(analysis, w, &h, why)),
+            Err(why) => return Some(recess_undecided(analysis, w, &h, why, STATES_PLAIN)),
         };
         agreed = Some(far);
+        last = Some(h);
     }
     if agreed == Some(true) {
         let keep = |t: &&String| !callouts::is_soft_break(t);
         let mut terms: Vec<_> = w.terms.iter().filter(keep).cloned().collect();
-        if let Some(at) = recess_end(&terms)
-            && terms.get(at).map(String::as_str) != Some(callouts::FAR_SIDE)
-        {
-            terms.insert(at, callouts::FAR_SIDE.into());
-            w.terms = callouts::wrap(&terms);
+        // A far chamfer already says FAR SIDE, relative to the recess; with the recess's own
+        // FAR SIDE, which end it is would be unclear (seen from the far side it is the viewer's).
+        // It is left out, with a warning, rather than printed where it could be misread.
+        let mut dropped = None;
+        if let Some(at) = recess_end(&terms) {
+            // The recess's own FAR SIDE, when an earlier view put it there, sits at *at*.
+            let chamfer = terms
+                .iter()
+                .rposition(|t| t == callouts::FAR_SIDE)
+                .filter(|&i| i > at);
+            if let Some(i) = chamfer {
+                let start = i - if terms[i - 1].starts_with('C') { 1 } else { 3 };
+                terms.drain(start..=i);
+            }
+            // Decided from the hole, not the terms: a view routed earlier has dropped it already.
+            dropped = last.filter(|h| h.chamfers().1.is_some());
+            if dropped.is_some() {
+                // The hole table keeps a FAR SIDE for a far chamfer; there is none to keep.
+                w.measurements
+                    .retain(|m| !m.parameter.starts_with("far_mouth_chamfer."));
+            }
+            if terms.get(at).map(String::as_str) != Some(callouts::FAR_SIDE) {
+                terms.insert(at, callouts::FAR_SIDE.into());
+            }
+        }
+        w.terms = callouts::wrap(&terms);
+        if let Some(h) = dropped {
+            return Some(recess_undecided(
+                analysis,
+                w,
+                &h,
+                "its far-end chamfer cannot be placed",
+                "leaves that chamfer out",
+            ));
         }
     }
     None

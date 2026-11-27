@@ -848,21 +848,17 @@ fn both_end_countersink_stays_plain_with_warning() {
 }
 
 /// Rotating a counterbored hole with chamfers 180° about X flips only which end faces the viewer:
-/// the recess qualifier comes from the recess's own direction only, chamfers stay classified
-/// against the recess, and no false warning fires.
+/// the recess qualifier comes from the recess's own direction only. A far-end bore chamfer would
+/// also read `FAR SIDE`, which seen from the far side is the viewer's own end, so it is left out
+/// with a warning; no other case warns.
 #[test]
 fn flipped_recess_with_chamfers_keeps_chamfers_relative_to_recess() {
     for (name, expected) in [
-        (
-            "mouth_cbore_far_only.step",
-            "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25 FAR SIDE",
-        ),
-        (
-            "mouth_cbore_far.step",
-            "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25 C0.25 FAR SIDE",
-        ),
+        ("mouth_cbore_far_only.step", "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE"),
+        ("mouth_cbore_far.step", "⌀6 THRU ⌴ ⌀10 ↧ 2 FAR SIDE C0.25"),
         ("mouth_cbore_under.step", "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25"),
     ] {
+        let leaves_out = name != "mouth_cbore_under.step";
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/parts")
             .join(name);
@@ -870,12 +866,14 @@ fn flipped_recess_with_chamfers_keeps_chamfers_relative_to_recess() {
         rotate_x(&mut a, 180.0);
         let plan = plan_of(&a);
         assert_eq!(callout(&plan).1, expected, "{name}");
+        let warned = plan
+            .problems
+            .iter()
+            .any(|p| p.code == "hole_recess_side_undecided" && p.severity == "warning");
+        assert_eq!(warned, leaves_out, "{name}: {:?}", plan.problems);
         assert!(
-            !plan
-                .problems
-                .iter()
-                .any(|p| p.code == "hole_recess_side_undecided"),
-            "{name}: unexpected warning {:?}",
+            !plan.problems.iter().any(|p| p.severity == "error"),
+            "{name}: {:?}",
             plan.problems
         );
     }
@@ -1126,4 +1124,75 @@ fn a_far_counterbore_row_keeps_the_recess_face() {
     assert_eq!(cells[0].1, "0 / +Z");
     assert!(accepted);
     assert!(wrong_rejected);
+}
+
+/// Unlike holes are never grouped, whatever the part's attitude: the mixed plate rotated 15° about X
+/// still states its single-ended and its both-ends countersunk bores separately.
+#[test]
+fn tilted_mixed_countersinks_are_not_grouped() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mixed_csink_plate.step");
+    let (_, mut a) = model::analyse_native(&path).unwrap();
+    rotate_x(&mut a, 15.0);
+    let plan = plan_of(&a);
+    let callouts: Vec<String> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(words_of)
+        .collect();
+    assert_eq!(callouts.len(), 2, "unlike holes grouped: {callouts:?}");
+    assert!(
+        callouts.iter().all(|c| !c.starts_with("2×")),
+        "unlike holes grouped: {callouts:?}"
+    );
+}
+
+/// The table states no `FAR SIDE` for a far recess. A flipped far counterbore whose far-end chamfer
+/// is left out of its callout also loses that chamfer's measurements, which are what make the table
+/// keep a `FAR SIDE`; and a diameter styled `reference` does not make a size cell wrap so that the
+/// recess's `FAR SIDE` leaks in (`mouth_cbore_under.step`).
+#[test]
+fn hole_table_cells_never_carry_far_side() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_far_only.step");
+    let (_, mut a) = model::analyse_native(&path).unwrap();
+    rotate_x(&mut a, 180.0);
+    let plan = plan_of(&a);
+    let d = plan
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .unwrap();
+    assert!(
+        !d.measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("far_mouth_chamfer.")),
+        "{:?}",
+        d.measurements
+    );
+
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_under.step");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let id = plan_of(&a)
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .map(|d| d.id.clone())
+        .unwrap();
+    let spec: Spec = serde_json::from_value(serde_json::json!({
+        "hole_table": "always",
+        "dimensions": {id: {"style": "reference"}},
+    }))
+    .unwrap();
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let rows: Vec<_> = plan.hole_tables.iter().flat_map(|t| &t.rows).collect();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        !rows[0].cells[1].contains("FAR SIDE"),
+        "{:?}",
+        rows[0].cells
+    );
+    assert!(rows[0].cells[1].contains("C0.25"), "{:?}", rows[0].cells);
 }
