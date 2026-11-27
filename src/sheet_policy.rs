@@ -1130,7 +1130,12 @@ fn cost(plan: &Plan, base: &Plan) -> Option<String> {
     if plan.hole_tables.len() < base.hole_tables.len() {
         return Some("its hole table".into());
     }
-    if plan.captions.len() < base.captions.len() {
+    // Larger paper takes the isometric as large as it likes; on the same paper the cuts must not
+    // shrink it (and so lose its scale caption).
+    let iso = |p: &Plan| p.views.iter().find(|v| v.id == "v:iso").map(|v| v.scale);
+    if plan.sheet.size == base.sheet.size
+        && iso(plan).zip(iso(base)).is_some_and(|(a, b)| a < b - 1e-9)
+    {
         return Some("a caption".into());
     }
     (model::findings(plan).dropped > model::findings(base).dropped).then(|| "required items".into())
@@ -1177,18 +1182,35 @@ fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             if forced.sheet.dimension_spacing.is_none() {
                 forced.sheet.dimension_spacing = Some(base.sheet.dimension_spacing);
             }
-            let mut plan = select_uncached(analysis, &forced)?;
-            if kept > 0 && crate::sections::unplaced(&plan) {
-                continue;
-            }
-            plan = model::finish_presentation(analysis, &forced, plan)?;
-            model::finish_selected(analysis, &mut plan);
-            if kept > 0
-                && let Some(what) = cost(&plan, &base)
-            {
-                costly = Some((size.to_string(), what));
-                continue;
-            }
+            // With every request left out the drawing is the one without them, as selected.
+            let mut plan = if kept == 0 {
+                let mut plan = base.clone();
+                // Requests refused before the first one that was left out are still said.
+                plan.problems.extend(
+                    refusals
+                        .iter()
+                        .filter(|p| {
+                            p.id.rsplit('/')
+                                .next()
+                                .and_then(|i| i.parse::<usize>().ok())
+                                .is_some_and(|i| i < keep)
+                        })
+                        .cloned(),
+                );
+                plan
+            } else {
+                let plan = select_uncached(analysis, &forced)?;
+                if crate::sections::unplaced(&plan) {
+                    continue;
+                }
+                let mut plan = model::finish_presentation(analysis, &forced, plan)?;
+                model::finish_selected(analysis, &mut plan);
+                if let Some(what) = cost(&plan, &base) {
+                    costly = Some((size.to_string(), what));
+                    continue;
+                }
+                plan
+            };
             plan.spec.sheet.size = spec.sheet.size.clone();
             plan.spec.sheet.scale = spec.sheet.scale.clone();
             plan.spec.views.sections = spec.views.sections.clone();
