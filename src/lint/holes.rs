@@ -93,7 +93,7 @@ impl HoleSizes {
     /// The depth lint requires a counterbore-class step to state: its own height plus those of
     /// the *n* outer steps outside it, since each is stated from the face (the mouth). Lint's own
     /// arithmetic on the Analysis's records.
-    fn from_face(&self, r: &Recess, n: usize) -> Option<f64> {
+    fn depth_from_face(&self, r: &Recess, n: usize) -> Option<f64> {
         let outside: Option<f64> = self.outer_steps[..n].iter().map(|o| o.depth).sum();
         Some(r.from_mouth()? + outside?)
     }
@@ -129,7 +129,7 @@ impl HoleGroup {
             out.push(("bore.depth".into(), s.depth.filter(|&d| d != 0.0)));
         }
         let recess = |r: Option<Recess>| r.map(|r| (r.diameter, r.from_mouth()));
-        let step = |r: &Recess, n: usize| Some((r.diameter, s.from_face(r, n)));
+        let step = |r: &Recess, n: usize| Some((r.diameter, s.depth_from_face(r, n)));
         let mut sizes = vec![(
             "counterbore".to_string(),
             s.counterbore
@@ -193,7 +193,7 @@ impl HoleGroup {
             .map(|r| (r, s.outer_steps.len()))
             .chain(s.outer_steps.iter().enumerate().rev().map(|(i, r)| (r, i)))
         {
-            out += &format!(" ⌴ ⌀{} ↧ {}", fmt(r.diameter), f(s.from_face(r, n)));
+            out += &format!(" ⌴ ⌀{} ↧ {}", fmt(r.diameter), f(s.depth_from_face(r, n)));
         }
         if let Some(r) = s.spotface {
             out += &format!(" ⌴SF ⌀{} ↧ {}", fmt(r.diameter), f(r.from_mouth()));
