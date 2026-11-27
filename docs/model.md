@@ -1574,7 +1574,7 @@ basis, placed, reference?, determined_by?}`:
   prints `⌀6 ↧ 20 ⌴ ⌀12 ↧ 5`. quiddity records each counterbore-class step's own height; a
   stepped counterbore states every step from the face, its own height plus those of the steps
   outside it (a ⌀12 floor 3 below a ⌀20 step 2 deep prints `⌀6 THRU ⌴ ⌀12 ↧ 5 ⌴ ⌀20 ↧ 2`), and
-  lint adds them the same way. A spotface keeps its own depth. A blind bore whose thread is accepted states its
+  lint adds them the same way. The spotface lies at the mouth, so its depth is added to every step's; it keeps its own depth. A blind bore whose thread is accepted states its
   own length plus the mouth chamfer. Recess depths include their mouth chamfer (`⌴ ⌀5 ↧ 2.25` is
   2.0 deep under a 0.25 chamfer) and are claims lint checks, and the hole table matches the callout. Its entry includes
   the mouth chamfer and, for an unthreaded blind bore, an opening countersink beyond the cylinder.

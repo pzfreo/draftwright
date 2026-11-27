@@ -47,7 +47,7 @@ fn blind_callouts_sum_the_recognised_entry_depths() {
         ("countersink", 17., "⌀6 ↧ 20 ⌵ ⌀12 × 90°"),
         // Each step states its depth from the face: the ⌀12 floor is 5 + 3 below it.
         ("stepped", 12., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 8 ⌴ ⌀18 ↧ 3"),
-        ("spotface", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 4.25 ⌴SF ⌀18 ↧ 0.75"),
+        ("spotface", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 5 ⌴SF ⌀18 ↧ 0.75"),
         ("chamfered_counterbore", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 5 C0.5"),
         ("edge_chamfer_cb", 15., "⌀6 ↧ 20 ⌴ ⌀12 ↧ 5"),
     ] {

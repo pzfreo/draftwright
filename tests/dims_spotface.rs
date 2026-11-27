@@ -259,7 +259,7 @@ fn outer_counterbore_steps_are_each_stated_once() {
         .collect::<Vec<_>>()
         .join(" ");
     assert_eq!(
-        text, "⌀6 THRU ⌴ ⌀12 ↧ 5 ⌴ ⌀20 ↧ 2 ⌴SF ⌀30 ↧ 0.5",
+        text, "⌀6 THRU ⌴ ⌀12 ↧ 5.5 ⌴ ⌀20 ↧ 2.5 ⌴SF ⌀30 ↧ 0.5",
         "{}",
         d.label
     );
@@ -267,16 +267,16 @@ fn outer_counterbore_steps_are_each_stated_once() {
     // (maintainer decision, 2026-10-29).
     assert_eq!(
         d.label.lines().collect::<Vec<_>>(),
-        ["⌀6 THRU", "⌴ ⌀12 ↧ 5", "⌴ ⌀20 ↧ 2", "⌴SF ⌀30 ↧ 0.5"],
+        ["⌀6 THRU", "⌴ ⌀12 ↧ 5.5", "⌴ ⌀20 ↧ 2.5", "⌴SF ⌀30 ↧ 0.5"],
         "{:?}",
         d.terms
     );
     assert!(d.placed.is_some(), "{} is drawn", d.id);
     for (parameter, value) in [
         ("counterbore.diameter", 12.0),
-        ("counterbore.depth", 5.0),
+        ("counterbore.depth", 5.5),
         ("outer_steps.0.diameter", 20.0),
-        ("outer_steps.0.depth", 2.0),
+        ("outer_steps.0.depth", 2.5),
         ("spotface.diameter", 30.0),
         ("spotface.depth", 0.5),
     ] {

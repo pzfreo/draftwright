@@ -701,10 +701,10 @@ fn a_hole_with_a_counterbore_and_a_spotface_states_both() {
     let plan = model::plan(&analysis, &Spec::default()).unwrap();
     let c = find(&plan, "d:f:hole_pattern:f6/bore.diameter");
     // Two steps: the bore, then each step on its own line (maintainer decision, 2026-10-29).
-    assert_eq!(c.label, "4× ⌀6 THRU\n⌴ ⌀11 ↧ 6.4\n⌴SF ⌀20 ↧ 1");
+    assert_eq!(c.label, "4× ⌀6 THRU\n⌴ ⌀11 ↧ 7.4\n⌴SF ⌀20 ↧ 1");
     for (parameter, value) in [
         ("counterbore.diameter", 11.0),
-        ("counterbore.depth", 6.4),
+        ("counterbore.depth", 7.4),
         ("spotface.diameter", 20.0),
         ("spotface.depth", 1.0),
     ] {
@@ -738,7 +738,7 @@ fn a_hole_with_a_counterbore_and_a_spotface_states_both() {
         .collect();
     assert!(!cells.is_empty(), "{tabled}");
     for cell in cells {
-        assert_eq!(cell, "⌀6 THRU ⌴ ⌀11 ↧ 6.4 ⌴SF ⌀20 ↧ 1");
+        assert_eq!(cell, "⌀6 THRU ⌴ ⌀11 ↧ 7.4 ⌴SF ⌀20 ↧ 1");
     }
 }
 

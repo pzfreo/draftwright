@@ -91,10 +91,14 @@ pub struct HoleSizes {
 
 impl HoleSizes {
     /// The depth lint requires a counterbore-class step to state: its own height plus those of
-    /// the *n* outer steps outside it, since each is stated from the face (the mouth). Lint's own
+    /// the *n* outer steps outside it and the spotface's, since each is stated from the face (the mouth). Lint's own
     /// arithmetic on the Analysis's records.
     fn depth_from_face(&self, r: &Recess, n: usize) -> Option<f64> {
-        let outside: Option<f64> = self.outer_steps[..n].iter().map(|o| o.depth).sum();
+        let outside: Option<f64> = self.outer_steps[..n]
+            .iter()
+            .chain(&self.spotface)
+            .map(|o| o.depth)
+            .sum();
         Some(r.from_mouth()? + outside?)
     }
 

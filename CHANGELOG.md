@@ -9,8 +9,9 @@ All notable changes to draftwright are recorded here, in the style of
 - A stepped counterbore states every step's depth from the face, in the callout and the hole table,
   and lint requires the same: a ⌀6 through hole with a ⌀12 counterbore whose floor is 3 below a ⌀20
   step 2 deep reads `⌀6 THRU ⌴ ⌀12 ↧ 5 ⌴ ⌀20 ↧ 2`. Before, each step stated its own height (`↧ 3`
-  for the ⌀12). A single counterbore, a spotface (which keeps its own depth), a countersink and a
-  plain hole read as before.
+  for the ⌀12). A spotface at the mouth counts in the same way (a counterbore under a 0.75 spotface
+  reads 0.75 deeper) and keeps its own depth. A single counterbore, a lone spotface, a countersink
+  and a plain hole read as before.
 
 - Unthreaded blind-hole callouts and schedules include their opening recess depths. Threaded blind
   holes still state the bore's own length plus the mouth chamfer.

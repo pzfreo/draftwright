@@ -796,7 +796,7 @@ fn authored_depth_under_spotfaced_counterbore_attaches_with_from_cbore_floor() {
     }];
     a.pmi = Some(Reading::Read(report));
 
-    let expected = "⌀6 ↧ 15.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀12 ↧ 4.25 ⌴SF ⌀18 ↧ 0.75";
+    let expected = "⌀6 ↧ 15.00 ±0.20 FROM CBORE FLOOR ⌴ ⌀12 ↧ 5 ⌴SF ⌀18 ↧ 0.75";
     let font = &fixture().2;
 
     let plan = model::plan(&a, &Spec::default()).unwrap();
