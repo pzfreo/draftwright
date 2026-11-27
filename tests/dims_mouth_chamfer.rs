@@ -1058,3 +1058,72 @@ fn different_opposite_recess_does_not_hide_far_side() {
         assert_eq!(callout_for("f:hole:f130"), "⌀40 THRU ⌴ ⌀120 ↧ 8");
     }
 }
+
+/// The entry cell of every scheduled hole of *a*, by feature, and lint's verdict on the rendered
+/// schedule as drawn and with *wrong* written into *feature*'s entry cell.
+fn entry_cells_and_lint(
+    part: &haecceity::Part,
+    a: &Analysis,
+    feature: &str,
+    wrong: &str,
+) -> (Vec<(String, String)>, bool, bool) {
+    let mut spec = Spec {
+        hole_table: draftwright::hole_table::Setting::Always,
+        ..Spec::default()
+    };
+    spec.sheet.size = Some("A3".into());
+    let plan = model::plan_recovered(a, &spec).unwrap();
+    let cells = plan
+        .hole_tables
+        .iter()
+        .flat_map(|t| &t.rows)
+        .map(|r| (r.feature.clone(), r.cells[4].clone()))
+        .collect();
+    let invalid = |d: &draftwright::output::Drawing| {
+        draftwright::lint::lint(a, d).iter().any(|i| {
+            i.code == "hole_table_entry_invalid" && i.subjects.iter().any(|s| s == feature)
+        })
+    };
+    let mut drawing = model::render(part, a, &plan, &bundled_font()).unwrap();
+    let accepted = !invalid(&drawing);
+    let entry = drawing
+        .annotations
+        .iter()
+        .find(|m| m.name.ends_with("/entry") && m.claims[0].feature == feature)
+        .unwrap()
+        .runs
+        .clone();
+    for run in entry {
+        drawing.text[run].text = wrong.into();
+    }
+    (cells, accepted, invalid(&drawing))
+}
+
+/// A countersink cut from the end opposite quiddity's recorded opening is entered from its own
+/// face: the schedule says where that face is and which way it is drilled, and lint agrees and
+/// rejects the bore's recorded opening. Seats at the recorded opening keep their cell.
+#[test]
+fn a_far_countersink_row_names_the_seat_face() {
+    let (part, a) = far_countersink();
+    let (cells, accepted, wrong_rejected) =
+        entry_cells_and_lint(&part, &a, "f:hole:f17", "10 / −Z");
+    let cell = |f: &str| cells.iter().find(|c| c.0 == f).unwrap().1.clone();
+    assert_eq!(cell("f:hole:f17"), "0 / +Z");
+    assert_eq!(cell("f:hole:f18"), "0 / +Z");
+    assert_eq!(cell("f:hole:f12"), "30 / −Z");
+    assert!(accepted);
+    assert!(wrong_rejected);
+}
+
+/// A counterbore cut from below: quiddity records its opening at the recess, so the schedule
+/// already names the recess face; it is unchanged, and lint still rejects the far end.
+#[test]
+fn a_far_counterbore_row_keeps_the_recess_face() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/mouth_cbore_under.step");
+    let (part, a) = model::analyse_native(&path).unwrap();
+    let (cells, accepted, wrong_rejected) = entry_cells_and_lint(&part, &a, "f:hole:f6", "5 / −Z");
+    assert_eq!(cells[0].1, "0 / +Z");
+    assert!(accepted);
+    assert!(wrong_rejected);
+}

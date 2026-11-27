@@ -390,10 +390,10 @@ impl<'a> Hole<'a> {
         Ok(h)
     }
 
-    /// A countersink contributes when the unthreaded blind bore starts at its minor rim and its
+    /// A countersink contributes when the unthreaded bore starts at its minor rim and its
     /// axis points into the bore. Recognition rounds the cone geometry to four places.
     fn opening_sink_depth(&self) -> Option<f64> {
-        if self.through || self.threaded || self.countersink.is_none() {
+        if self.threaded || self.countersink.is_none() {
             return None;
         }
         let parameters = &self.feature.parameters;
@@ -510,6 +510,32 @@ impl<'a> Hole<'a> {
         let d = dir_to_part(&self.frame, p);
         let n = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         (n > 0.0).then(|| d.map(|c| c / n))
+    }
+
+    /// The countersink seat's mouth centre and unit drilling direction in the part's frame, when
+    /// recorded. They can lie at the end of the bore opposite quiddity's recorded opening.
+    pub(crate) fn csink_seat(&self) -> Option<([f64; 3], [f64; 3])> {
+        let at = point(self.feature.parameters.get("csink")?.get("location"))?;
+        Some((to_part(&self.frame, at), self.csink_direction()?))
+    }
+
+    /// The mouth centre and drilling direction of a countersink machined from the end of a
+    /// through bore opposite its recorded opening: the face the hole is entered from. None when
+    /// the seat is at the opening, plain holes, and, as for `FAR SIDE`, when recesses lie at both
+    /// ends or the seat's axis does not run along the bore.
+    pub(crate) fn far_seat(&self) -> Option<([f64; 3], [f64; 3])> {
+        let (mouth, cd) = self.csink_seat()?;
+        let dot = |a: [f64; 3], b: [f64; 3]| (0..3).map(|k| a[k] * b[k]).sum::<f64>();
+        let ahead = dot(
+            std::array::from_fn(|k| mouth[k] - self.at[k]),
+            self.direction,
+        );
+        (self.through
+            && self.countersink.is_some()
+            && !self.both_ends
+            && dot(cd, self.direction) < -0.999
+            && ahead > 1e-3)
+            .then_some((mouth, cd))
     }
 
     /// The mouth chamfers a callout states, first the one at its reference end and then the one at

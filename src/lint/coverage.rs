@@ -823,8 +823,26 @@ pub fn schedule_entries(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                         }))
                     })
                     .fold(f64::INFINITY, f64::min);
-                let want = dot(h.at) - dot(h.direction) * h.opening_offset() - back;
-                let want_dir = if dot(h.direction) > 0.0 { "+Z" } else { "−Z" };
+                // A countersink seat on the end opposite the recorded opening (its own axis
+                // runs against the bore's, its mouth lies ahead of the bore's location) is
+                // the face the hole is entered from, unless recesses lie at both ends.
+                let along = |v: [f64; 3]| (0..3).map(|k| v[k] * h.direction[k]).sum::<f64>();
+                let seat = h.csink_seat().filter(|(mouth, axis)| {
+                    h.through
+                        && !h.both_ends
+                        && h.countersink.is_some()
+                        && along(*axis) < -0.999
+                        && along(std::array::from_fn(|k| mouth[k] - h.at[k])) > 1e-3
+                });
+                let (want, want_dir) = match seat {
+                    Some((mouth, axis)) => {
+                        (dot(mouth) - back, if dot(axis) > 0.0 { "+Z" } else { "−Z" })
+                    }
+                    None => (
+                        dot(h.at) - dot(h.direction) * h.opening_offset() - back,
+                        if dot(h.direction) > 0.0 { "+Z" } else { "−Z" },
+                    ),
+                };
                 let Some((position, direction)) = m.text.split_once('/') else {
                     return false;
                 };
