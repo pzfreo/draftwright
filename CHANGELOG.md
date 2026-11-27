@@ -6,6 +6,13 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Built on quiddity and haecceity 0.6.0 (step-io 0.4.0, a new mesher). Recognition changes follow
+  quiddity's: fillets now come with their defining faces and chains, so a part's fillet
+  dimensions can count more or fewer fillets than before; a few faces quiddity used to read as a
+  flat or a blend are read otherwise. A part whose recognition carries tangent fillet chains or
+  groups draws as before, and its problems list them under "Unrecognised features", as the
+  reader does not yet draw them.
+
 - A far recess's callout no longer prints `FAR SIDE` twice. Where the recess opens away from the
   viewer and the bore's other end is chamfered, that chamfer (`C0.25 FAR SIDE`) is the viewer's own
   end, so the callout states the recess's `FAR SIDE` and leaves the chamfer out, and
