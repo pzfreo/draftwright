@@ -6,6 +6,14 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- `views/sections` draws every requested section, not just the first, each with its
+  cutting-plane line, arrows and letter. The drawing keeps the paper and scale it has without the
+  request and the cuts take its free space; if they do not fit, the next larger paper is used at the
+  same scale. On the largest paper, or on paper the Spec fixes, the last request is left out with a
+  `section_not_shown` finding that names it. Before, only the first was drawn and the rest were
+  refused. A single request that did not fit its fixed paper used to run off the sheet; it is now left
+  out with the finding. Drawings with no section request are unchanged.
+
 - A through hole countersunk at its opening gets the same entry cell as a blind one: the face it is
   machined from, not the cone's bottom. A ⌀5 hole with a 2.5 deep seat in a 30 thick plate reads
   `30 / −Z`, not `27.5 / −Z`. Lint requires the same.

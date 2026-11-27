@@ -24,7 +24,9 @@ pub(super) fn apply(a: &Analysis, s: &Spec, i: usize, wants: &mut Vec<Want>) {
         sites: vec![(floor, 0.)],
         arcs: Vec::new(),
     };
-    w.basis += &format!("; applied views/sections/{i}: measured pocket callout attached to the floor in the longitudinal section");
+    w.basis += &format!(
+        "; applied views/sections/{i}: measured pocket callout attached to the floor in the longitudinal section"
+    );
     // The usual depth form keeps its leader on the floor. A floating linear
     // dimension can otherwise have its witnesses shortened to unrelated stock.
     if !w

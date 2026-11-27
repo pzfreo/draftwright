@@ -425,6 +425,12 @@ fn requests_uncached(a: &Analysis, spec: &Spec, sheet: f64) -> Vec<(String, Deta
     if section_letter {
         allocated.insert(format!("detail_{}", section_label(spec).to_lowercase()));
     }
+    allocated.extend(
+        spec.views
+            .sections
+            .iter()
+            .map(|r| format!("detail_{}", r.id.to_lowercase())),
+    );
     let mut add = |mut d: Detail| {
         let Some(name) = NAMES.iter().find(|n| !allocated.contains(**n)) else {
             return;

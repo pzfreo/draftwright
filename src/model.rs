@@ -7871,19 +7871,20 @@ fn plan_with_presentation(
     });
     // A section left out is said, with why and what would bring it back (draftwright records
     // every section decision: ISSUE-1190-b); one the author omits needs no saying.
-    let section_not_shown = |label: &str, name: &str, why: String, fix: Vec<crate::items::Op>| Problem {
-        inclined_axis_gap: false,
-        crossing_kinds: Vec::new(),
-        ink_is_leader: None,
-        id: format!("p:section_not_shown:v:{name}"),
-        code: "section_not_shown".into(),
-        severity: "warning".into(),
-        message: format!("Section {label}\u{2013}{label} is not drawn: {why}."),
-        subjects: Vec::new(),
-        refs: vec![format!("v:{name}")],
-        fixes: Vec::new(),
-        fix,
-    };
+    let section_not_shown =
+        |label: &str, name: &str, why: String, fix: Vec<crate::items::Op>| Problem {
+            inclined_axis_gap: false,
+            crossing_kinds: Vec::new(),
+            ink_is_leader: None,
+            id: format!("p:section_not_shown:v:{name}"),
+            code: "section_not_shown".into(),
+            severity: "warning".into(),
+            message: format!("Section {label}\u{2013}{label} is not drawn: {why}."),
+            subjects: Vec::new(),
+            refs: vec![format!("v:{name}")],
+            fixes: Vec::new(),
+            fix,
+        };
     let unplaceable = |label: &str, name: &str| {
         if !principals.plan {
             let (how, fix) = if omitted("plan") {
@@ -8445,7 +8446,14 @@ fn plan_with_presentation(
     // the packer found it among the derived views, or is said not to fit.
     let mut slots = Vec::new();
     if let (Some(cut), Some(area)) = (&section, g.section_boxes.first()) {
-        slots.push((section_label.clone(), section_name, *area, g.section, cut, None));
+        slots.push((
+            section_label.clone(),
+            section_name,
+            *area,
+            g.section,
+            cut,
+            None,
+        ));
     } else if section.is_some() {
         problems.push(section_not_shown(
             &section_label,

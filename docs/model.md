@@ -315,20 +315,24 @@ mention takes its default.
 }
 ```
 
-`views/sections` requests a longitudinal section through named geometry, for example
+`views/sections` requests longitudinal sections through named geometry, for example
 `"sections": [{"id": "A", "through": "f:section_recess:f133"}]`. IDs are distinct
-letters A–H. When drawable, the first request replaces the automatic section, using a
-front-facing plane through a z-axis hole or a z-depth pocket running along x. The plan records
-the cut and the applied Spec path. A pocket section carries its measured width and
+letters A–H. Each drawable request is drawn as its own labelled section with its
+cutting-plane line, arrows and letter on the plan, using a front-facing plane through a
+z-axis hole or a z-depth pocket running along x. Requests replace the automatic section.
+The drawing keeps the paper and scale it has without any request, and the packer places the
+cuts in the free space at that scale. If they do not fit, the next larger paper is tried at
+the same scale; if they still do not fit on the largest paper, the last request is left out,
+then the one before it, each with a `section_not_shown` finding that names it and says why.
+Paper the Spec fixes (`sheet/size`) stays: a cut that does not fit it is left out in the same
+way. A Spec scale is kept. There is no search over paper and scale. The plan records each cut
+and its applied Spec path. A pocket section carries its measured width and
 length as a callout (width lies perpendicular to this plane), and a floor-attached depth
 from floor to mouth. On a cylindrical mouth this is the maximum depth from its
 tangent at the centre cut. Missing feature references are refused. Geometry for
-which this implementation cannot name a plane, additional sections beyond the one
-available layout slot, or an omitted carrier view retain the drawing and warn
-specifically. An unavailable named request keeps the automatic section and remains
-in the Spec. Explicit sections reserve a separate labelled frame before paper and
-scale selection, including when dimensions or views are pinned. If adding the cut
-makes retained pinned ink unfit, automatic paper/scale trials include that ink.
+which this implementation cannot name a plane, or an omitted carrier view,
+retain the drawing and warn specifically. An unavailable named request keeps the automatic
+section and remains in the Spec.
 Feature `anchor` is read for recognition corrections, below;
 a feature's `note` is read since K1b (below).
 

@@ -1145,7 +1145,10 @@ fn select_requested(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     };
     // Leave out the last drawable request, then the one before it, until the rest fit.
     for kept in (0..=drawable.len()).rev() {
-        let keep = drawable.get(kept).copied().unwrap_or(spec.views.sections.len());
+        let keep = drawable
+            .get(kept)
+            .copied()
+            .unwrap_or(spec.views.sections.len());
         for size in &sizes {
             let mut forced = spec.clone();
             forced.views.sections.truncate(keep);
