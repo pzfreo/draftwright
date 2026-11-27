@@ -1121,9 +1121,9 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
 }
 
 /// What adding requested cuts cost the drawing that it had: an extra sheet, a hole table or a
-/// caption, required items, or labels under a cutting-plane line.
+/// caption or required items. Where a cutting-plane line crosses labels is not counted: more
+/// paper at the same scale does not change it, so it stays a finding.
 fn cost(plan: &Plan, base: &Plan) -> Option<String> {
-    let count = |p: &Plan, code: &str| p.problems.iter().filter(|q| q.code == code).count();
     if plan.sheets.len() > base.sheets.len() {
         return Some("an extra sheet".into());
     }
@@ -1133,12 +1133,7 @@ fn cost(plan: &Plan, base: &Plan) -> Option<String> {
     if plan.captions.len() < base.captions.len() {
         return Some("a caption".into());
     }
-    if model::findings(plan).dropped > model::findings(base).dropped {
-        return Some("required items".into());
-    }
-    (count(plan, "label_section_furniture_overlap")
-        > count(base, "label_section_furniture_overlap"))
-    .then(|| "labels crossed by a cutting-plane line".into())
+    (model::findings(plan).dropped > model::findings(base).dropped).then(|| "required items".into())
 }
 
 /// Requested sections keep the paper and scale the drawing has without them (the caller's
