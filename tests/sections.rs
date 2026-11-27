@@ -350,25 +350,21 @@ fn cuts_that_need_it_take_the_next_paper_at_the_same_scale() {
 #[test]
 fn a_cut_that_fits_no_paper_is_left_out_last_first_with_a_finding() {
     let (_, analysis) = native("scattered_holes");
-    // At 2:1 the largest paper holds two of the four cuts.
+    // At 2:1 the largest paper holds three of the four cuts.
     let p = requested_plan(&analysis, serde_json::json!({"scale": "2:1"}), &SCATTERED);
     assert_eq!(p.sheet.size, "A0");
     let labels: Vec<_> = cuts(&p)
         .iter()
         .map(|v| v.cut.as_ref().unwrap().label.clone())
         .collect();
-    assert_eq!(labels, ["A", "B"]);
+    assert_eq!(labels, ["A", "B", "C"]);
     let said = not_shown(&p);
-    assert_eq!(said.len(), 2, "{said:?}");
-    for (m, through) in said
-        .iter()
-        .zip(["C through f:hole:f10", "D through f:hole:f8"])
-    {
-        assert!(
-            m.contains(&format!("section {through}")) && m.contains("A0 at 2:1"),
-            "{m}"
-        );
-    }
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("section D through f:hole:f8") && said[0].contains("A0 at 2:1"),
+        "{}",
+        said[0]
+    );
     // The Spec keeps every request.
     assert_eq!(p.spec.views.sections.len(), 4);
 }
