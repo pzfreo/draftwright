@@ -3037,12 +3037,18 @@ fn select_with(
                     }
                 }
                 let offset = h.opening_offset();
-                let surface: [f64; 3] = std::array::from_fn(|k| h.at[k] - h.direction[k] * offset);
+                // A countersink machined from the far end is entered from its own face.
+                let (surface, direction) = h.far_seat().unwrap_or_else(|| {
+                    (
+                        std::array::from_fn(|k| h.at[k] - h.direction[k] * offset),
+                        h.direction,
+                    )
+                });
                 cells.push(entry_cell(
                     analysis,
                     view.direction,
                     surface,
-                    h.direction,
+                    direction,
                     plan.sheet.units,
                 ));
                 rows.push(HoleRow {

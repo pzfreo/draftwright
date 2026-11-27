@@ -6,6 +6,11 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- A hole table's entry cell names the face a far-end countersink is machined from. A ⌀6 through bore
+  drilled from a recess floor and countersunk from the bottom face read `10 / −Z`, the bore's recorded
+  opening; it now reads `0 / +Z`, the seat's face and direction, and lint requires the same. Seats at the
+  recorded opening, recesses at both ends, and plain holes read as before.
+
 - A stepped counterbore states every step's depth from the face, in the callout and the hole table,
   and lint requires the same: a ⌀6 through hole with a ⌀12 counterbore whose floor is 3 below a ⌀20
   step 2 deep reads `⌀6 THRU ⌴ ⌀12 ↧ 5 ⌴ ⌀20 ↧ 2`. Before, each step stated its own height (`↧ 3`

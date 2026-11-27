@@ -1577,7 +1577,9 @@ basis, placed, reference?, determined_by?}`:
   lint adds them the same way. The spotface lies at the mouth, so its depth is added to every step's; it keeps its own depth. A blind bore whose thread is accepted states its
   own length plus the mouth chamfer. Recess depths include their mouth chamfer (`⌴ ⌀5 ↧ 2.25` is
   2.0 deep under a 0.25 chamfer) and are claims lint checks, and the hole table matches the callout. Its entry includes
-  the mouth chamfer and, for an unthreaded blind bore, an opening countersink beyond the cylinder.
+  the mouth chamfer and, for an unthreaded blind bore, an opening countersink beyond the cylinder. A countersink cut from the end of a through bore opposite quiddity's recorded opening (its own
+  axis runs against the bore's) is entered from its own face: the entry cell gives that face and its drilling direction, in the
+  table and in lint. Recesses at both ends, or a seat axis that does not run along the bore, keep the bore's recorded opening.
   An authored depth attaches at the innermost counterbore floor, or the spotface floor when there
   is no counterbore, or otherwise at the recorded opening adjusted for its mouth chamfer. When it
   replaces the bore term, the planner and lint compare it with the bore length plus the mouth
