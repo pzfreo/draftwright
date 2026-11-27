@@ -120,6 +120,9 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
     ("grooves", &["Groove"]),
     ("annular_grooves", &["AnnularGroove"]),
     ("face_grooves", &["FaceGroove"]),
+    ("round_grooves", &["RoundGroove"]),
+    ("tapers", &["Taper"]),
+    ("v_grooves", &["VGroove"]),
     ("plates", &["Plate"]),
     ("turned_bodies", &["TurnedBody"]),
     ("round_bottom_blind_slots", &["RoundBottomBlindSlot"]),
@@ -157,6 +160,8 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
         "section_recesses",
         &["SectionRecess", "SectionRecessRefusal"],
     ),
+    ("fillet_chains", &["FilletChain"]),
+    ("fillet_groups", &["FilletGroup"]),
     (
         "section_recess_patterns",
         &["SectionRecessArray", "SectionRecessGrid"],
