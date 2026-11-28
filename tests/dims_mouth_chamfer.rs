@@ -1113,6 +1113,35 @@ fn a_far_countersink_row_names_the_seat_face() {
     assert!(wrong_rejected);
 }
 
+/// A threaded through hole with a countersink at its recorded opening is entered from the face
+/// it is machined from, like an unthreaded one: not the cone's bottom (27.5). Lint agrees.
+#[test]
+fn a_threaded_through_countersink_row_names_the_seat_face() {
+    let (part, a) = far_countersink();
+    let mut spec: Spec = serde_json::from_value(json!({
+        "hole_table": "always",
+        "sheet": {"size": "A3"},
+        "features": { "f:hole:f12": {"thread": {"designation": "M5"}} }
+    }))
+    .unwrap();
+    spec.binding = Some(a.binding.clone());
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let row = plan
+        .hole_tables
+        .iter()
+        .flat_map(|t| &t.rows)
+        .find(|r| r.feature == "f:hole:f12")
+        .unwrap();
+    assert!(row.cells[1].contains("M5"), "{:?}", row.cells);
+    assert_eq!(row.cells[4], "30 / −Z");
+    let drawing = model::render(&part, &a, &plan, &bundled_font()).unwrap();
+    assert!(
+        !draftwright::lint::lint(&a, &drawing)
+            .iter()
+            .any(|i| i.code == "hole_table_entry_invalid")
+    );
+}
+
 /// A counterbore cut from below: quiddity records its opening at the recess, so the schedule
 /// already names the recess face; it is unchanged, and lint still rejects the far end.
 #[test]
