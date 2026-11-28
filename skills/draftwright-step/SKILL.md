@@ -6,7 +6,7 @@ description: Produce drawings from any STEP file with the draftwright CLI or MCP
 # Drawings from STEP files with draftwright
 
 Covers **draftwright 0.6.1 and later** and **specify-pmi 0.3.0**. Everything below was run
-on draftwright 0.6.1 and specify-core 0.1.18 (renamed specify-pmi in 0.3.0; the old command name still works through 0.3.x).
+on those releases (specify-core was renamed specify-pmi in 0.3.0; the old command name still works through 0.3.x).
 Over MCP this file is the resource `draftwright://skill/draftwright-step`.
 
 ## Rules (always)
@@ -25,7 +25,7 @@ Over MCP this file is the resource `draftwright://skill/draftwright-step`.
    purpose doesn't need one, write `UNSPECIFIED`; if it does, ask.
 4. **Never override a dimension's value.** `text` may add a prefix or suffix, nothing else.
 5. **Specify defaults are written only when the person has seen and approved them.** Never use
-   `--accept-defaults` on your own.
+   `accept_suggestions` over all open ids on your own.
 6. **Incomplete is normal; silent is not.** Finish with a report: the purpose, assumptions and
    open items. (The Spec has no `purpose` field yet; state it in the report.)
 7. **Look at the sheet.** The problem list has blind spots.
@@ -38,7 +38,7 @@ Over MCP this file is the resource `draftwright://skill/draftwright-step`.
 | Requirements | the purpose needs tolerances, material, finish or GD&T (manufacture, inspection), and the person gives them | Specify writes PMI into a new STEP, then the loop on that file |
 
 PMI already in the STEP (from its CAD tool) is drawn on either route; do not restate it.
-Unattended (no one to answer Specify): never `specify-pmi write --accept-defaults`; stay on
+Unattended (no one to answer Specify): never accept every default (`accept_suggestions` over all open ids); stay on
 the geometry route with `UNSPECIFIED` and list the open questions in the report (rule 0).
 
 ## Setup and versions
@@ -205,32 +205,39 @@ size round in neither unit (11.993) is drawn as modelled: report it, never round
 ```sh
 specify-pmi analyse -o sa.json part.step
 specify-pmi questions sa.json --open > q.json
-specify-pmi questions sa.json --answers answers.json --open   # repeat until it prints []
-specify-pmi write -o part-pmi.step part.step sa.json answers.json > w.json
+specify-pmi write --check part.step edits.json                  # validate, write nothing
+specify-pmi write -o part-pmi.step part.step edits.json > w.json
+specify-pmi analyse -o sa2.json part-pmi.step && specify-pmi questions sa2.json --open   # what is still open
 draftwright render part-pmi.step -o out/part --formats svg,pdf,png
 ```
 
 Each question has `id`, `prompt`, `options` or `suggestions`, `default`, `faces` (the faces it
 concerns) and `attention`: `required` (must be answered), `check` (a default Specify doubts:
-ask), `routine` or `refine`. `answers.json` is `{question id: value}`; with values the
-person gave, e.g. `{"part.material": "Aluminium 6082-T6", "part.general_tolerance":
-"ISO 2768-m", "hole.function:holes:12": "tapped:M5", "datum.B": [], "part.notes": []}`.
+ask), `routine` or `refine`. `edits.json` is an edit list, e.g. `{"fill": {"part.material":
+"Aluminium 6082-T6", "part.general_tolerance": "ISO 2768-m", "hole.function:holes:12":
+"tapped:M5", "datum.B": []}, "none": ["part.coating"], "accept_suggestions": ["length:planes:0-5"]}`:
+`fill` gives a value, `none` records that nothing is needed, `accept_suggestions` takes the
+question's default by id, `clear` reopens a stored decision, `change` and `items.remove` edit
+existing PMI (see specify-pmi's `docs/answers.md`). A plain `{question id: value}` map is still
+accepted in place of an edit list.
 
-- On 0.1.18 `write` refuses (exit 2, "incomplete") until **every** question is answered, and
-  general tolerance and finish have no "unspecified" answer. So this route needs the person's
-  material, tolerance and finish; without them, stay on the geometry route and list the
-  open questions.
+- On 0.3.0 `write` is partial: it writes what the list states and its report lists the rest
+  under `missing`; nothing is refused for being incomplete, and the file is the only copy of
+  the answers (reopen it with `analyse`). A file with material but no tolerance or finish is
+  therefore possible, so a manufacturing drawing needs the person's material, tolerance and
+  finish; without them, stay on the geometry route and list the open questions.
 - Answers that state nothing extra: `"none"` for position/flatness/control choices, `[]` for a
   datum or `part.notes`, `"general"` for a hole's function, `"No edge note"` for edges.
-- `--accept-defaults` writes every remaining default (Ra 3.2, ISO 2768-m, coating, datums,
-  positions) as PMI. Use it only after showing the person that full list and getting a yes.
-- Report `w.json` `not_written`. Check that each written requirement appears on the sheet.
+- `accept_suggestions` with every open id writes every default (Ra 3.2, ISO 2768-m, coating,
+  datums, positions) as PMI. Use it only after showing the person that full list and getting
+  a yes.
+- Report `w.json` `not_written` and `missing`. Check that each written requirement appears on the sheet.
 
 ## When the model changes
 
 ```sh
 draftwright diff old.step new.step --spec spec.json -o changes   # carries the Spec, draws, report.md
-specify-pmi diff -o pmi-changes --answers answers.json old.step new.step
+specify-pmi diff -o pmi-changes old.step new.step   # reads the two files' PMI; no answers
 ```
 
 Read the `verdict` (`ok`, `decide`, `problems`) and every item that needs a decision.
@@ -248,7 +255,7 @@ draftwright pack asm.step -o pack                  # GA + parts list + a sheet p
 part or `pack` for the set. The engine keeps the model's orientation and never rotates a part.
 A pack's Spec is its own: address the GA as `--set ga/drawing/sheet/size=A3`.
 A pack is clean when `pack/pack.json` findings and each row's `problems`/`error` are clear.
-Bought parts are listed, not drawn. `specify-pmi write` takes one `analysis answers` pair per part.
+Bought parts are listed, not drawn. `specify-pmi parts asm.step` lists the parts; `specify-pmi write asm.step edits.json --part N -o out.step` writes one part (apply another list to the output for the next part; BOM fields are `bom.*` ids).
 
 ## MCP servers
 
