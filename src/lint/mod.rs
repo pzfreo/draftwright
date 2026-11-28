@@ -350,6 +350,28 @@ fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
         .collect()
 }
 
+/// Whether a default radius note printing *text* states radius *r*: it rounds to the text, and
+/// no other radius of the part that rounds to it too lies nearer the printed value. Distinct
+/// radii that print alike (R0.17, R0.2) need a statement of their own.
+fn default_states(analysis: &Analysis, text: &str, r: f64, units: crate::output::Units) -> bool {
+    if !holes::states_in(text, r, units) {
+        return false;
+    }
+    let Ok(printed) = text.parse::<f64>() else {
+        return true;
+    };
+    !analysis
+        .features
+        .iter()
+        .filter(|f| {
+            matches!(f.kind.as_str(), "blend" | "fillet") && !blends::is_relief(analysis, f)
+        })
+        .filter_map(|f| f.parameters.get("radius")?.as_f64())
+        .any(|o| {
+            holes::states_in(text, o, units) && (o - printed).abs() + 1e-6 < (r - printed).abs()
+        })
+}
+
 /// Every ported rule's findings on *drawing*, a drawing of the part *analysis* describes.
 /// Lint reads no spec (ADR1-9): when the drawing's spec authors datums or controls, the caller
 /// passes the Analysis with them merged into its PMI reading ([`crate::spec_gdt::effective`]), as
@@ -466,7 +488,7 @@ fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
                             .get("radius")
                             .and_then(|v| v.as_f64())
                             .is_some_and(|r| {
-                                holes::states_in(radius, r, drawing.sheet.units)
+                                default_states(analysis, radius, r, drawing.sheet.units)
                                     || marks.iter().any(|m| {
                                         m.view.is_some()
                                             && m.states_text(&m.text, r)
@@ -495,7 +517,9 @@ fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
                         && f.parameters
                             .get("radius")
                             .and_then(|v| v.as_f64())
-                            .is_some_and(|r| holes::states_in(&radius, r, drawing.sheet.units))
+                            .is_some_and(|r| {
+                                default_states(analysis, &radius, r, drawing.sheet.units)
+                            })
                 })
             })
         })
