@@ -35,10 +35,10 @@ clap = { version = "4.6.1", features = ["derive"], optional = true }
 clap_complete = { version = "4.6", optional = true }
 dxf = { version = "0.6.2", features = ["serialize"] }
 flate2 = "1.1.10"
-haecceity = { version = "=0.6.0", features = ["json-import"] }
+haecceity = { git = "https://github.com/pzfreo/quiddity", branch = "release/0.7.0", features = ["json-import"] }
 pdf-writer = "0.15"
 png = "0.18.1"
-quiddity = { version = "=0.6.0", default-features = false, features = ["presentation"] }
+quiddity = { git = "https://github.com/pzfreo/quiddity", branch = "release/0.7.0", default-features = false, features = ["presentation"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["float_roundtrip", "raw_value"] }
 sha2 = "0.11.0"

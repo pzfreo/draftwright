@@ -499,8 +499,7 @@ dependencies = [
 [[package]]
 name = "haecceity"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60c1fcb9c2fd6aa5a09c4505923008d53d11a92f0a034e57a563a6297ab51c26"
+source = "git+https://github.com/pzfreo/quiddity?branch=release%2F0.7.0#300e929d908d6c7a3aeb50da89ff0616afc36e3f"
 dependencies = [
  "flate2",
  "i_overlay",
@@ -962,8 +961,7 @@ dependencies = [
 [[package]]
 name = "quiddity"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a307362c5f727dfe0b397c35b30b869de009a5913e457f3e2aa0568a87592dfa"
+source = "git+https://github.com/pzfreo/quiddity?branch=release%2F0.7.0#300e929d908d6c7a3aeb50da89ff0616afc36e3f"
 dependencies = [
  "flate2",
  "haecceity",
