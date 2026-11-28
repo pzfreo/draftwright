@@ -31,6 +31,64 @@ pub const DEFAULT_FORMATS: [&str; 2] = ["svg", "pdf"];
 /// The PNG's resolution when none is given, pixels per inch (draftwright's).
 pub use crate::png::DPI;
 
+// What the adapters, the WASM and Python crates and the MCP server use. Everything else in the
+// crate is private; tests reach it through `crate::__testing`.
+pub use crate::model::{
+    Analysis, FilePart, Plan, Problem, Spec, analyse_native_bytes, analyse_native_bytes_part,
+    read_step_file, step_bytes,
+};
+pub use crate::output::Drawing;
+pub use crate::process::Process;
+pub use crate::session::{ItemAnswer, ItemFilter, ProblemFilter, Session, SetAside};
+pub use crate::text::Font;
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::mcp::validate;
+
+/// The Spec edit operations and the keys of the items they address.
+pub mod items {
+    pub use crate::items::{Op, key};
+}
+
+/// Which drawing a fix may change.
+pub mod fixes {
+    pub use crate::fixes::Scope;
+}
+
+/// Assembly packs.
+pub mod pack {
+    pub use crate::pack::{Pack, PackSpec, ProductPmi, build_bytes, build_bytes_with_pmi, part_keys};
+}
+
+/// The part's PMI as the drawing reads it.
+pub mod pmi {
+    pub use crate::pmi::{Reading, Report, from_model, report};
+}
+
+/// The Spec's saved-id migration record.
+pub mod stable_ids {
+    pub use crate::stable_ids::Migrated;
+}
+
+/// Spec gdt: the sides of a box a requirement can name.
+pub mod spec_gdt {
+    pub use crate::spec_gdt::SIDES;
+}
+
+/// The title block's font file.
+pub mod title_block {
+    pub use crate::title_block::{FONT, FONT_DATA};
+}
+
+/// Thread designation parsing.
+pub mod thread_designation {
+    pub use crate::thread_designation::metric;
+}
+
+/// The geometry kernel's types that Python and the browser build hold.
+pub mod haecceity {
+    pub use ::haecceity::{Part, geom, p21, pmi, read_step, step};
+}
+
 /// Rendered files: each suffix (`svg`, `sheet2.svg`, `pdf`, etc.) and its bytes.
 pub type Files = Vec<(String, Vec<u8>)>;
 
