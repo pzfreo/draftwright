@@ -6,6 +6,11 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Follows the rename of specify-core to specify-pmi (0.3.0): the MCP guidance, the `draftwright-step`
+  skill, the README and the pin check name `specify-pmi` and its repository. Reading is unchanged:
+  specify-pmi 0.3.0 still writes the `specify-core:written:v1` authorship token, which draftwright
+  keeps recognising.
+
 - Built on quiddity and haecceity 0.6.0 (step-io 0.4.0, a new mesher). Recognition changes follow
   quiddity's: small edge rounds (about R0.2–0.55) are now fillets, not blends, so their IDs change
   (a saved Spec naming the old blend gets `dimension_edit_unapplied` naming it); a few faces

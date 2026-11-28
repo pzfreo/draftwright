@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-SIBLING = "pzfreo/specify-core-rust"
+SIBLING = "pzfreo/specify-pmi"
 
 
 def warning(message):

@@ -243,7 +243,7 @@ stock CLI with no hand edits.
 
 - [quiddity](https://github.com/pzfreo/quiddity): feature recognition from STEP B-rep, built on
   the haecceity geometry kernel that draftwright uses.
-- [Specify](https://github.com/pzfreo/specify-core): writes tolerances, fits, GD&T and BOM data
+- [Specify](https://github.com/pzfreo/specify-pmi): writes tolerances, fits, GD&T and BOM data
   into STEP as AP242 PMI; available at [draftwright.io/specify](https://draftwright.io/specify).
 - [dw-examples](https://github.com/pzfreo/dw-examples): the public example drawings.
 - [draftwright-python](https://github.com/pzfreo/draftwright-python): the earlier Python

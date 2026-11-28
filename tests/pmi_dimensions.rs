@@ -3248,7 +3248,7 @@ fn enclosure_axis_point_step(shift: f64) -> Vec<u8> {
                 leaves: vec![(
                     "CARTESIAN_POINT".into(),
                     vec![
-                        hp::GeometryValue::Text("specify-core:depth axis point".into()),
+                        hp::GeometryValue::Text("specify-pmi:depth axis point".into()),
                         hp::GeometryValue::List(
                             at.into_iter()
                                 .map(|v| hp::GeometryValue::Real(decimal(v)))
@@ -3334,7 +3334,7 @@ fn enclosure_axis_point_step(shift: f64) -> Vec<u8> {
             let RawEntity::Simple { attributes, .. } = &mut named else {
                 unreachable!()
             };
-            // Mirror current specify-core writer.rs::name_depth_points, which names
+            // Mirror current specify-pmi writer.rs::name_depth_points, which names
             // these newly written derived aspects "axis point".
             attributes[0] = Attribute::String("axis point".into());
             edit.replace(id, named);
